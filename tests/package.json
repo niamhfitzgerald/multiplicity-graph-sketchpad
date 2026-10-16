@@ -1,0 +1,16 @@
+{
+  "name": "multiplicity-graph-sketchpad-tests",
+  "version": "1.1.1",
+  "private": true,
+  "description": "Self-tests, engine stress test and browser test for the Multiplicity Graph Sketchpad.",
+  "scripts": {
+    "selftest": "node runtests.js ../src/core.js",
+    "stress": "node stress.js ../src/core.js",
+    "browser": "node browser-stress.js ../index.html",
+    "test": "node runtests.js ../src/core.js && node stress.js ../src/core.js && node browser-stress.js ../index.html"
+  },
+  "devDependencies": {
+    "playwright": "1.47.2"
+  },
+  "license": "MIT"
+}

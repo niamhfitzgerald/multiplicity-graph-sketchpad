@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Multiplicity Graph Sketchpad"
+abstract: "A single-page browser tool for drawing, testing and documenting graphical multiple comparison procedures, with weighted Bonferroni, Simes and parametric closed tests."
+type: software
+authors:
+  - family-names: Fitzgerald
+    given-names: Niamh
+    affiliation: "Newcastle University"
+version: 1.1.1
+date-released: 2026-10-16
+license: MIT
+repository-code: "https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad"
+url: "https://niamhfitzgerald.github.io/multiplicity-graph-sketchpad/"
+keywords:
+  - multiple testing
+  - graphical approach
+  - clinical trials
+  - familywise error rate
