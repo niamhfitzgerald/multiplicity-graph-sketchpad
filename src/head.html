@@ -57,7 +57,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .brand .sub { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .brand svg { flex: none; }
 .brand .titles { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
-.brand .byline { font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; }
+.brand .byline { font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; text-decoration: none; }
+.brand a.byline:hover, .brand a.byline:focus-visible { text-decoration: underline; }
+a.ext { color: var(--accent); text-decoration: underline; }
 .group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .btn { min-height: 36px; padding: 0 12px; border: 1px solid var(--line-strong); background: var(--surface); border-radius: 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .btn:hover:not(:disabled) { background: var(--surface-2); }
@@ -224,6 +226,8 @@ table.mx td.sum { padding: 0 6px; white-space: nowrap; font-size: 13px; }
 .code { font-family: var(--f-mono); font-size: 12.5px; line-height: 1.5; background: var(--canvas); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 0; overflow: auto; max-height: 340px; white-space: pre; }
 .preview-img { max-width: 100%; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
 .err-text { color: var(--err); font-size: 14px; }
+.warn-line { display: flex; gap: 8px; align-items: flex-start; color: var(--warn); font-size: 14px; line-height: 1.45; margin: 8px 0; }
+.warn-line .ic { flex: none; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; background: var(--warn-soft); color: var(--warn); border: 1.5px solid var(--warn); border-radius: 4px; margin-top: 1px; }
 .ok-text { color: var(--ok); font-size: 14px; }
 
 footer { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; color: var(--muted); font-size: 13px; padding-bottom: 2px; }
@@ -354,6 +358,10 @@ table.t td:first-child { white-space: nowrap; }
   .panel { max-height: none; }
   .brand .sub { display: none; }
 }
+/* iPhone Safari zooms the page in when a text box smaller than 16px gets focus; touch screens get 16px boxes */
+@media (pointer: coarse) {
+  input, select, textarea, textarea.txt { font-size: 16px; }
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -363,7 +371,7 @@ table.t td:first-child { white-space: nowrap; }
   <header class="topbar">
     <div class="brand">
       <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><circle cx="8" cy="9" r="5.5" fill="none" stroke="var(--accent)" stroke-width="2"/><circle cx="22" cy="21" r="5.5" fill="none" stroke="var(--accent)" stroke-width="2"/><path d="M12.5 12.5 L17.6 17.6" stroke="var(--ink)" stroke-width="1.8"/><path d="M17.9 14.6 L18.4 18.4 L14.6 17.9" fill="none" stroke="var(--ink)" stroke-width="1.8"/></svg>
-      <div class="titles"><h1>Multiplicity Graph Sketchpad</h1><span class="byline">by Niamh Fitzgerald</span></div>
+      <div class="titles"><h1>Multiplicity Graph Sketchpad</h1><a class="byline" href="https://www.linkedin.com/in/niamh-fitzgerald-59481422a" target="_blank" rel="noopener" title="Niamh Fitzgerald on LinkedIn (opens in a new tab)">by Niamh Fitzgerald</a></div>
       <span class="sub">Graphical approach of Bretz et al. (2009)</span>
     </div>
     <div class="seg" role="group" aria-label="Mode">

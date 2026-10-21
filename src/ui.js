@@ -907,21 +907,28 @@ function closedSection(inTest) {
   }
   return '';
 }
+/* Warnings for closed tests (Simes, Simes within groups, parametric), shown above the p-value table. */
+function closedWarnings() {
+  const out = [];
+  if (G.nodes.length > 1 && isAlphaExhaustive(G) === false) out.push(`This graph is not &alpha;-exhaustive. With a closed test, a hypothesis can then be rejected even when the hypotheses that pass &alpha; to it are not. The order of testing that the graph shows is not guaranteed.${G.test.upscale ? ' Upscaling the weights also changes the procedure from the one the graph shows.' : ''}`);
+  if (G.sided === 'two' && testType() !== 'parametric') out.push('Two-sided p-values: the closed test controls the two-sided error rate, but not a one-sided rate of &alpha;/2 for claims of benefit. For claims of benefit, set the p-values to one-sided in the toolbar and halve &alpha;.');
+  return out.map(t => `<p class="warn-line" data-warn="closed"><span class="ic" aria-hidden="true">!</span><span><b>Warning:</b> ${t}</span></p>`).join('');
+}
 function testTypeSection() {
   const t = G.test, type = t.type;
   const groups = [...new Set(G.nodes.map(n => n.group).filter(Boolean))];
   let body = `<label for="testType" class="small"><b>Test for each intersection hypothesis</b><select class="sel" id="testType" style="max-width:none">${Object.entries(TEST_TYPES).map(([k, v]) => `<option value="${k}" ${type === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>`;
   if (type === 'bonferroni') body += '<p class="small muted">Weighted Bonferroni tests: the graph can be run step by step (the shortcut of Bretz et al., 2009). No assumption about the correlation between the tests; the p-values only need to be valid (one-sided or two-sided).</p>';
-  else if (type === 'simes') body += '<p class="small muted">Weighted Simes test for every intersection (Bretz et al., 2011, section 3.3). Never less powerful than Bonferroni, but it controls the error rate only if the test statistics are positively regression dependent, for example one-sided tests with multivariate normal statistics and non-negative correlations (Sarkar, 1998); under negative dependence it can exceed the level (Samuel-Cahn, 1996; Brannath et al., 2009). Run as a closed test, since the closed Simes test is not consonant for more than two hypotheses (Hommel et al., 2007), so there is no step-by-step view.</p>';
+  else if (type === 'simes') body += '<p class="small muted">Weighted Simes test for every intersection (Bretz et al., 2011, section 3.3). Never less powerful than Bonferroni, but it controls the error rate only if the test statistics are positively regression dependent (PRDS), for example one-sided tests with multivariate normal statistics and non-negative correlations (Bretz et al., 2011, section 3.3; Benjamini and Heller, 2007); under negative dependence it can exceed the level (Samuel-Cahn, 1996; Brannath et al., 2009). Run as a closed test, since the closed Simes test is not consonant for more than two hypotheses (Hommel et al., 2007), so there is no step-by-step view.</p>';
   else if (type === 'simes-groups') body += `<p class="small muted">Weighted Simes test when every hypothesis of an intersection belongs to the same group, plain weighted Bonferroni otherwise (gMCP's <code>simes.on.subsets.test</code>). This is weaker than Simes within each group with Bonferroni between groups (Bretz et al., 2011, eq. 8), which graphicalMCP uses; the Simes condition then only has to hold within a group. ${groups.length ? `Groups: ${groups.map(esc).join(', ')}.` : 'No groups are set: give each hypothesis a group in its panel.'}</p>`;
   else {
     const prob = corrProblem();
-    body += `<p class="small muted">Weighted parametric test (Xi et al., 2017; Bretz et al., 2011, section 3.2): within each block of hypotheses with known correlations the test uses the multivariate normal distribution of the one-sided test statistics, and blocks are combined by Bonferroni. It assumes that Φ⁻¹(1 − p) is multivariate normal under the null with the correlations entered here, so the p-values must be one-sided. Leave a pair blank when its correlation is unknown; known pairs must form complete blocks.</p>
+    body += `<p class="small muted">Weighted parametric test (Xi et al., 2017, section 4.3, eq. 6): within each block of hypotheses with known correlations the test uses the multivariate normal distribution of the one-sided test statistics, with a separate constant for each block, and blocks are combined by Bonferroni. gMCP uses one common constant for all blocks instead (Bretz et al., 2011, eq. 3), so its results can differ slightly. It assumes that Φ⁻¹(1 − p) is multivariate normal under the null with the correlations entered here, so the p-values must be one-sided. Leave a pair blank when its correlation is unknown; known pairs must form complete blocks.</p>
       ${prob ? `<p class="${/same as Bonferroni/.test(prob) ? 'small muted' : 'err-text'}">${/same as Bonferroni/.test(prob) ? '' : '✕ '}${esc(prob)}</p>` : ''}
       <div class="mx-scroll"><table class="mx"><thead><tr><th></th>${G.nodes.map(n => `<th scope="col">${esc(n.label)}</th>`).join('')}</tr></thead><tbody>${G.nodes.map((a, i) => `<tr><th scope="row">${esc(a.label)}</th>${G.nodes.map((b, j) => j <= i ? `<td style="text-align:center;color:var(--muted)">${j === i ? '1' : ''}</td>` : `<td><input id="tc-${a.id}-${b.id}" data-tcorr="${a.id < b.id ? a.id + '|' + b.id : b.id + '|' + a.id}" value="${testCorrAt(i, j) == null ? '' : esc(String(testCorrAt(i, j)))}" placeholder="?" aria-label="Correlation between ${esc(a.label)} and ${esc(b.label)}"></td>`).join('')}</tr>`).join('')}</tbody></table></div>
       <div class="row-actions" style="align-items:center"><label class="small" for="tcFill">Fill every pair with</label><input class="txt" id="tcFill" value="0.5" style="width:5em"><button class="btn small" data-action="tc-fill">Fill</button><button class="btn small" data-action="tc-clear">Clear all</button>${G.nodes.length > 1 ? '<button class="btn small" data-action="tc-from-sim">Copy from the power simulation</button>' : ''}</div>`;
   }
-  body += `<label class="chk small" style="align-items:flex-start"><input type="checkbox" id="upscaleToggle" ${t.upscale ? 'checked' : ''}> <span>Upscale weights: test each intersection at the full &alpha; even when its weights sum to less than 1 (gMCP's upscale = TRUE; for the parametric test this is equation 3 of Bretz et al., 2011). Off, each intersection is tested at &alpha; times the sum of its weights (gMCP's default; Xi et al., 2017). Applies to the closed tests, not to the step-by-step Bonferroni graph.</span></label>`;
+  body += `<label class="chk small" style="align-items:flex-start"><input type="checkbox" id="upscaleToggle" ${t.upscale ? 'checked' : ''}> <span>Upscale weights: test each intersection at the full &alpha; even when its weights sum to less than 1 (gMCP's upscale = TRUE; for the parametric test, Xi et al., 2017, section 4.2). Off, each intersection is tested at &alpha; times the sum of its weights (gMCP's default, and what Xi et al., 2017, recommend). On a graph that is not alpha-exhaustive, upscaling changes the procedure and can undo its gatekeeping. Applies to the closed tests, not to the step-by-step Bonferroni graph.</span></label>`;
   return det('det-testtype', 'Test type', body, TEST_TYPES[type] + (t.upscale ? ', upscaled' : ''));
 }
 function orderSection() {
@@ -1031,6 +1038,7 @@ function renderTestPanel() {
     if (plain) h += plainSection();
     if (!inTest) h += `<p class="small muted">Enter a p-value for each hypothesis, then run the test at &alpha; = ${fmtNum(G.alpha)}${isBonf() ? ', or step through it yourself' : ''}.</p>`;
     if (!isBonf() && !advanced) h += `<p class="small muted">Test: ${TEST_TYPES[testType()]} (change it under advanced features).</p>`;
+    if (!isBonf() && !(inTest && manual)) h += closedWarnings();
     if (errs) h += '<div class="blocked" role="alert">✕ Fix the errors shown under the canvas before testing.</div>';
     const busy = animating || (inTest && T.running);
     if (inTest && T.closed) {
@@ -1446,14 +1454,15 @@ async function showExport(kind) {
     out.innerHTML = codeBlock('Beamer frame, one overlay per rejection', `${frames.length} overlay${frames.length === 1 ? '' : 's'}: the initial graph${frames.length > 1 ? ` and ${frames.length - 1} rejection${frames.length > 2 ? 's' : ''}` : ''}. ${mode === 'test' && T && T.closed ? 'A closed test has no rejection order, so the second overlay shows the final result.' : mode === 'test' && T && T.step ? 'Follows the steps you have taken in Test mode.' : 'Follows the automatic run of the Bonferroni graph on the entered p-values.'} Works with the Metropolis theme; add the \\usetikzlibrary line to the preamble.`, exportPayload, 'multiplicity-graph-steps.tex', 'text/x-tex');
   } else if (kind === 'sap') {
     const sap = sapText(G);
-    const textAll = sap.paragraphs.join('\n\n') + '\n\n' + sap.tables.map(tableToTSV).join('\n\n');
+    const textAll = sapPlainText(sap) + '\n\n' + sap.tables.map(tableToTSV).join('\n\n') + '\n\n' + sapRefsText(sap);
     exportPayload = textAll;
-    sapHTML = sap.paragraphs.map(t => `<p>${esc(t)}</p>`).join('') + sap.tables.map(tableToHTML).join('');
+    sapHTML = sapParasHTML(sap) + sap.tables.map(tableToHTML).join('') + sapRefsHTML(sap);
     out.innerHTML = `<h3>Multiplicity strategy for a SAP or protocol</h3>
-      <p class="small muted">Describes the initial graph with the test type${G.test && G.test.type !== 'bonferroni' ? ' (closed test)' : ''} and the ${G.sided === 'two' ? 'two' : 'one'}-sided &alpha; set in the toolbar. Edit the wording to suit the document; the descriptions and groups in each hypothesis's panel feed into it. Check the stated assumptions against the trial's test statistics before using it.</p>
-      <div class="sap" id="sapText">${sap.paragraphs.map(t => `<p>${esc(t)}</p>`).join('')}</div>
+      <p class="small muted">Describes the initial graph with the test type${G.test && G.test.type !== 'bonferroni' ? ' (closed test)' : ''} and the ${G.sided === 'two' ? 'two' : 'one'}-sided &alpha; set in the toolbar. Edit the wording to suit the document; the descriptions and groups in each hypothesis's panel feed into it. Check the stated assumptions against the trial's test statistics before using it. Fill in the [square-bracket placeholders], and number the tables and figure to match your document; Figure [X] is the graph, which you can export as PNG or SVG from this tab.${G.sided === 'two' && G.test && G.test.type !== 'bonferroni' ? ' <b>Two-sided p-values with a closed test:</b> this controls the two-sided error rate, but not a one-sided rate of &alpha;/2 for claims of benefit, since an effect in the harmful direction can help other hypotheses to be rejected. For directional claims, set the toolbar to one-sided p-values and halve &alpha;.' : ''}</p>
+      <div class="sap" id="sapText">${sapParasHTML(sap)}</div>
       <div class="row-actions"><button class="btn primary" data-action="copy-sap-text">Copy text</button></div>
       ${sap.tables.map((t, i) => `<div class="mx-scroll sap-table" id="sapTable${i}"><p class="small"><b>${esc(t.title)}</b></p><table class="t"><thead><tr>${t.header.map(h => `<th scope="col">${esc(h)}</th>`).join('')}</tr></thead><tbody>${t.rows.map(r => `<tr>${r.map((c, k) => k === 0 ? `<th scope="row">${esc(c)}</th>` : `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`).join('')}
+      <div class="sap" id="sapRefs">${sapRefsHTML(sap)}</div>
       <div class="row-actions"><button class="btn" data-action="copy-sap-tables">Copy tables</button><button class="btn" data-action="copy-sap-all">Copy everything</button></div>
       <p class="small muted">Copied tables paste into Word as real tables, and into Excel or a text editor as tab-separated text.</p>`;
   } else if (kind === 'load') {
@@ -2044,7 +2053,10 @@ svg.addEventListener('pointercancel', e => endDrag(e, true));
 svg.addEventListener('wheel', e => {
   e.preventDefault();
   const p = toWorld(e);
-  const k2 = Math.max(0.25, Math.min(3, view.k * Math.exp(-e.deltaY * 0.0015)));
+  /* Firefox reports a mouse-wheel notch in lines (deltaMode 1, about 3 per notch) or pages (2), not pixels;
+     convert so a notch zooms about as much as in Chrome and Safari (about 100 pixels per notch) */
+  const dy = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? (svg.clientHeight || 800) : 1);
+  const k2 = Math.max(0.25, Math.min(3, view.k * Math.exp(-dy * 0.0015)));
   view.cx = p.x - (p.x - view.cx) * view.k / k2;
   view.cy = p.y - (p.y - view.cy) * view.k / k2;
   view.k = k2;
@@ -2304,7 +2316,7 @@ $('tab-export').addEventListener('click', e => {
   const act = b.dataset.action;
   if (act === 'go-advanced') setAdvanced(true);
   else if (act === 'copy') copyText(exportPayload, b);
-  else if (act === 'copy-sap-text') copyRich(sapText(G).paragraphs.join('\n\n'), sapText(G).paragraphs.map(t => `<p>${esc(t)}</p>`).join(''), b, 'sapText');
+  else if (act === 'copy-sap-text') { const sp = sapText(G); copyRich(sapPlainText(sp) + '\n\n' + sapRefsText(sp), sapParasHTML(sp) + sapRefsHTML(sp), b, 'sapText'); }
   else if (act === 'copy-sap-tables') copyRich(sapText(G).tables.map(tableToTSV).join('\n\n'), sapText(G).tables.map(tableToHTML).join(''), b, 'sapTable0');
   else if (act === 'copy-sap-all') copyRich(exportPayload, sapHTML, b, 'sapText');
   else if (act === 'download') download(b.dataset.file, b.dataset.mime, exportPayload, b);
@@ -2428,7 +2440,7 @@ $('helpBtn').addEventListener('click', () => openModal('Help and shortcuts', `
   <p><b>What the guarantee rests on</b></p>
   <ul class="tips">
     <li><b>Bonferroni graph:</b> strong control of the familywise error rate at &alpha; for any dependence between the tests (Bretz et al., 2009). The p-values must be valid; say in the toolbar whether they are one-sided or two-sided.</li>
-    <li><b>Weighted Simes:</b> needs positively regression dependent test statistics, for example one-sided multivariate normal statistics with non-negative correlations (Bretz et al., 2011; Sarkar, 1998); negative dependence can inflate the level.</li>
+    <li><b>Weighted Simes:</b> needs positively regression dependent (PRDS) test statistics, for example one-sided multivariate normal statistics with non-negative correlations (Bretz et al., 2011, section 3.3; Benjamini and Heller, 2007); negative dependence can inflate the level (Samuel-Cahn, 1996).</li>
     <li><b>Parametric:</b> needs one-sided p-values whose statistics are multivariate normal with the correlations you enter (Xi et al., 2017; gMCP manual).</li>
     <li><b>Weights that sum to less than 1</b> are valid but waste alpha (Hommel et al., 2007); <b>&epsilon;</b> is evaluated as 1/1000 rather than symbolically.</li>
   </ul>
@@ -2443,12 +2455,12 @@ $('selftestBtn').addEventListener('click', () => { closeMenu(); showSelfTest(); 
 /* ---------- About, references and licence ---------- */
 const REFERENCES = [
   ['Bretz2009', 'Bretz F, Maurer W, Brannath W, Posch M (2009). A graphical approach to sequentially rejective multiple test procedures. Statistics in Medicine 28(4):586–604. doi:10.1002/sim.3495', 'The graphical approach: weights, transition matrix, the update algorithm and adjusted p-values. Everything in Design and the Bonferroni test.'],
-  ['Bretz2011', 'Bretz F, Posch M, Glimm E, Klinglmüller F, Maurer W, Rohmeyer K (2011). Graphical approaches for multiple comparison procedures using weighted Bonferroni, Simes, or parametric tests. Biometrical Journal 53(6):894–913. doi:10.1002/bimj.201000239', 'Graph as the weighting strategy of a closed test; weighted Simes and parametric intersection tests; Simes within groups (eq. 8).'],
+  ['Bretz2011', 'Bretz F, Posch M, Glimm E, Klinglmüller F, Maurer W, Rohmeyer K (2011). Graphical approaches for multiple comparison procedures using weighted Bonferroni, Simes, or parametric tests. Biometrical Journal 53(6):894–913. doi:10.1002/bimj.201000239', 'Graph as the weighting strategy of a closed test; weighted Simes and parametric intersection tests; the free combination condition (p. 895). Its Bonferroni mixture of Simes tests (eq. 8) is what graphicalMCP uses; the Simes within groups option here follows gMCP instead.'],
   ['Xi2017', 'Xi D, Glimm E, Maurer W, Bretz F (2017). A unified framework for weighted parametric multiple test procedures. Biometrical Journal 59(5):918–931. doi:10.1002/bimj.201600233', 'The parametric test used here: adjusted p-values within blocks of known correlation, Bonferroni between blocks.'],
   ['BMH2011', 'Bretz F, Maurer W, Hommel G (2011). Test and power considerations for multiple endpoint analyses using sequentially rejective graphical procedures. Statistics in Medicine 30(13):1489–1501. doi:10.1002/sim.3988', 'Worked trial example (three doses, two endpoints template) and power measures.'],
   ['Maurer2011', 'Maurer W, Glimm E, Bretz F (2011). Multiple and repeated testing of primary, coprimary, and secondary hypotheses. Statistics in Biopharmaceutical Research 3(2):336–352. doi:10.1198/sbr.2010.10010', 'Successive procedures (the two doses, two endpoints and successive templates).'],
   ['Hommel2007', 'Hommel G, Bretz F, Maurer W (2007). Powerful short-cuts for multiple testing procedures with special reference to gatekeeping strategies. Statistics in Medicine 26(22):4063–4073. doi:10.1002/sim.2873', 'Why the step-by-step procedure equals the full closed test; improved parallel gatekeeping.'],
-  ['Hommel2008', 'Hommel G, Bretz F (2008). Aesthetics and power considerations in multiple testing: a contradiction? Biometrical Journal 50(5):657–666. doi:10.1002/bimj.200710463', 'Improved fallback II (ε edge).'],
+  ['Hommel2008', 'Hommel G, Bretz F (2008). Aesthetics and power considerations in multiple testing: a contradiction? Biometrical Journal 50(5):657–666. doi:10.1002/bimj.200710463', 'Shows the weakness of the fallback procedure that the improved fallback graphs address; the improved fallback II graph itself is Bretz et al. (2009), Fig. 11.'],
   ['Wiens2003', 'Wiens BL (2003). A fixed sequence Bonferroni procedure for testing multiple endpoints. Pharmaceutical Statistics 2(3):211–215. doi:10.1002/pst.64', 'The fallback procedure.'],
   ['Wiens2005', 'Wiens BL, Dmitrienko A (2005). The fallback procedure for evaluating a single family of hypotheses. Journal of Biopharmaceutical Statistics 15(6):929–942.', 'Improved fallback I.'],
   ['Westfall2001', 'Westfall PH, Krishen A (2001). Optimally weighted, fixed sequence, and gatekeeping multiple testing procedures. Journal of Statistical Planning and Inference 99(1):25–40.', 'Fixed-sequence testing.'],
@@ -2457,16 +2469,28 @@ const REFERENCES = [
   ['Holm1979', 'Holm S (1979). A simple sequentially rejective multiple test procedure. Scandinavian Journal of Statistics 6(2):65–70.', 'Bonferroni-Holm.'],
   ['Marcus1976', 'Marcus R, Peritz E, Gabriel KR (1976). On closed testing procedures with special reference to ordered analysis of variance. Biometrika 63(3):655–660.', 'The closure principle.'],
   ['Simes1986', 'Simes RJ (1986). An improved Bonferroni procedure for multiple tests of significance. Biometrika 73(3):751–754.', 'The Simes test.'],
-  ['Sarkar1998', 'Sarkar SK (1998). Some probability inequalities for ordered MTP2 random variables: a proof of the Simes conjecture. Annals of Statistics 26(2):494–504.', 'When the Simes test is valid (positive dependence).'],
+  ['Sarkar1998', 'Sarkar SK (1998). Some probability inequalities for ordered MTP2 random variables: a proof of the Simes conjecture. Annals of Statistics 26(2):494–504.', 'The (unweighted) Simes inequality for MTP2 statistics.'],
   ['SamuelCahn1996', 'Samuel-Cahn E (1996). Is the Simes improved Bonferroni procedure conservative? Biometrika 83(4):928–933.', 'When the Simes test is not valid (negative dependence).'],
+  ['BH1997', 'Benjamini Y, Hochberg Y (1997). Multiple hypotheses testing with weights. Scandinavian Journal of Statistics 24(3):407–418.', 'The weighted Simes test.'],
+  ['BY2001', 'Benjamini Y, Yekutieli D (2001). The control of the false discovery rate in multiple testing under dependency. Annals of Statistics 29(4):1165–1188.', 'Positive regression dependence (PRDS); one-sided multivariate normal statistics with non-negative correlations are PRDS.'],
+  ['BHeller2007', 'Benjamini Y, Heller R (2007). False discovery rates for spatial signals. Journal of the American Statistical Association 102(480):1272–1281.', 'When the weighted Simes test is valid (PRDS, with the one-sided normal example), citing Kling (2005).'],
+  ['BrannathBretz2010', 'Brannath W, Bretz F (2010). Shortcuts for locally consonant closed test procedures. Journal of the American Statistical Association 105(490):660–669.', 'Restricted hypotheses (when the free combination condition fails).'],
+  ['Lu2016', 'Lu K (2016). Graphical approaches using a Bonferroni mixture of weighted Simes tests. Statistics in Medicine 35(22):4041–4055.', 'Adjusted p-values for the Bonferroni mixture of Simes tests (Bretz et al., 2011, eq. 8).'],
+  ['FDA2022', 'US Food and Drug Administration (2022). Multiple Endpoints in Clinical Trials: Guidance for Industry. October 2022.', 'Regulatory context; graphical approaches in the Appendix, section 8.'],
+  ['EMA2002', 'European Medicines Agency, CPMP (2002). Points to consider on multiplicity issues in clinical trials. CPMP/EWP/908/99.', 'Regulatory context: strong control, prespecification in the protocol or analysis plan.'],
   ['Genz2009', 'Genz A, Bretz F (2009). Computation of Multivariate Normal and t Probabilities. Lecture Notes in Statistics 195. Springer. doi:10.1007/978-3-642-01689-9', 'The randomised lattice rule used for the multivariate normal probabilities in the parametric test.'],
   ['gMCP', 'Rohmeyer K, Klinglmüller F (2024). gMCP: Graph Based Multiple Comparison Procedures. R package version 0.8-17. https://github.com/kornl/gMCP', 'Templates, ε convention, upscale option, Simes within groups rule; R export.'],
   ['graphicalMCP', 'Xi D, Brockmann E (2025). graphicalMCP: Graphical Multiple Comparison Procedures. R package version 0.3.0. https://openpharma.github.io/graphicalMCP/', 'R export and the validation scripts.']
 ];
+/* SAP text: paragraphs with their bold lead-ins, and the reference list (sapText in core.js) */
+function sapPlainText(sap) { return sap.paragraphs.join('\n\n'); }
+function sapParasHTML(sap) { return sap.paragraphs.map((t, i) => { const h = sap.heads && sap.heads[i]; return h && t.startsWith(h + '. ') ? `<p><b>${esc(h)}.</b> ${esc(t.slice(h.length + 2))}</p>` : `<p>${esc(t)}</p>`; }).join(''); }
+function sapRefsText(sap) { return sap.refs && sap.refs.length ? 'References\n' + sap.refs.join('\n') : ''; }
+function sapRefsHTML(sap) { return sap.refs && sap.refs.length ? `<p><b>References</b></p>${sap.refs.map(r => `<p class="small">${esc(r)}</p>`).join('')}` : ''; }
 function aboutHTML() {
   const refs = REFERENCES.map(r => `<li id="ref-${r[0]}">${esc(r[1])}<br><span class="small muted">${esc(r[2])}</span></li>`).join('');
   return `<p><b>Multiplicity Graph Sketchpad</b> version ${esc(APP_VERSION)} (${esc(APP_DATE)}). A single-page tool for drawing, testing and documenting graphical multiple comparison procedures. It runs entirely in your browser; nothing you enter is sent anywhere.</p>
-  <p><b>Author</b><br>Niamh Fitzgerald</p>
+  <p><b>Author</b><br>Niamh Fitzgerald${AUTHOR_URL ? ` (<a class="ext" href="${esc(AUTHOR_URL)}" target="_blank" rel="noopener">LinkedIn</a>)` : ''}${AUTHOR_ORCID ? `<br>ORCID: <a class="ext" href="${esc(AUTHOR_ORCID)}" target="_blank" rel="noopener">${esc(AUTHOR_ORCID.replace('https://orcid.org/', ''))}</a>` : ''}</p>
   <p><b>How to cite</b><br>Fitzgerald N (2026). Multiplicity Graph Sketchpad, version ${esc(APP_VERSION)}. Newcastle University and GSK.${REPO_URL ? ' ' + esc(REPO_URL) : ''}</p>
   <p><b>Licence</b><br>MIT Licence. Copyright (c) 2026 Niamh Fitzgerald. Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: the above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. The software is provided "as is", without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose and noninfringement. In no event shall the authors or copyright holders be liable for any claim, damages or other liability, whether in an action of contract, tort or otherwise, arising from, out of or in connection with the software or the use or other dealings in the software.</p>
   <p class="small muted">Fonts: Atkinson Hyperlegible (Braille Institute of America) and JetBrains Mono (JetBrains), both under the SIL Open Font License 1.1, embedded in this file.</p>
@@ -2476,7 +2500,10 @@ function aboutHTML() {
     <li>Parametric adjusted p-values are Monte Carlo estimates (512-point lattice, 12 random shifts); the standard error is shown with the result. For a regulatory submission, confirm them in R with graphicalMCP or gMCP using the exported code.</li>
     <li>Closed tests are available for up to 12 hypotheses; the step-by-step view, adjusted p-values and power simulation for the Bonferroni graph have no such limit (power up to 10 for closed tests).</li>
     <li>Not covered: trimmed Simes tests, entangled graphs (memory), group sequential or adaptive designs, simultaneous confidence intervals, sample size. The R packages above cover some of these.</li>
-    <li>Two-sided p-values can be entered for the Bonferroni and Simes tests; the parametric test refuses them.</li>
+    <li>Two-sided p-values can be entered for the Bonferroni and Simes tests; the parametric test refuses them. For the Bonferroni graph, two-sided p-values with a check of the direction of the effect amount to one-sided testing at &alpha;/2. For the closed Simes test they do not: an effect in the harmful direction can help other hypotheses to be rejected, so use one-sided p-values for claims of benefit.</li>
+    <li>With the Simes or parametric tests, a graph that is not alpha-exhaustive does not guarantee its order of testing: a hypothesis can be rejected while the hypotheses that pass weight to it are not.</li>
+    <li>The hypotheses are assumed to satisfy the free combination condition (Holm, 1979). If some combinations of true and false hypotheses are impossible (restricted hypotheses), the procedures still control the familywise error rate but may be conservative (Bretz et al., 2011, p. 895; Brannath and Bretz, 2010); the tool does not exploit such restrictions.</li>
+    <li>Regulatory context: the FDA guidance on multiple endpoints (2022, Appendix, section 8) describes graphical approaches, and the EMA points to consider on multiplicity (2002) ask for the procedure to be fully specified in the protocol or statistical analysis plan.</li>
   </ul>
   <p><b>Validation</b><br>The built-in self-test (More menu) checks the engine against worked examples from the papers below and against direct implementations of Holm, Hommel and the closed tests. Results were cross-checked against graphicalMCP for the Bonferroni, Simes and parametric tests.${REPO_URL ? ' The source and the test scripts are in the repository.' : ''}</p>
   <p><b>References</b></p><ol class="refs">${refs}</ol>`;

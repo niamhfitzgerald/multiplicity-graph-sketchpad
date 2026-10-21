@@ -1,6 +1,6 @@
 # Multiplicity Graph Sketchpad User Guide
 
-Niamh Fitzgerald · version 1.1.2
+Niamh Fitzgerald · version 1.1.4
 
 The Sketchpad draws, tests and explains graphical multiple testing procedures (Bretz et al., 2009) in the browser. Nothing you enter leaves your computer. This guide covers how to use it, not the method.
 
@@ -55,7 +55,7 @@ Changing a p-value, a weight or alpha restarts the test. Back to Design returns 
 
 ### Test type (advanced)
 
-The default is the weighted Bonferroni test, which is the one that can be stepped through. Under **Test type** in the Test tab you can switch to the weighted Simes test, Simes within groups (Simes when every hypothesis of an intersection is in the same group, Bonferroni otherwise), or the parametric test for correlated test statistics. These run as a closed test: Run test gives the rejected set, adjusted p-values and, under advanced features, a table of every intersection hypothesis. For the parametric test, enter the known correlations in the matrix and leave unknown pairs blank; known pairs must form complete blocks. Its adjusted p-values come with a Monte Carlo standard error, shown above the table. The upscale box matches gMCP's `upscale = TRUE`. The Power tab uses whichever test is selected, and the R exports write the matching gMCP and graphicalMCP calls.
+The default is the weighted Bonferroni test, which is the one that can be stepped through. Under **Test type** in the Test tab you can switch to the weighted Simes test, Simes within groups (Simes when every hypothesis of an intersection is in the same group, Bonferroni otherwise), or the parametric test for correlated test statistics. These run as a closed test: Run test gives the rejected set, adjusted p-values and, under advanced features, a table of every intersection hypothesis. For the parametric test, enter the known correlations in the matrix and leave unknown pairs blank; known pairs must form complete blocks. Its adjusted p-values come with a Monte Carlo standard error, shown above the table. The upscale box matches gMCP's `upscale = TRUE`. An amber warning line appears above the p-values when a closed test is used on a graph that is not alpha-exhaustive, or with two-sided p-values; it says what to check. The Power tab uses whichever test is selected, and the R exports write the matching gMCP and graphicalMCP calls.
 
 ## Explain it to a team
 
@@ -93,7 +93,7 @@ All exports are in the Export tab. Pictures and TikZ show the graph as it is on 
 - **LaTeX (TikZ):** the same positions and curves as the canvas, with the `\usetikzlibrary` line it needs in a comment at the top.
 - **Beamer, step by step:** one frame with one overlay per rejection, following the steps you took in Test mode (or the automatic run on the p-values). Each overlay shows the levels and a caption. It works with the Metropolis theme.
 - **R:** `graph_create()` for graphicalMCP, with `graph_test_shortcut()` when every p-value is entered; `matrix2graph()` for gMCP.
-- **SAP / protocol text:** paragraphs describing the hypotheses, the initial allocation, how alpha is passed on and strong control of the familywise error rate, plus tables of the weights and transition matrix. Copy tables pastes into Word as a table.
+- **SAP / protocol text:** a multiplicity section in the usual SAP order: hypotheses, error rate and procedure, initial allocation, propagation, conclusions, interim analyses and reporting, plus technical details for the Simes and parametric tests. Below it are tables of the hypotheses and initial levels, the transition weights and, for the parametric test, the correlations, then a reference list. Fill in the [square-bracket placeholders] (for example the success criterion and the software), number the tables to match your document, and export the graph as a PNG or SVG for the figure. Copy tables pastes into Word as a table.
 - **Share link:** the whole graph is encoded in the link, so nothing is uploaded.
 - **Save as a file:** JSON that keeps weights, positions, colours, p-values and alpha.
 

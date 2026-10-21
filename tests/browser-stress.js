@@ -401,6 +401,8 @@ async function step(name, fn) {
     const k0 = await ev(() => view.k); await page.click('#zoomIn'); if (!((await ev(() => view.k)) > k0)) return 'zoom in';
     await page.click('#zoomOut'); await page.click('#zoomFit'); await sleep(50);
     await page.mouse.move(400, 400); await page.mouse.wheel(0, -300); await sleep(50); if (!((await ev(() => view.k)) > 0)) return 'wheel';
+    const notch = await ev(() => { const sv = document.querySelector('.canvas-wrap svg'); const r = sv.getBoundingClientRect(); const z = init => { view.k = 1; applyView(); sv.dispatchEvent(new WheelEvent('wheel', Object.assign({ clientX: r.x + r.width / 2, clientY: r.y + r.height / 2, bubbles: true, cancelable: true }, init))); return view.k; }; return [z({ deltaY: -100, deltaMode: 0 }), z({ deltaY: -3, deltaMode: 1 })]; });
+    if (Math.abs(notch[0] - notch[1]) > 0.02 || notch[1] < 1.1) return 'wheel in line mode (Firefox): ' + notch.map(x => x.toFixed(3)).join(' vs ');
     // pan
     await page.mouse.move(300, 500); await page.mouse.down(); await page.mouse.move(400, 550, { steps: 5 }); await page.mouse.up();
   });
@@ -430,7 +432,7 @@ async function step(name, fn) {
     await page.keyboard.press('?'); await sleep(50); if (await page.locator('#modal').isHidden()) return '? shortcut';
     await page.click('#modal', { position: { x: 5, y: 5 } }); if (!(await page.locator('#modal').isHidden())) return 'backdrop close';
     await page.click('#moreMenu summary'); await page.click('#selftestBtn'); await sleep(3000);
-    const st = await page.locator('#modalBody p').first().innerText(); if (!/46 of 46 checks passed/.test(st)) return 'self-test: ' + st;
+    const st = await page.locator('#modalBody p').first().innerText(); if (!/47 of 47 checks passed/.test(st)) return 'self-test: ' + st;
     await page.click('#modalClose');
   });
 
@@ -564,6 +566,26 @@ async function step(name, fn) {
     await page.click('[data-action="cmp-load"]'); await sleep(200); if ((await ev(() => Q.exact(G.nodes[0].w))) !== '1/2') return 'load as A';
     await page.click('[data-action="cmp-remove"]'); await sleep(100); if ((await ev(() => KEPT.length)) !== 0) return 'remove';
     await page.click('#tabbtn-power'); await page.selectOption('#sim-n', '10000'); await page.click('#tabbtn-graph');
+  });
+
+  await step('Closed-test warnings in the Test tab: not alpha-exhaustive (with and without upscale), two-sided p-values; none for Bonferroni or an exhaustive graph', async () => {
+    if ((await ev(() => mode)) === 'test') { await page.click('[data-action="exit-test"]'); await sleep(100); }
+    const saved = await ev(() => ({ g: JSON.stringify(serializeGraph(G)), sided: G.sided, adv: advanced }));
+    const warns = async () => { await page.click('#tabbtn-test'); await sleep(120); return (await page.locator('#tab-test [data-warn="closed"]').allInnerTexts()).join(' | '); };
+    await ev(() => { setAdvanced(true, true); loadGraph(templateJSON('parallel')); G.test.type = 'simes'; G.test.upscale = false; renderAll(); });
+    let w = await warns(); if (!/not α-exhaustive/.test(w) || /Upscaling/.test(w) || /Two-sided/.test(w)) return 'parallel simes: ' + w;
+    await ev(() => { G.test.upscale = true; renderAll(); });
+    w = await warns(); if (!/Upscaling the weights also changes/.test(w)) return 'upscale: ' + w;
+    await ev(() => { G.test.upscale = false; renderAll(); });
+    await page.selectOption('#sidedSelect', 'two'); await sleep(150);
+    w = await warns(); if (!/one-sided rate of α\/2/.test(w)) return 'two-sided: ' + w;
+    await ev(() => { G.test.type = 'bonferroni'; renderAll(); });
+    w = await warns(); if (w) return 'Bonferroni should have no closed-test warning: ' + w;
+    await page.selectOption('#sidedSelect', 'one'); await sleep(150);
+    await ev(() => { loadGraph(templateJSON('improvedParallel')); G.test.type = 'simes'; renderAll(); });
+    w = await warns(); if (w) return 'exhaustive one-sided graph should have no warning: ' + w;
+    await ev(s => { loadGraph(JSON.parse(s.g)); G.sided = s.sided; setAdvanced(s.adv, true); renderAll(); }, saved);
+    await page.selectOption('#sidedSelect', saved.sided === 'two' ? 'two' : 'one'); await sleep(100);
   });
 
   await step('Phone-width layout: no horizontal overflow, tabs and toolbar usable at 390px', async () => {

@@ -703,6 +703,47 @@ check('Share tokens are URL safe and reasonably short (12 hypotheses with p-valu
   return tok.length < 8000 || `length ${tok.length}`;
 });
 
+/* ---------- SAP text (1.1.4 revision) ---------- */
+check('SAP text over 300 random graphs and every test type: structure, corrected citations, sidedness, exhaustiveness and correlation table', () => {
+  const types = ['bonferroni', 'simes', 'simes-groups', 'parametric'];
+  for (let k = 0; k < 300; k++) {
+    const m = ri(2, 6), G = toG(randomGraphJSON(m, { underRow: rnd() < 0.3 })), tt = types[k % 4];
+    if (tt === 'simes-groups') G.nodes.forEach((n, i) => { n.group = i % 2 ? 'secondary' : 'primary'; });
+    G.test = { type: tt, upscale: rnd() < 0.3, corr: {} };
+    if (tt === 'parametric') { const a = G.nodes[0].id, b = G.nodes[1].id; G.test.corr[a < b ? a + '|' + b : b + '|' + a] = 0.5; }
+    G.sided = tt !== 'parametric' && rnd() < 0.3 ? 'two' : 'one';
+    const sap = C.sapText(G), t = sap.paragraphs.join(' ');
+    if (sap.heads.length !== sap.paragraphs.length || sap.paragraphs.some((p, i) => !p.startsWith(sap.heads[i] + '. '))) return `graph ${k}: heads do not match paragraphs`;
+    const OLD = /\(Sarkar, 1998\)|equation 3\)|Xi et al\., 2017; Bretz et al\., 2011, section 3\.2|; Xi et al\., 2017\)|simes\.on\.subsets\.test in the gMCP package; Bretz/;
+    if (OLD.test(t)) return `graph ${k}: an old wrong citation: ${t.match(OLD)[0]}`;
+    if (/Sarkar/.test(t) && !(G.sided === 'two' && /simes/.test(tt))) return `graph ${k}: Sarkar cited outside the two-sided Simes note`;
+    if (/—/.test(t)) return `graph ${k}: em dash in the text`;
+    if (!t.includes('In the initial graph')) return `graph ${k}: no initial-graph wording`;
+    if (G.sided === 'two' && !/\[the experimental treatment\]/.test(t)) return `graph ${k}: two-sided without the direction rule`;
+    if (G.sided === 'two' && tt !== 'bonferroni' && /one-sided [0-9.]+ in the direction of benefit/.test(t)) return `graph ${k}: closed test claims one-sided control from two-sided p-values`;
+    const exh = C.isAlphaExhaustive(G);
+    let ws = C.Q.ZERO; for (const n of G.nodes) ws = C.Q.add(ws, n.w);
+    const flag = /does not (always )?use the full α|is not α-exhaustive/.test(t);
+    if ((exh === false) !== flag) return `graph ${k}: exhaustiveness ${exh} but flag in text ${flag}`;
+    if (exh === false && G.test.upscale && tt !== 'bonferroni' && C.Q.eq(ws, C.Q.ONE) && (/does not always use the full α/.test(t) || !/rescaling changes the procedure/.test(t))) return `graph ${k}: upscale note wrong`;
+    if (exh === false && !G.test.upscale && tt !== 'bonferroni' && C.Q.eq(ws, C.Q.ONE) && !/not guaranteed/.test(t)) return `graph ${k}: closed non-exhaustive without the gatekeeping warning`;
+    if (tt !== 'bonferroni' && /from a rejected hypothesis/.test(t)) return `graph ${k}: sequential wording in a closed test`;
+    if (sap.refs.some((r, i) => i > 0 && sap.refs[i - 1].localeCompare(r) > 0)) return `graph ${k}: references not in alphabetical order`;
+    if (tt === 'bonferroni') {
+      for (const n of G.nodes) if (!C.Q.isZero(n.w) && !t.includes('level ' + C.fmtNum(C.Q.toNum(n.w) * G.alpha, 6))) return `graph ${k}: no numeric level for ${n.label}`;
+      if (/Technical details/.test(t)) return `graph ${k}: technical details for Bonferroni`;
+    } else if (!sap.heads.includes('Technical details')) return `graph ${k}: no technical details for ${tt}`;
+    if (tt === 'parametric' && (sap.tables.length !== 3 || !t.includes('Xi et al. (2017, section 4.3, eq. 6)'))) return `graph ${k}: parametric table or citation missing`;
+    if (tt === 'simes-groups' && !/more conservative than the Bonferroni mixture/.test(t)) return `graph ${k}: Simes-within-groups attribution`;
+    if (tt === 'simes' && !/Benjamini and Heller, 2007/.test(t)) return `graph ${k}: Simes validity citation`;
+    for (const tb of sap.tables) { C.tableToHTML(tb); C.tableToTSV(tb); }
+    const cited = ['Bretz et al. (2009', 'Marcus et al.', 'Benjamini and Hochberg', 'Benjamini and Yekutieli', 'Benjamini and Heller', 'Samuel-Cahn', 'Lu (2016', 'Xi et al.', 'Genz and Bretz', 'Sarkar'];
+    const inRefs = ['Bretz F, Maurer W', 'Marcus R', 'Benjamini Y, Hochberg', 'Benjamini Y, Yekutieli', 'Benjamini Y, Heller', 'Samuel-Cahn E', 'Lu K', 'Xi D', 'Genz A', 'Sarkar SK'];
+    for (let c = 0; c < cited.length; c++) if (t.includes(cited[c]) && !sap.refs.some(r => r.startsWith(inRefs[c]))) return `graph ${k}: ${cited[c]} cited but not in the references`;
+  }
+  return true;
+});
+
 /* ---------- report ---------- */
 Promise.all(results.map(r => r)).then(async () => {
   // resolve promise-returning checks
