@@ -61,6 +61,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .brand h1 { font-size: 18px; margin: 0; letter-spacing: .01em; white-space: nowrap; }
 .brand .sub { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .brand svg { flex: none; }
+.brand .titles { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.brand .byline { font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; }
 .group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .btn { min-height: 36px; padding: 0 12px; border: 1px solid var(--line-strong); background: var(--surface); border-radius: 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .btn:hover:not(:disabled) { background: var(--surface-2); }
@@ -369,7 +371,7 @@ table.t td:first-child { white-space: nowrap; }
   <header class="topbar">
     <div class="brand">
       <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><circle cx="8" cy="9" r="5.5" fill="none" stroke="var(--accent)" stroke-width="2"/><circle cx="22" cy="21" r="5.5" fill="none" stroke="var(--accent)" stroke-width="2"/><path d="M12.5 12.5 L17.6 17.6" stroke="var(--ink)" stroke-width="1.8"/><path d="M17.9 14.6 L18.4 18.4 L14.6 17.9" fill="none" stroke="var(--ink)" stroke-width="1.8"/></svg>
-      <h1>Multiplicity Graph Sketchpad</h1>
+      <div class="titles"><h1>Multiplicity Graph Sketchpad</h1><span class="byline">by Niamh Fitzgerald</span></div>
       <span class="sub">Graphical approach of Bretz et al. (2009)</span>
     </div>
     <div class="seg" role="group" aria-label="Mode">
@@ -527,8 +529,8 @@ table.t td:first-child { white-space: nowrap; }
 <script>
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.1.1';
-const APP_DATE = '2026-10-16';
+const APP_VERSION = '1.1.2';
+const APP_DATE = '2026-10-21';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
 /* =====================================================================

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.2 (2026-10-21)
+
+- Author's name shown under the title at the top of the page, at every screen width.
+
 ## 1.1.1 (2026-10-16)
 
 - Author shown in the footer and the About panel.

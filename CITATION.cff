@@ -7,8 +7,8 @@ authors:
   - family-names: Fitzgerald
     given-names: Niamh
     affiliation: "Newcastle University"
-version: 1.1.1
-date-released: 2026-10-16
+version: 1.1.2
+date-released: 2026-10-21
 license: MIT
 repository-code: "https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad"
 url: "https://niamhfitzgerald.github.io/multiplicity-graph-sketchpad/"
