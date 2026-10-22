@@ -1,4 +1,4 @@
-/* Runs the built-in self-tests (the same 47 checks as More > Run the self-test) in Node.
+/* Runs the built-in self-tests (the same 57 checks as More > Run the self-test) in Node.
    Run from the tests folder: node runtests.js ../src/core.js */
 const fs = require('fs'), vm = require('vm'), path = require('path');
 const file = process.argv[2] || path.join(__dirname, '..', 'src', 'core.js');

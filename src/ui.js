@@ -20,6 +20,8 @@ let manual = false;
 let animating = false;
 let activeTab = 'graph';
 let view = { cx: 0, cy: 0, k: 1 };
+let autoFit = true; /* true until the user pans or zooms; then a resize keeps their view */
+const narrowScreen = () => window.matchMedia('(max-width: 640px)').matches;
 let drag = null;
 let linking = null;
 let inline = null;
@@ -232,11 +234,16 @@ function fitView() {
   const xs = G.nodes.map(n => [n.x - nodeRx(n.label), n.x + nodeRx(n.label)]).flat();
   const ys = G.nodes.map(n => [n.y - NODE_R, n.y + NODE_R]).flat();
   const minX = Math.min(...xs) - 80, maxX = Math.max(...xs) + 80, minY = Math.min(...ys) - 95, maxY = Math.max(...ys) + 90;
-  view.k = Math.max(0.3, Math.min(W / (maxX - minX), H / (maxY - minY), 1.35));
-  view.cx = (minX + maxX) / 2; view.cy = (minY + maxY) / 2;
+  /* On a phone the hint box spans the top of the canvas: fit the graph into the space below it */
+  let top = 0;
+  const chip = $('hintChip');
+  if (narrowScreen() && chip && !chip.hidden && !presenting) top = Math.max(0, Math.min(H * 0.5, chip.getBoundingClientRect().bottom - svg.getBoundingClientRect().top + 6));
+  view.k = Math.max(0.3, Math.min(W / (maxX - minX), (H - top) / (maxY - minY), 1.35));
+  view.cx = (minX + maxX) / 2; view.cy = (minY + maxY) / 2 - top / (2 * view.k);
+  autoFit = true;
   applyView();
 }
-function zoomBy(f) { view.k = Math.max(0.25, Math.min(3, view.k * f)); applyView(); }
+function zoomBy(f) { view.k = Math.max(0.25, Math.min(3, view.k * f)); autoFit = false; applyView(); }
 function toWorld(e) {
   const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
   return { x: pt.x, y: pt.y };
@@ -690,7 +697,9 @@ function testCtx() {
 function corrProblem() {
   if (testType() !== 'parametric') return '';
   if (G.sided === 'two') return 'The parametric test needs one-sided p-values: it assumes that Φ⁻¹(1 − p) is multivariate normal, which does not hold for two-sided p-values (gMCP manual). Switch the p-values to one-sided in the toolbar, or choose another test.';
-  try { corrBlocks(G.nodes.map((_, i) => i), testCorrAt); } catch (e) { return e.message; }
+  let blocks;
+  try { blocks = corrBlocks(G.nodes.map((_, i) => i), testCorrAt); } catch (e) { return e.message; }
+  for (const b of blocks) { const bad = corrConflict(b, testCorrAt); if (bad) return corrConflictText(bad.map(i => G.nodes[i].label), bad.length === b.length); }
   const known = Object.keys(G.test.corr).length;
   if (!known) return 'No correlations are entered, so the parametric test is the same as Bonferroni. Enter the known correlations below.';
   return '';
@@ -707,6 +716,8 @@ function setMode(m, silent) {
     if (activeTab !== 'matrix') setTab('test');
   } else { T = null; manual = false; if (presenting) { presenting = false; document.body.classList.remove('present'); $('presentBar').hidden = true; } }
   if (!silent) renderAll();
+  /* the hint text changes with the mode; on a phone, refit so it does not cover the graph */
+  if (autoFit && narrowScreen()) requestAnimationFrame(fitView);
 }
 function setWhatIf(on) {
   if (animating || (T && T.running)) return;
@@ -912,6 +923,13 @@ function closedWarnings() {
   const out = [];
   if (G.nodes.length > 1 && isAlphaExhaustive(G) === false) out.push(`This graph is not &alpha;-exhaustive. With a closed test, a hypothesis can then be rejected even when the hypotheses that pass &alpha; to it are not. The order of testing that the graph shows is not guaranteed.${G.test.upscale ? ' Upscaling the weights also changes the procedure from the one the graph shows.' : ''}`);
   if (G.sided === 'two' && testType() !== 'parametric') out.push('Two-sided p-values: the closed test controls the two-sided error rate, but not a one-sided rate of &alpha;/2 for claims of benefit. For claims of benefit, set the p-values to one-sided in the toolbar and halve &alpha;.');
+  const neg = simesNegatives();
+  if (neg.length) {
+    const fmtR = v => String(v).replace('-', '−');
+    const allSame = !SIM.useMatrix && neg.length > 1 && neg.every(x => x.where === 'Power tab');
+    const what = allSame ? `The Power tab correlation is ${fmtR(neg[0].v)} for every pair.` : `Negative correlation entered: ${neg.slice(0, 3).map(x => `${esc(x.a)} and ${esc(x.b)}, ${fmtR(x.v)} (${x.where})`).join('; ')}${neg.length > 3 ? `; and ${neg.length - 3} more` : ''}.`;
+    out.push(`${what} The weighted Simes test needs non-negative correlations between the test statistics. With negative correlations it can exceed &alpha; (Samuel-Cahn, 1996). Check the values, or use the Bonferroni or parametric test.`);
+  }
   return out.map(t => `<p class="warn-line" data-warn="closed"><span class="ic" aria-hidden="true">!</span><span><b>Warning:</b> ${t}</span></p>`).join('');
 }
 function testTypeSection() {
@@ -1117,6 +1135,30 @@ function simPower(id) { return SIM.power[id] != null ? SIM.power[id] : '80'; }
 function powerSig() { return simSig() + testType() + G.test.upscale + JSON.stringify(serializeTest(G.test) || '') + JSON.stringify([G.nodes.map(n => simPower(n.id)), SIM.rho, SIM.useMatrix, SIM.useMatrix ? G.nodes.map(a => G.nodes.map(b => corrOf(a.id, b.id))) : null, SIM.success, SIM.n]); }
 function simSig() { return JSON.stringify({ a: G.alpha, n: G.nodes.map(n => [n.id, Q.exact(n.w)]), e: G.edges.map(e => [e.from, e.to, Q.exact(e.g)]) }); }
 const pairKey = (a, b) => (a < b ? a + '|' + b : b + '|' + a);
+/* Live check of the Power tab correlations: '' when they are usable */
+function simCorrProblem() {
+  const m = G.nodes.length;
+  if (m < 2) return '';
+  const ids = G.nodes.map(n => n.id), val = (i, j) => Number(corrOf(ids[i], ids[j]));
+  for (let i = 0; i < m; i++) for (let j = i + 1; j < m; j++) { const v = val(i, j); if (!(v >= -1 && v <= 1)) return 'Correlations must be numbers between −1 and 1.'; }
+  const bad = corrConflict(ids.map((_, i) => i), (i, j) => Math.min(val(i, j), 0.999999));
+  return bad ? corrConflictText(bad.map(i => G.nodes[i].label), bad.length === m) : '';
+}
+/* Negative correlations that matter for a Simes test: from the Power tab and from the Test tab matrix. For Simes within groups, only pairs in the same group. */
+function simesNegatives() {
+  const t = testType();
+  if (t !== 'simes' && t !== 'simes-groups') return [];
+  const out = [], seen = new Set();
+  const counts = (a, b) => t === 'simes' || (a.group && a.group === b.group);
+  G.nodes.forEach((a, i) => G.nodes.forEach((b, j) => {
+    if (j <= i || !counts(a, b)) return;
+    const k = pairKey(a.id, b.id);
+    const v = Number(corrOf(a.id, b.id)), u = G.test.corr[k];
+    if (v < 0 && !seen.has(k)) { seen.add(k); out.push({ a: a.label, b: b.label, v, where: 'Power tab' }); }
+    else if (u != null && u < 0 && !seen.has(k)) { seen.add(k); out.push({ a: a.label, b: b.label, v: u, where: 'Test tab' }); }
+  }));
+  return out;
+}
 function corrOf(a, b) {
   if (SIM.useMatrix && SIM.corr[pairKey(a, b)] != null) return SIM.corr[pairKey(a, b)];
   return SIM.rho;
@@ -1132,8 +1174,9 @@ function renderPowerPanel() {
       return `<tr><th scope="row">${esc(n.label)}</th><td><input id="sp-${n.id}" data-pw="${n.id}" value="${esc(v)}" inputmode="decimal" class="${ok ? '' : 'bad'}" aria-label="Power of ${esc(n.label)} alone, percent"></td><td class="num">${ok ? (za + qnorm(x / 100)).toFixed(2) : ''}</td></tr>`;
     }).join('');
     const m = G.nodes.length;
+    const corrBad = (a, b) => { const v = Number(corrOf(a, b)); return !(v >= -1 && v <= 1); };
     const corrTable = `<label class="chk"><input type="checkbox" id="sim-usematrix" ${SIM.useMatrix ? 'checked' : ''}> Use the values below instead</label>
-      <div class="mx-scroll"><table class="mx"><thead><tr><th></th>${G.nodes.map(n => `<th scope="col">${esc(n.label)}</th>`).join('')}</tr></thead><tbody>${G.nodes.map((a, i) => `<tr><th scope="row">${esc(a.label)}</th>${G.nodes.map((b, j) => j <= i ? `<td style="text-align:center;color:var(--muted)">${j === i ? '1' : ''}</td>` : `<td><input id="sc-${a.id}-${b.id}" data-corr="${pairKey(a.id, b.id)}" value="${esc(String(corrOf(a.id, b.id)))}" aria-label="Correlation between ${esc(a.label)} and ${esc(b.label)}" ${SIM.useMatrix ? '' : 'disabled'}></td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+      <div class="mx-scroll"><table class="mx"><thead><tr><th></th>${G.nodes.map(n => `<th scope="col">${esc(n.label)}</th>`).join('')}</tr></thead><tbody>${G.nodes.map((a, i) => `<tr><th scope="row">${esc(a.label)}</th>${G.nodes.map((b, j) => j <= i ? `<td style="text-align:center;color:var(--muted)">${j === i ? '1' : ''}</td>` : `<td><input id="sc-${a.id}-${b.id}" data-corr="${pairKey(a.id, b.id)}" value="${esc(String(corrOf(a.id, b.id)))}" class="${SIM.useMatrix && corrBad(a.id, b.id) ? 'bad' : ''}" aria-label="Correlation between ${esc(a.label)} and ${esc(b.label)}" ${SIM.useMatrix ? '' : 'disabled'}></td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
     const succ = `<p class="small muted">Count a trial as a success when</p>
       <div class="row-actions"><label class="chk"><input type="radio" name="sim-rule" value="any" ${SIM.success.rule === 'any' ? 'checked' : ''}> any</label><label class="chk"><input type="radio" name="sim-rule" value="all" ${SIM.success.rule === 'all' ? 'checked' : ''}> all</label><span class="small muted" style="align-self:center">of these are rejected:</span></div>
       <div class="row-actions">${G.nodes.map(n => `<label class="chk"><input type="checkbox" data-succ="${n.id}" ${SIM.success.ids.includes(n.id) ? 'checked' : ''}> ${esc(n.label)}</label>`).join('')}</div>`;
@@ -1142,6 +1185,7 @@ function renderPowerPanel() {
       <table class="t"><thead><tr><th scope="col">Hyp.</th><th scope="col">Power alone (%)</th><th scope="col" class="num">Mean z</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="form"><label for="sim-rho">Correlation between test statistics <span class="hint">The same value for every pair, between &minus;1 and 1</span><input class="txt" id="sim-rho" value="${esc(String(SIM.rho))}" inputmode="decimal" style="max-width:8em" ${SIM.useMatrix ? 'disabled' : ''}></label></div>
       ${m > 1 ? det('det-corr', 'Set each pair separately', corrTable) : ''}
+      ${!SIM.error && simCorrProblem() ? `<p class="err-text" id="simCorrMsg">✕ ${esc(simCorrProblem())}</p>` : ''}
       ${det('det-success', 'Define success', succ, SIM.success.ids.length ? `${SIM.success.rule} of ${SIM.success.ids.map(id => (nodeById(id) || {}).label).filter(Boolean).join(', ')}` : '')}
       <div class="row-actions" style="align-items:center"><label for="sim-n" class="small">Simulations</label><select class="sel" id="sim-n">${[2000, 10000, 100000].map(v => `<option value="${v}" ${SIM.n === v ? 'selected' : ''}>${v.toLocaleString('en-GB')}</option>`).join('')}</select>
       <button class="btn primary" data-action="sim-run" ${SIM.running || hasErrors() ? 'disabled' : ''}>${SIM.running ? 'Running…' : 'Run simulation'}</button></div>
@@ -1784,6 +1828,7 @@ function setTab(name) {
   if (name === 'export' && exportView && exportView !== 'load') showExport(exportView);
   if (name === 'power') renderPowerPanel();
   if (name === 'compare') renderComparePanel();
+  if (name === 'test') renderTestPanel();
 }
 function renderAll() {
   V = validateGraph(G, fmt);
@@ -2010,6 +2055,7 @@ svg.addEventListener('pointermove', e => {
     svg.classList.add('panning');
     view.cx = drag.cx - (e.clientX - drag.sx) / view.k;
     view.cy = drag.cy - (e.clientY - drag.sy) / view.k;
+    autoFit = false;
     applyView();
   }
 });
@@ -2060,6 +2106,7 @@ svg.addEventListener('wheel', e => {
   view.cx = p.x - (p.x - view.cx) * view.k / k2;
   view.cy = p.y - (p.y - view.cy) * view.k / k2;
   view.k = k2;
+  autoFit = false;
   applyView();
 }, { passive: false });
 svg.addEventListener('keydown', e => {
@@ -2284,9 +2331,9 @@ $('tab-test').addEventListener('click', e => {
 $('tab-power').addEventListener('change', e => {
   const t = e.target;
   if (t.dataset.pw) { SIM.power[t.dataset.pw] = t.value.trim(); setTimeout(renderPowerPanel, 0); }
-  else if (t.id === 'sim-rho') { SIM.rho = t.value.trim(); setTimeout(renderPowerPanel, 0); }
+  else if (t.id === 'sim-rho') { SIM.rho = t.value.trim(); SIM.error = ''; setTimeout(renderPowerPanel, 0); }
   else if (t.id === 'sim-usematrix') { SIM.useMatrix = t.checked; renderPowerPanel(); }
-  else if (t.dataset.corr) { SIM.corr[t.dataset.corr] = t.value.trim(); }
+  else if (t.dataset.corr) { SIM.corr[t.dataset.corr] = t.value.trim(); SIM.error = ''; setTimeout(renderPowerPanel, 0); }
   else if (t.id === 'sim-n') { SIM.n = Number(t.value); }
   else if (t.name === 'sim-rule') { SIM.success.rule = t.value; renderPowerPanel(); }
   else if (t.dataset.succ) {
@@ -2546,7 +2593,13 @@ window.addEventListener('hashchange', () => {
   if (!h.startsWith('g1') || (G.nodes.length && h === encodeShare(G))) return;
   try { loadGraph(decodeShare(h)); } catch (err) { /* ignore bad links */ }
 });
-new ResizeObserver(() => applyView()).observe(svg);
+/* Refit when the canvas gets wider or narrower (window resized, phone turned), unless the user has moved the view */
+let lastCanvasW = 0;
+new ResizeObserver(() => {
+  const w = Math.round(svg.getBoundingClientRect().width);
+  if (autoFit && lastCanvasW && Math.abs(w - lastCanvasW) > 2) fitView(); else applyView();
+  lastCanvasW = w;
+}).observe(svg);
 
 /* ---------- start ---------- */
 (function init() {

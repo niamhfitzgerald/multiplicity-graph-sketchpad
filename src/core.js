@@ -1,6 +1,6 @@
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.1.4';
+const APP_VERSION = '1.1.5';
 const APP_DATE = '2026-10-21';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
@@ -1986,6 +1986,22 @@ function corrBlocks(idx, corrAt) {
   }
   return blocks;
 }
+/* Smallest set of statistics whose correlations cannot all hold at once (null when the block is positive definite).
+   Looks at pairs, then triples (blocks of up to 20), then gives the whole block. */
+function corrConflict(block, corrAt) {
+  const pd = s => { const n = s.length, R = new Float64Array(n * n); s.forEach((i, a) => s.forEach((j, c) => { R[a * n + c] = i === j ? 1 : corrAt(i, j); })); return !!cholesky(R, n); };
+  const n = block.length;
+  if (n < 2 || pd(block)) return null;
+  for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) if (!pd([block[a], block[b]])) return [block[a], block[b]];
+  if (n <= 20) for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) for (let c = b + 1; c < n; c++) if (!pd([block[a], block[b], block[c]])) return [block[a], block[b], block[c]];
+  return block.slice();
+}
+/* Plain-English message for a conflicting set of hypothesis labels */
+function corrConflictText(labels, whole) {
+  if (labels.length === 2) return `The correlation between ${labels[0]} and ${labels[1]} must lie strictly between −1 and 1.`;
+  const list = labels.slice(0, -1).join(', ') + ' and ' + labels[labels.length - 1];
+  return whole && labels.length > 3 ? 'These correlations cannot all hold at once (the matrix is not positive definite). Try values closer to 0.' : `The correlations between ${list} cannot all hold at once (the matrix is not positive definite). Try values closer to 0.`;
+}
 /* c such that P(some Z_i >= z_{1 - c w_i a}) = level, for a block with known correlation. Cached per call context. */
 function paramConstant(block, w, a, level, cholL, rand, cache) {
   const m = block.length;
@@ -2268,6 +2284,76 @@ function runLiteratureSelfTests() {
     const r = closedTest(floatGraph(G), [0.0131, 0.1, 0.012, 0.01], 0.025, 'parametric', { upscale: false, corrAt, rand: mulberry32(2011), cache: new Map() });
     if (r.rejected.join() !== 'true,false,true,false') return 'rejected ' + r.rejected.join();
     return Math.abs(r.adj[0] - 0.02431856) < 5e-4 || 'adjusted p(H1) = ' + r.adj[0].toFixed(5);
+  });
+  check('Bretz et al. (2009) Fig. 9, pp. 596-597: Holm with an ε edge to H3, alpha 0.05, p = (0.04, 0.01, 0.03): rejects H2, H1, H3 in that order; after H2 the edge H1 to H3 is exactly 1', () => {
+    const e = Q.parse('1/1000'), h = Q.parse('1/2');
+    const s = { ids: ['1', '2', '3'], w: new Map([['1', h], ['2', h], ['3', Q.ZERO]]), g: new Map([[gKey('1', '2'), Q.ONE], [gKey('2', '1'), Q.sub(Q.ONE, e)], [gKey('2', '3'), e]]) };
+    const p = { 1: 0.04, 2: 0.01, 3: 0.03 }, order = runProcedure(s, id => p[id], 0.05).order.join(), e13 = Q.exact(getg(rejectNode(s, '2'), '1', '3'));
+    return (order === '2,1,3' && e13 === '1') || `order ${order}, H1 to H3 ${e13}`;
+  });
+  check('Bretz et al. (2009) Fig. 10, p. 597: two Holm pairs joined by ε edges (r = 0.8, 0.2), alpha 0.05, p = (0.04, 0.01, 0.03, 0.04): after H2 the edge H1 to H3 is 0.8; after H1, H3 and H4 get levels 0.04 and 0.01; all four rejected', () => {
+    const e = Q.parse('1/1000'), h = Q.parse('1/2'), r1 = Q.parse('4/5'), r2 = Q.parse('1/5');
+    const s = { ids: ['1', '2', '3', '4'], w: new Map([['1', h], ['2', h], ['3', Q.ZERO], ['4', Q.ZERO]]), g: new Map([[gKey('1', '2'), Q.ONE], [gKey('2', '1'), Q.sub(Q.ONE, e)], [gKey('2', '3'), Q.mul(r1, e)], [gKey('2', '4'), Q.mul(r2, e)], [gKey('3', '4'), Q.ONE], [gKey('4', '3'), Q.ONE]]) };
+    const p = { 1: 0.04, 2: 0.01, 3: 0.03, 4: 0.04 }, n = runProcedure(s, id => p[id], 0.05).order.length;
+    const s2 = rejectNode(s, '2'), s3 = rejectNode(s2, '1');
+    const got = [Q.exact(getg(s2, '1', '3')), Q.toNum(s3.w.get('3')) * 0.05, Q.toNum(s3.w.get('4')) * 0.05];
+    return (n === 4 && got[0] === '4/5' && Math.abs(got[1] - 0.04) < 1e-12 && Math.abs(got[2] - 0.01) < 1e-12) || `rejected ${n}, H1 to H3 ${got[0]}, levels ${got[1]}, ${got[2]}`;
+  });
+  check('Bretz et al. (2011) Example 1 and Table 1, pp. 897-898: the weights of all 15 intersection hypotheses', () => {
+    const G = load(templateJSON('successiveI')), W = closureWeights(floatGraph(G));
+    /* Table 1, rows as H1 H2 H3 H4 ('-' = not in the intersection) */
+    const T = ['.5 .5 0 0', '.5 .5 0 -', '.5 .5 - 0', '.5 .5 - -', '.5 - 0 .5', '1 - 0 -', '.5 - - .5', '1 - - -', '- .5 .5 0', '- .5 .5 -', '- 1 - 0', '- 1 - -', '- - .5 .5', '- - 1 -', '- - - 1'];
+    const bad = [];
+    for (const row of T) {
+      const v = row.split(' '), mask = v.reduce((a, x, i) => (x === '-' ? a : a | (1 << i)), 0);
+      v.forEach((x, i) => { if (x !== '-' && Math.abs(W[mask * 4 + i] - Number(x)) > 1e-12) bad.push(`row ${row}: H${i + 1} ${W[mask * 4 + i]}`); });
+    }
+    return !bad.length || bad.join('; ');
+  });
+  check('Bretz et al. (2011) section 3.1, p. 899 (Fig. 3): same graph, alpha 0.025, p = (0.01, 0.005, 0.1, 0.5): rejects H1 and H2 only', () => {
+    const G = load(templateJSON('successiveI')), r = labels(G, runProcedure(stateFromGraph(G), pOfG(G, [0.01, 0.005, 0.1, 0.5]), 0.025).order);
+    return r === 'H1,H2' || 'rejected ' + r;
+  });
+  check('Bretz et al. (2011) section 3.3, p. 907: same graph, alpha 0.025, p = (0.01, 0.005, 0.015, 0.022): closed Simes rejects all four, closed Bonferroni only H1 and H2', () => {
+    const fg = floatGraph(load(templateJSON('successiveI'))), p = [0.01, 0.005, 0.015, 0.022];
+    const s = closedTest(fg, p, 0.025, 'simes', { upscale: false }).rejected.join(), b = closedTest(fg, p, 0.025, 'bonferroni', { upscale: false }).rejected.join();
+    return (s === 'true,true,true,true' && b === 'true,true,false,false') || `Simes ${s}; Bonferroni ${b}`;
+  });
+  check('Bretz et al. (2011) section 3.2, p. 903, and the gMCP parametric vignette: c = 1.0783 for two statistics with rho = 0.5, weights 1/2, alpha 0.025 (within 0.003; Monte Carlo)', () => {
+    const c = paramConstant([0, 1], [0.5, 0.5], 0.025, 0.025, cholesky(Float64Array.of(1, 0.5, 0.5, 1), 2), mulberry32(2011));
+    return Math.abs(c - 1.078306) < 0.003 || 'got ' + c.toFixed(4);
+  });
+  check('Bretz et al. (2011) section 4.1, p. 908: truncated Holm with gamma 1/2, alpha 0.05, p = (0.0121, 0.0337, 0.0084, 0.0160): adjusted p = 0.024, 0.045, 0.045, 0.045 (to 3 decimal places)', () => {
+    const o = truncatedHolmTemplate(); o.vars = { 'γ': '1/2' };
+    const G = load(o), adj = adjustedPValues(stateFromGraph(G), pOfG(G, [0.0121, 0.0337, 0.0084, 0.0160]));
+    const got = G.nodes.map(n => adj.get(n.id).toFixed(3)).join(' ');
+    return got === '0.024 0.045 0.045 0.045' || 'got ' + got;
+  });
+  check('Bretz, Maurer and Hommel (2011) section 3.3, p. 1495, and Appendix: after rejecting H31, H21 and H32, H11 and H22 are left at levels 2α/3 and α/3, with the final edges of the paper\'s SAS output', () => {
+    const G = load(templateJSON('bretz2011')), id = l => G.nodes.find(n => n.label === l).id;
+    let st = stateFromGraph(G);
+    for (const l of ['H31', 'H21', 'H32']) st = rejectNode(st, id(l));
+    const got = [Q.exact(st.w.get(id('H11'))), Q.exact(st.w.get(id('H22'))), Q.exact(st.w.get(id('H12'))), ...[['H11', 'H12'], ['H11', 'H22'], ['H12', 'H11'], ['H12', 'H22'], ['H22', 'H11']].map(([a, b]) => Q.exact(getg(st, id(a), id(b))))].join(' ');
+    return got === '2/3 1/3 0 2/3 1/3 1/2 1/2 1' || 'got ' + got;
+  });
+  check('gMCP vignette "Weighted parametric tests defined by graphs", pp. 6-7: z = (2.24, 2.24, 2.24, 2.3): Bonferroni adjusted p = 0.02509 for all four; at alpha 0.025 Bonferroni rejects none, the parametric test (rho = 0.5 within each endpoint) rejects H1 only', () => {
+    const G = load(templateJSON('successiveI')), fg = floatGraph(G), p = [2.24, 2.24, 2.24, 2.3].map(pnormUpper);
+    const adj = adjustedPValues(stateFromGraph(G), pOfG(G, p)), a = G.nodes.map(n => adj.get(n.id).toFixed(5)).join(' ');
+    const b = closedTest(fg, p, 0.025, 'bonferroni', { upscale: false }).rejected.join();
+    const corrAt = (i, j) => ((i < 2) === (j < 2) ? 0.5 : null);
+    const r = closedTest(fg, p, 0.025, 'parametric', { upscale: false, corrAt, rand: mulberry32(2011), cache: new Map() }).rejected.join();
+    return (a === '0.02509 0.02509 0.02509 0.02509' && b === 'false,false,false,false' && r === 'true,false,false,false') || `adjusted ${a}; Bonferroni ${b}; parametric ${r}`;
+  });
+  check('graphicalMCP vignette "Graphical multiple comparison procedures based on the closure principle": six hypotheses, alpha 0.025: Bonferroni adjusted p = (0.026, 0.026, 0.028, 0.028, 0.1, 0.028), none rejected; parametric on H1, H2 (rho = 0.5) rejects H1 and H2, adjusted p 0.02413846 (within 0.0005)', () => {
+    const T = [[0, '1/2', '1/4', 0, '1/4', 0], ['1/2', 0, 0, '1/4', 0, '1/4'], [0, 0, 0, 0, '1', 0], ['0.00001', 0, 0, 0, 0, '0.99999'], [0, '0.00001', '0.99999', 0, 0, 0], [0, 0, 0, '1', 0, 0]];
+    const o = { format: 'multiplicity-graph', alpha: 0.025, nodes: ['1/2', '1/2', '0', '0', '0', '0'].map((w, i) => ({ id: String(i), label: 'H' + (i + 1), weight: w, x: i * 60, y: 0, p: '' })), edges: [] };
+    T.forEach((row, i) => row.forEach((v, j) => { if (v !== 0) o.edges.push({ from: String(i), to: String(j), weight: v }); }));
+    const fg = floatGraph(load(o)), p = [0.015, 0.013, 0.01, 0.007, 0.1, 0.0124];
+    const b = closedTest(fg, p, 0.025, 'bonferroni', { upscale: false }), ba = b.adj.map(x => x.toFixed(3)).join(' ');
+    const corrAt = (i, j) => (i < 2 && j < 2 ? 0.5 : null);
+    const r = closedTest(fg, p, 0.025, 'parametric', { upscale: false, corrAt, rand: mulberry32(2011), cache: new Map() });
+    const ok = ba === '0.026 0.026 0.028 0.028 0.100 0.028' && b.rejected.every(x => !x) && r.rejected.join() === 'true,true,false,false,false,false' && Math.abs(r.adj[0] - 0.02413846) < 5e-4;
+    return ok || `Bonferroni ${ba}; parametric ${r.rejected.join()}, adjusted p(H1) ${r.adj[0].toFixed(6)}`;
   });
   check('Genz and Bretz (2009) section 5.5.1: trivariate normal probability 0.8279847 (within 0.001)', () => {
     const R = Float64Array.of(1, 0.6, 1 / 3, 0.6, 1, 11 / 15, 1 / 3, 11 / 15, 1);

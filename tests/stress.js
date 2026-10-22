@@ -743,6 +743,23 @@ check('SAP text over 300 random graphs and every test type: structure, corrected
   }
   return true;
 });
+check('Correlation conflicts: a positive definite matrix gives none; an impossible triple is named exactly; a ±1 pair is named; agrees with the Cholesky test on 500 random matrices', () => {
+  const at = M => (i, j) => M[i][j];
+  if (C.corrConflict([0, 1, 2], at([[1, .5, .5], [.5, 1, .5], [.5, .5, 1]])) !== null) return 'PD matrix flagged';
+  const t = C.corrConflict([0, 1, 2, 3], at([[1, .9, .9, 0], [.9, 1, -.9, 0], [.9, -.9, 1, 0], [0, 0, 0, 1]]));
+  if (!t || t.join() !== '0,1,2') return 'triple: ' + t;
+  const p = C.corrConflict([0, 1, 2], at([[1, 1, 0], [1, 1, 0], [0, 0, 1]]));
+  if (!p || p.join() !== '0,1') return 'pair: ' + p;
+  for (let k = 0; k < 500; k++) {
+    const m = ri(2, 7), M = Array.from({ length: m }, () => Array(m).fill(1));
+    for (let i = 0; i < m; i++) for (let j = i + 1; j < m; j++) M[i][j] = M[j][i] = Math.round((rnd() * 2 - 1) * 100) / 100;
+    const R = new Float64Array(m * m); for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) R[i * m + j] = M[i][j];
+    const pd = !!C.cholesky(R, m), c = C.corrConflict([...Array(m).keys()], at(M));
+    if (pd !== (c === null)) return `case ${k}: Cholesky ${pd}, conflict ${c}`;
+    if (c && c.length < m) { const S = new Float64Array(c.length ** 2); c.forEach((i, a) => c.forEach((j, b) => { S[a * c.length + b] = M[i][j]; })); if (C.cholesky(S, c.length)) return `case ${k}: named set ${c} is fine on its own`; }
+  }
+  return true;
+});
 
 /* ---------- report ---------- */
 Promise.all(results.map(r => r)).then(async () => {

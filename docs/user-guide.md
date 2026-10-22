@@ -1,6 +1,6 @@
 # Multiplicity Graph Sketchpad User Guide
 
-Niamh Fitzgerald · version 1.1.4
+Niamh Fitzgerald · version 1.1.5
 
 The Sketchpad draws, tests and explains graphical multiple testing procedures (Bretz et al., 2009) in the browser. Nothing you enter leaves your computer. This guide covers how to use it, not the method.
 
@@ -17,6 +17,7 @@ Start from a template or from an empty canvas. The template picker in the toolba
 - **Bend an arrow:** drag its weight label, or use the curvature slider in the Graph panel.
 - **Remove:** select, then press Delete. Undo and redo with the arrow buttons or Ctrl+Z and Ctrl+Y.
 - **Matrix tab:** edit the weight vector and transition matrix as numbers. It stays in step with the canvas.
+- **Fit:** the Fit button fits the whole graph in view. The view also refits by itself when the window changes width, unless you have zoomed or moved it. On a phone the graph is fitted below the hint box.
 - **Description and group:** each hypothesis has optional fields such as "dose 1, primary endpoint" and "primary". They feed the plain-language text, the SAP text and the group bands on the canvas.
 
 Alpha is set in the toolbar (default 0.025). Next to it, say whether your p-values are one-sided or two-sided; the SAP text repeats the choice, and the parametric test accepts one-sided p-values only.
@@ -55,7 +56,7 @@ Changing a p-value, a weight or alpha restarts the test. Back to Design returns 
 
 ### Test type (advanced)
 
-The default is the weighted Bonferroni test, which is the one that can be stepped through. Under **Test type** in the Test tab you can switch to the weighted Simes test, Simes within groups (Simes when every hypothesis of an intersection is in the same group, Bonferroni otherwise), or the parametric test for correlated test statistics. These run as a closed test: Run test gives the rejected set, adjusted p-values and, under advanced features, a table of every intersection hypothesis. For the parametric test, enter the known correlations in the matrix and leave unknown pairs blank; known pairs must form complete blocks. Its adjusted p-values come with a Monte Carlo standard error, shown above the table. The upscale box matches gMCP's `upscale = TRUE`. An amber warning line appears above the p-values when a closed test is used on a graph that is not alpha-exhaustive, or with two-sided p-values; it says what to check. The Power tab uses whichever test is selected, and the R exports write the matching gMCP and graphicalMCP calls.
+The default is the weighted Bonferroni test, which is the one that can be stepped through. Under **Test type** in the Test tab you can switch to the weighted Simes test, Simes within groups (Simes when every hypothesis of an intersection is in the same group, Bonferroni otherwise), or the parametric test for correlated test statistics. These run as a closed test: Run test gives the rejected set, adjusted p-values and, under advanced features, a table of every intersection hypothesis. For the parametric test, enter the known correlations in the matrix and leave unknown pairs blank; known pairs must form complete blocks. If some correlations cannot all hold at once, a red message names the hypotheses involved. Its adjusted p-values come with a Monte Carlo standard error, shown above the table. The upscale box matches gMCP's `upscale = TRUE`. An amber warning line appears above the p-values when a closed test is used on a graph that is not alpha-exhaustive, or with two-sided p-values; it says what to check. With a Simes test, a warning also appears if a negative correlation is entered in the Power tab or the Test tab (for Simes within groups, only pairs in the same group count). The Power tab uses whichever test is selected, and the R exports write the matching gMCP and graphicalMCP calls.
 
 ## Explain it to a team
 
@@ -65,7 +66,7 @@ The default is the weighted Bonferroni test, which is the one that can be steppe
 
 ## Power by simulation
 
-The Power tab estimates how often the graph rejects each hypothesis. Enter the power each test would have on its own at the full alpha, and the correlation between the test statistics (one value for every pair, or pair by pair). Define a success rule if you want one, such as "any of H1, H2". Run simulation gives the power for each hypothesis, the chance of at least one and of all rejections, and the expected number rejected. "Keep for comparison" stores a run so you can compare designs side by side. The matching graphicalMCP code is underneath. If you change the graph, the test or any simulation setting after a run, a notice asks you to run again.
+The Power tab estimates how often the graph rejects each hypothesis. Enter the power each test would have on its own at the full alpha, and the correlation between the test statistics (one value for every pair, or pair by pair). If the correlations cannot all hold at once, a red message names the hypotheses involved as soon as you leave the box. Define a success rule if you want one, such as "any of H1, H2". Run simulation gives the power for each hypothesis, the chance of at least one and of all rejections, and the expected number rejected. "Keep for comparison" stores a run so you can compare designs side by side. The matching graphicalMCP code is underneath. If you change the graph, the test or any simulation setting after a run, a notice asks you to run again.
 
 ## Compare two graphs
 

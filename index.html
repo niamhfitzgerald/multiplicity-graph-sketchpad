@@ -537,7 +537,7 @@ table.t td:first-child { white-space: nowrap; }
 <script>
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.1.4';
+const APP_VERSION = '1.1.5';
 const APP_DATE = '2026-10-21';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
@@ -2523,6 +2523,22 @@ function corrBlocks(idx, corrAt) {
   }
   return blocks;
 }
+/* Smallest set of statistics whose correlations cannot all hold at once (null when the block is positive definite).
+   Looks at pairs, then triples (blocks of up to 20), then gives the whole block. */
+function corrConflict(block, corrAt) {
+  const pd = s => { const n = s.length, R = new Float64Array(n * n); s.forEach((i, a) => s.forEach((j, c) => { R[a * n + c] = i === j ? 1 : corrAt(i, j); })); return !!cholesky(R, n); };
+  const n = block.length;
+  if (n < 2 || pd(block)) return null;
+  for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) if (!pd([block[a], block[b]])) return [block[a], block[b]];
+  if (n <= 20) for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) for (let c = b + 1; c < n; c++) if (!pd([block[a], block[b], block[c]])) return [block[a], block[b], block[c]];
+  return block.slice();
+}
+/* Plain-English message for a conflicting set of hypothesis labels */
+function corrConflictText(labels, whole) {
+  if (labels.length === 2) return `The correlation between ${labels[0]} and ${labels[1]} must lie strictly between −1 and 1.`;
+  const list = labels.slice(0, -1).join(', ') + ' and ' + labels[labels.length - 1];
+  return whole && labels.length > 3 ? 'These correlations cannot all hold at once (the matrix is not positive definite). Try values closer to 0.' : `The correlations between ${list} cannot all hold at once (the matrix is not positive definite). Try values closer to 0.`;
+}
 /* c such that P(some Z_i >= z_{1 - c w_i a}) = level, for a block with known correlation. Cached per call context. */
 function paramConstant(block, w, a, level, cholL, rand, cache) {
   const m = block.length;
@@ -2806,6 +2822,76 @@ function runLiteratureSelfTests() {
     if (r.rejected.join() !== 'true,false,true,false') return 'rejected ' + r.rejected.join();
     return Math.abs(r.adj[0] - 0.02431856) < 5e-4 || 'adjusted p(H1) = ' + r.adj[0].toFixed(5);
   });
+  check('Bretz et al. (2009) Fig. 9, pp. 596-597: Holm with an ε edge to H3, alpha 0.05, p = (0.04, 0.01, 0.03): rejects H2, H1, H3 in that order; after H2 the edge H1 to H3 is exactly 1', () => {
+    const e = Q.parse('1/1000'), h = Q.parse('1/2');
+    const s = { ids: ['1', '2', '3'], w: new Map([['1', h], ['2', h], ['3', Q.ZERO]]), g: new Map([[gKey('1', '2'), Q.ONE], [gKey('2', '1'), Q.sub(Q.ONE, e)], [gKey('2', '3'), e]]) };
+    const p = { 1: 0.04, 2: 0.01, 3: 0.03 }, order = runProcedure(s, id => p[id], 0.05).order.join(), e13 = Q.exact(getg(rejectNode(s, '2'), '1', '3'));
+    return (order === '2,1,3' && e13 === '1') || `order ${order}, H1 to H3 ${e13}`;
+  });
+  check('Bretz et al. (2009) Fig. 10, p. 597: two Holm pairs joined by ε edges (r = 0.8, 0.2), alpha 0.05, p = (0.04, 0.01, 0.03, 0.04): after H2 the edge H1 to H3 is 0.8; after H1, H3 and H4 get levels 0.04 and 0.01; all four rejected', () => {
+    const e = Q.parse('1/1000'), h = Q.parse('1/2'), r1 = Q.parse('4/5'), r2 = Q.parse('1/5');
+    const s = { ids: ['1', '2', '3', '4'], w: new Map([['1', h], ['2', h], ['3', Q.ZERO], ['4', Q.ZERO]]), g: new Map([[gKey('1', '2'), Q.ONE], [gKey('2', '1'), Q.sub(Q.ONE, e)], [gKey('2', '3'), Q.mul(r1, e)], [gKey('2', '4'), Q.mul(r2, e)], [gKey('3', '4'), Q.ONE], [gKey('4', '3'), Q.ONE]]) };
+    const p = { 1: 0.04, 2: 0.01, 3: 0.03, 4: 0.04 }, n = runProcedure(s, id => p[id], 0.05).order.length;
+    const s2 = rejectNode(s, '2'), s3 = rejectNode(s2, '1');
+    const got = [Q.exact(getg(s2, '1', '3')), Q.toNum(s3.w.get('3')) * 0.05, Q.toNum(s3.w.get('4')) * 0.05];
+    return (n === 4 && got[0] === '4/5' && Math.abs(got[1] - 0.04) < 1e-12 && Math.abs(got[2] - 0.01) < 1e-12) || `rejected ${n}, H1 to H3 ${got[0]}, levels ${got[1]}, ${got[2]}`;
+  });
+  check('Bretz et al. (2011) Example 1 and Table 1, pp. 897-898: the weights of all 15 intersection hypotheses', () => {
+    const G = load(templateJSON('successiveI')), W = closureWeights(floatGraph(G));
+    /* Table 1, rows as H1 H2 H3 H4 ('-' = not in the intersection) */
+    const T = ['.5 .5 0 0', '.5 .5 0 -', '.5 .5 - 0', '.5 .5 - -', '.5 - 0 .5', '1 - 0 -', '.5 - - .5', '1 - - -', '- .5 .5 0', '- .5 .5 -', '- 1 - 0', '- 1 - -', '- - .5 .5', '- - 1 -', '- - - 1'];
+    const bad = [];
+    for (const row of T) {
+      const v = row.split(' '), mask = v.reduce((a, x, i) => (x === '-' ? a : a | (1 << i)), 0);
+      v.forEach((x, i) => { if (x !== '-' && Math.abs(W[mask * 4 + i] - Number(x)) > 1e-12) bad.push(`row ${row}: H${i + 1} ${W[mask * 4 + i]}`); });
+    }
+    return !bad.length || bad.join('; ');
+  });
+  check('Bretz et al. (2011) section 3.1, p. 899 (Fig. 3): same graph, alpha 0.025, p = (0.01, 0.005, 0.1, 0.5): rejects H1 and H2 only', () => {
+    const G = load(templateJSON('successiveI')), r = labels(G, runProcedure(stateFromGraph(G), pOfG(G, [0.01, 0.005, 0.1, 0.5]), 0.025).order);
+    return r === 'H1,H2' || 'rejected ' + r;
+  });
+  check('Bretz et al. (2011) section 3.3, p. 907: same graph, alpha 0.025, p = (0.01, 0.005, 0.015, 0.022): closed Simes rejects all four, closed Bonferroni only H1 and H2', () => {
+    const fg = floatGraph(load(templateJSON('successiveI'))), p = [0.01, 0.005, 0.015, 0.022];
+    const s = closedTest(fg, p, 0.025, 'simes', { upscale: false }).rejected.join(), b = closedTest(fg, p, 0.025, 'bonferroni', { upscale: false }).rejected.join();
+    return (s === 'true,true,true,true' && b === 'true,true,false,false') || `Simes ${s}; Bonferroni ${b}`;
+  });
+  check('Bretz et al. (2011) section 3.2, p. 903, and the gMCP parametric vignette: c = 1.0783 for two statistics with rho = 0.5, weights 1/2, alpha 0.025 (within 0.003; Monte Carlo)', () => {
+    const c = paramConstant([0, 1], [0.5, 0.5], 0.025, 0.025, cholesky(Float64Array.of(1, 0.5, 0.5, 1), 2), mulberry32(2011));
+    return Math.abs(c - 1.078306) < 0.003 || 'got ' + c.toFixed(4);
+  });
+  check('Bretz et al. (2011) section 4.1, p. 908: truncated Holm with gamma 1/2, alpha 0.05, p = (0.0121, 0.0337, 0.0084, 0.0160): adjusted p = 0.024, 0.045, 0.045, 0.045 (to 3 decimal places)', () => {
+    const o = truncatedHolmTemplate(); o.vars = { 'γ': '1/2' };
+    const G = load(o), adj = adjustedPValues(stateFromGraph(G), pOfG(G, [0.0121, 0.0337, 0.0084, 0.0160]));
+    const got = G.nodes.map(n => adj.get(n.id).toFixed(3)).join(' ');
+    return got === '0.024 0.045 0.045 0.045' || 'got ' + got;
+  });
+  check('Bretz, Maurer and Hommel (2011) section 3.3, p. 1495, and Appendix: after rejecting H31, H21 and H32, H11 and H22 are left at levels 2α/3 and α/3, with the final edges of the paper\'s SAS output', () => {
+    const G = load(templateJSON('bretz2011')), id = l => G.nodes.find(n => n.label === l).id;
+    let st = stateFromGraph(G);
+    for (const l of ['H31', 'H21', 'H32']) st = rejectNode(st, id(l));
+    const got = [Q.exact(st.w.get(id('H11'))), Q.exact(st.w.get(id('H22'))), Q.exact(st.w.get(id('H12'))), ...[['H11', 'H12'], ['H11', 'H22'], ['H12', 'H11'], ['H12', 'H22'], ['H22', 'H11']].map(([a, b]) => Q.exact(getg(st, id(a), id(b))))].join(' ');
+    return got === '2/3 1/3 0 2/3 1/3 1/2 1/2 1' || 'got ' + got;
+  });
+  check('gMCP vignette "Weighted parametric tests defined by graphs", pp. 6-7: z = (2.24, 2.24, 2.24, 2.3): Bonferroni adjusted p = 0.02509 for all four; at alpha 0.025 Bonferroni rejects none, the parametric test (rho = 0.5 within each endpoint) rejects H1 only', () => {
+    const G = load(templateJSON('successiveI')), fg = floatGraph(G), p = [2.24, 2.24, 2.24, 2.3].map(pnormUpper);
+    const adj = adjustedPValues(stateFromGraph(G), pOfG(G, p)), a = G.nodes.map(n => adj.get(n.id).toFixed(5)).join(' ');
+    const b = closedTest(fg, p, 0.025, 'bonferroni', { upscale: false }).rejected.join();
+    const corrAt = (i, j) => ((i < 2) === (j < 2) ? 0.5 : null);
+    const r = closedTest(fg, p, 0.025, 'parametric', { upscale: false, corrAt, rand: mulberry32(2011), cache: new Map() }).rejected.join();
+    return (a === '0.02509 0.02509 0.02509 0.02509' && b === 'false,false,false,false' && r === 'true,false,false,false') || `adjusted ${a}; Bonferroni ${b}; parametric ${r}`;
+  });
+  check('graphicalMCP vignette "Graphical multiple comparison procedures based on the closure principle": six hypotheses, alpha 0.025: Bonferroni adjusted p = (0.026, 0.026, 0.028, 0.028, 0.1, 0.028), none rejected; parametric on H1, H2 (rho = 0.5) rejects H1 and H2, adjusted p 0.02413846 (within 0.0005)', () => {
+    const T = [[0, '1/2', '1/4', 0, '1/4', 0], ['1/2', 0, 0, '1/4', 0, '1/4'], [0, 0, 0, 0, '1', 0], ['0.00001', 0, 0, 0, 0, '0.99999'], [0, '0.00001', '0.99999', 0, 0, 0], [0, 0, 0, '1', 0, 0]];
+    const o = { format: 'multiplicity-graph', alpha: 0.025, nodes: ['1/2', '1/2', '0', '0', '0', '0'].map((w, i) => ({ id: String(i), label: 'H' + (i + 1), weight: w, x: i * 60, y: 0, p: '' })), edges: [] };
+    T.forEach((row, i) => row.forEach((v, j) => { if (v !== 0) o.edges.push({ from: String(i), to: String(j), weight: v }); }));
+    const fg = floatGraph(load(o)), p = [0.015, 0.013, 0.01, 0.007, 0.1, 0.0124];
+    const b = closedTest(fg, p, 0.025, 'bonferroni', { upscale: false }), ba = b.adj.map(x => x.toFixed(3)).join(' ');
+    const corrAt = (i, j) => (i < 2 && j < 2 ? 0.5 : null);
+    const r = closedTest(fg, p, 0.025, 'parametric', { upscale: false, corrAt, rand: mulberry32(2011), cache: new Map() });
+    const ok = ba === '0.026 0.026 0.028 0.028 0.100 0.028' && b.rejected.every(x => !x) && r.rejected.join() === 'true,true,false,false,false,false' && Math.abs(r.adj[0] - 0.02413846) < 5e-4;
+    return ok || `Bonferroni ${ba}; parametric ${r.rejected.join()}, adjusted p(H1) ${r.adj[0].toFixed(6)}`;
+  });
   check('Genz and Bretz (2009) section 5.5.1: trivariate normal probability 0.8279847 (within 0.001)', () => {
     const R = Float64Array.of(1, 0.6, 1 / 3, 0.6, 1, 11 / 15, 1 / 3, 11 / 15, 1);
     const v = mvnLowerSE([1, 4, 2], cholesky(R, 3), 3, mulberry32(9), 512, 12);
@@ -2864,6 +2950,8 @@ let manual = false;
 let animating = false;
 let activeTab = 'graph';
 let view = { cx: 0, cy: 0, k: 1 };
+let autoFit = true; /* true until the user pans or zooms; then a resize keeps their view */
+const narrowScreen = () => window.matchMedia('(max-width: 640px)').matches;
 let drag = null;
 let linking = null;
 let inline = null;
@@ -3076,11 +3164,16 @@ function fitView() {
   const xs = G.nodes.map(n => [n.x - nodeRx(n.label), n.x + nodeRx(n.label)]).flat();
   const ys = G.nodes.map(n => [n.y - NODE_R, n.y + NODE_R]).flat();
   const minX = Math.min(...xs) - 80, maxX = Math.max(...xs) + 80, minY = Math.min(...ys) - 95, maxY = Math.max(...ys) + 90;
-  view.k = Math.max(0.3, Math.min(W / (maxX - minX), H / (maxY - minY), 1.35));
-  view.cx = (minX + maxX) / 2; view.cy = (minY + maxY) / 2;
+  /* On a phone the hint box spans the top of the canvas: fit the graph into the space below it */
+  let top = 0;
+  const chip = $('hintChip');
+  if (narrowScreen() && chip && !chip.hidden && !presenting) top = Math.max(0, Math.min(H * 0.5, chip.getBoundingClientRect().bottom - svg.getBoundingClientRect().top + 6));
+  view.k = Math.max(0.3, Math.min(W / (maxX - minX), (H - top) / (maxY - minY), 1.35));
+  view.cx = (minX + maxX) / 2; view.cy = (minY + maxY) / 2 - top / (2 * view.k);
+  autoFit = true;
   applyView();
 }
-function zoomBy(f) { view.k = Math.max(0.25, Math.min(3, view.k * f)); applyView(); }
+function zoomBy(f) { view.k = Math.max(0.25, Math.min(3, view.k * f)); autoFit = false; applyView(); }
 function toWorld(e) {
   const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
   return { x: pt.x, y: pt.y };
@@ -3534,7 +3627,9 @@ function testCtx() {
 function corrProblem() {
   if (testType() !== 'parametric') return '';
   if (G.sided === 'two') return 'The parametric test needs one-sided p-values: it assumes that Φ⁻¹(1 − p) is multivariate normal, which does not hold for two-sided p-values (gMCP manual). Switch the p-values to one-sided in the toolbar, or choose another test.';
-  try { corrBlocks(G.nodes.map((_, i) => i), testCorrAt); } catch (e) { return e.message; }
+  let blocks;
+  try { blocks = corrBlocks(G.nodes.map((_, i) => i), testCorrAt); } catch (e) { return e.message; }
+  for (const b of blocks) { const bad = corrConflict(b, testCorrAt); if (bad) return corrConflictText(bad.map(i => G.nodes[i].label), bad.length === b.length); }
   const known = Object.keys(G.test.corr).length;
   if (!known) return 'No correlations are entered, so the parametric test is the same as Bonferroni. Enter the known correlations below.';
   return '';
@@ -3551,6 +3646,8 @@ function setMode(m, silent) {
     if (activeTab !== 'matrix') setTab('test');
   } else { T = null; manual = false; if (presenting) { presenting = false; document.body.classList.remove('present'); $('presentBar').hidden = true; } }
   if (!silent) renderAll();
+  /* the hint text changes with the mode; on a phone, refit so it does not cover the graph */
+  if (autoFit && narrowScreen()) requestAnimationFrame(fitView);
 }
 function setWhatIf(on) {
   if (animating || (T && T.running)) return;
@@ -3756,6 +3853,13 @@ function closedWarnings() {
   const out = [];
   if (G.nodes.length > 1 && isAlphaExhaustive(G) === false) out.push(`This graph is not &alpha;-exhaustive. With a closed test, a hypothesis can then be rejected even when the hypotheses that pass &alpha; to it are not. The order of testing that the graph shows is not guaranteed.${G.test.upscale ? ' Upscaling the weights also changes the procedure from the one the graph shows.' : ''}`);
   if (G.sided === 'two' && testType() !== 'parametric') out.push('Two-sided p-values: the closed test controls the two-sided error rate, but not a one-sided rate of &alpha;/2 for claims of benefit. For claims of benefit, set the p-values to one-sided in the toolbar and halve &alpha;.');
+  const neg = simesNegatives();
+  if (neg.length) {
+    const fmtR = v => String(v).replace('-', '−');
+    const allSame = !SIM.useMatrix && neg.length > 1 && neg.every(x => x.where === 'Power tab');
+    const what = allSame ? `The Power tab correlation is ${fmtR(neg[0].v)} for every pair.` : `Negative correlation entered: ${neg.slice(0, 3).map(x => `${esc(x.a)} and ${esc(x.b)}, ${fmtR(x.v)} (${x.where})`).join('; ')}${neg.length > 3 ? `; and ${neg.length - 3} more` : ''}.`;
+    out.push(`${what} The weighted Simes test needs non-negative correlations between the test statistics. With negative correlations it can exceed &alpha; (Samuel-Cahn, 1996). Check the values, or use the Bonferroni or parametric test.`);
+  }
   return out.map(t => `<p class="warn-line" data-warn="closed"><span class="ic" aria-hidden="true">!</span><span><b>Warning:</b> ${t}</span></p>`).join('');
 }
 function testTypeSection() {
@@ -3961,6 +4065,30 @@ function simPower(id) { return SIM.power[id] != null ? SIM.power[id] : '80'; }
 function powerSig() { return simSig() + testType() + G.test.upscale + JSON.stringify(serializeTest(G.test) || '') + JSON.stringify([G.nodes.map(n => simPower(n.id)), SIM.rho, SIM.useMatrix, SIM.useMatrix ? G.nodes.map(a => G.nodes.map(b => corrOf(a.id, b.id))) : null, SIM.success, SIM.n]); }
 function simSig() { return JSON.stringify({ a: G.alpha, n: G.nodes.map(n => [n.id, Q.exact(n.w)]), e: G.edges.map(e => [e.from, e.to, Q.exact(e.g)]) }); }
 const pairKey = (a, b) => (a < b ? a + '|' + b : b + '|' + a);
+/* Live check of the Power tab correlations: '' when they are usable */
+function simCorrProblem() {
+  const m = G.nodes.length;
+  if (m < 2) return '';
+  const ids = G.nodes.map(n => n.id), val = (i, j) => Number(corrOf(ids[i], ids[j]));
+  for (let i = 0; i < m; i++) for (let j = i + 1; j < m; j++) { const v = val(i, j); if (!(v >= -1 && v <= 1)) return 'Correlations must be numbers between −1 and 1.'; }
+  const bad = corrConflict(ids.map((_, i) => i), (i, j) => Math.min(val(i, j), 0.999999));
+  return bad ? corrConflictText(bad.map(i => G.nodes[i].label), bad.length === m) : '';
+}
+/* Negative correlations that matter for a Simes test: from the Power tab and from the Test tab matrix. For Simes within groups, only pairs in the same group. */
+function simesNegatives() {
+  const t = testType();
+  if (t !== 'simes' && t !== 'simes-groups') return [];
+  const out = [], seen = new Set();
+  const counts = (a, b) => t === 'simes' || (a.group && a.group === b.group);
+  G.nodes.forEach((a, i) => G.nodes.forEach((b, j) => {
+    if (j <= i || !counts(a, b)) return;
+    const k = pairKey(a.id, b.id);
+    const v = Number(corrOf(a.id, b.id)), u = G.test.corr[k];
+    if (v < 0 && !seen.has(k)) { seen.add(k); out.push({ a: a.label, b: b.label, v, where: 'Power tab' }); }
+    else if (u != null && u < 0 && !seen.has(k)) { seen.add(k); out.push({ a: a.label, b: b.label, v: u, where: 'Test tab' }); }
+  }));
+  return out;
+}
 function corrOf(a, b) {
   if (SIM.useMatrix && SIM.corr[pairKey(a, b)] != null) return SIM.corr[pairKey(a, b)];
   return SIM.rho;
@@ -3976,8 +4104,9 @@ function renderPowerPanel() {
       return `<tr><th scope="row">${esc(n.label)}</th><td><input id="sp-${n.id}" data-pw="${n.id}" value="${esc(v)}" inputmode="decimal" class="${ok ? '' : 'bad'}" aria-label="Power of ${esc(n.label)} alone, percent"></td><td class="num">${ok ? (za + qnorm(x / 100)).toFixed(2) : ''}</td></tr>`;
     }).join('');
     const m = G.nodes.length;
+    const corrBad = (a, b) => { const v = Number(corrOf(a, b)); return !(v >= -1 && v <= 1); };
     const corrTable = `<label class="chk"><input type="checkbox" id="sim-usematrix" ${SIM.useMatrix ? 'checked' : ''}> Use the values below instead</label>
-      <div class="mx-scroll"><table class="mx"><thead><tr><th></th>${G.nodes.map(n => `<th scope="col">${esc(n.label)}</th>`).join('')}</tr></thead><tbody>${G.nodes.map((a, i) => `<tr><th scope="row">${esc(a.label)}</th>${G.nodes.map((b, j) => j <= i ? `<td style="text-align:center;color:var(--muted)">${j === i ? '1' : ''}</td>` : `<td><input id="sc-${a.id}-${b.id}" data-corr="${pairKey(a.id, b.id)}" value="${esc(String(corrOf(a.id, b.id)))}" aria-label="Correlation between ${esc(a.label)} and ${esc(b.label)}" ${SIM.useMatrix ? '' : 'disabled'}></td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+      <div class="mx-scroll"><table class="mx"><thead><tr><th></th>${G.nodes.map(n => `<th scope="col">${esc(n.label)}</th>`).join('')}</tr></thead><tbody>${G.nodes.map((a, i) => `<tr><th scope="row">${esc(a.label)}</th>${G.nodes.map((b, j) => j <= i ? `<td style="text-align:center;color:var(--muted)">${j === i ? '1' : ''}</td>` : `<td><input id="sc-${a.id}-${b.id}" data-corr="${pairKey(a.id, b.id)}" value="${esc(String(corrOf(a.id, b.id)))}" class="${SIM.useMatrix && corrBad(a.id, b.id) ? 'bad' : ''}" aria-label="Correlation between ${esc(a.label)} and ${esc(b.label)}" ${SIM.useMatrix ? '' : 'disabled'}></td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
     const succ = `<p class="small muted">Count a trial as a success when</p>
       <div class="row-actions"><label class="chk"><input type="radio" name="sim-rule" value="any" ${SIM.success.rule === 'any' ? 'checked' : ''}> any</label><label class="chk"><input type="radio" name="sim-rule" value="all" ${SIM.success.rule === 'all' ? 'checked' : ''}> all</label><span class="small muted" style="align-self:center">of these are rejected:</span></div>
       <div class="row-actions">${G.nodes.map(n => `<label class="chk"><input type="checkbox" data-succ="${n.id}" ${SIM.success.ids.includes(n.id) ? 'checked' : ''}> ${esc(n.label)}</label>`).join('')}</div>`;
@@ -3986,6 +4115,7 @@ function renderPowerPanel() {
       <table class="t"><thead><tr><th scope="col">Hyp.</th><th scope="col">Power alone (%)</th><th scope="col" class="num">Mean z</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="form"><label for="sim-rho">Correlation between test statistics <span class="hint">The same value for every pair, between &minus;1 and 1</span><input class="txt" id="sim-rho" value="${esc(String(SIM.rho))}" inputmode="decimal" style="max-width:8em" ${SIM.useMatrix ? 'disabled' : ''}></label></div>
       ${m > 1 ? det('det-corr', 'Set each pair separately', corrTable) : ''}
+      ${!SIM.error && simCorrProblem() ? `<p class="err-text" id="simCorrMsg">✕ ${esc(simCorrProblem())}</p>` : ''}
       ${det('det-success', 'Define success', succ, SIM.success.ids.length ? `${SIM.success.rule} of ${SIM.success.ids.map(id => (nodeById(id) || {}).label).filter(Boolean).join(', ')}` : '')}
       <div class="row-actions" style="align-items:center"><label for="sim-n" class="small">Simulations</label><select class="sel" id="sim-n">${[2000, 10000, 100000].map(v => `<option value="${v}" ${SIM.n === v ? 'selected' : ''}>${v.toLocaleString('en-GB')}</option>`).join('')}</select>
       <button class="btn primary" data-action="sim-run" ${SIM.running || hasErrors() ? 'disabled' : ''}>${SIM.running ? 'Running…' : 'Run simulation'}</button></div>
@@ -4628,6 +4758,7 @@ function setTab(name) {
   if (name === 'export' && exportView && exportView !== 'load') showExport(exportView);
   if (name === 'power') renderPowerPanel();
   if (name === 'compare') renderComparePanel();
+  if (name === 'test') renderTestPanel();
 }
 function renderAll() {
   V = validateGraph(G, fmt);
@@ -4854,6 +4985,7 @@ svg.addEventListener('pointermove', e => {
     svg.classList.add('panning');
     view.cx = drag.cx - (e.clientX - drag.sx) / view.k;
     view.cy = drag.cy - (e.clientY - drag.sy) / view.k;
+    autoFit = false;
     applyView();
   }
 });
@@ -4904,6 +5036,7 @@ svg.addEventListener('wheel', e => {
   view.cx = p.x - (p.x - view.cx) * view.k / k2;
   view.cy = p.y - (p.y - view.cy) * view.k / k2;
   view.k = k2;
+  autoFit = false;
   applyView();
 }, { passive: false });
 svg.addEventListener('keydown', e => {
@@ -5128,9 +5261,9 @@ $('tab-test').addEventListener('click', e => {
 $('tab-power').addEventListener('change', e => {
   const t = e.target;
   if (t.dataset.pw) { SIM.power[t.dataset.pw] = t.value.trim(); setTimeout(renderPowerPanel, 0); }
-  else if (t.id === 'sim-rho') { SIM.rho = t.value.trim(); setTimeout(renderPowerPanel, 0); }
+  else if (t.id === 'sim-rho') { SIM.rho = t.value.trim(); SIM.error = ''; setTimeout(renderPowerPanel, 0); }
   else if (t.id === 'sim-usematrix') { SIM.useMatrix = t.checked; renderPowerPanel(); }
-  else if (t.dataset.corr) { SIM.corr[t.dataset.corr] = t.value.trim(); }
+  else if (t.dataset.corr) { SIM.corr[t.dataset.corr] = t.value.trim(); SIM.error = ''; setTimeout(renderPowerPanel, 0); }
   else if (t.id === 'sim-n') { SIM.n = Number(t.value); }
   else if (t.name === 'sim-rule') { SIM.success.rule = t.value; renderPowerPanel(); }
   else if (t.dataset.succ) {
@@ -5390,7 +5523,13 @@ window.addEventListener('hashchange', () => {
   if (!h.startsWith('g1') || (G.nodes.length && h === encodeShare(G))) return;
   try { loadGraph(decodeShare(h)); } catch (err) { /* ignore bad links */ }
 });
-new ResizeObserver(() => applyView()).observe(svg);
+/* Refit when the canvas gets wider or narrower (window resized, phone turned), unless the user has moved the view */
+let lastCanvasW = 0;
+new ResizeObserver(() => {
+  const w = Math.round(svg.getBoundingClientRect().width);
+  if (autoFit && lastCanvasW && Math.abs(w - lastCanvasW) > 2) fitView(); else applyView();
+  lastCanvasW = w;
+}).observe(svg);
 
 /* ---------- start ---------- */
 (function init() {

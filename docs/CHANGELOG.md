@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.5 (2026-10-21)
+
+- Self-test: ten more worked examples, each checked against its source with page numbers. Bretz et al. (2009) Figs. 9 and 10 (ε edges). Bretz et al. (2011): Example 1 and Table 1, Fig. 3, the section 3.3 Simes example, the parametric constant c = 1.0783 and the truncated Holm example in section 4.1. Bretz, Maurer and Hommel (2011): the final levels and edges in section 3.3. The gMCP parametric vignette and the graphicalMCP closure vignette. 57 checks in all.
+- Correlations: when some correlations cannot all hold at once (the matrix is not positive definite), a red message names the hypotheses involved. In the Test tab this replaces the error that appeared only on Run test; in the Power tab it appears as soon as you leave the box.
+- Test tab: with a Simes test, a warning when a negative correlation is entered in the Power tab or the Test tab. For Simes within groups, only pairs in the same group count.
+- Phone: Fit places the graph below the hint box, so the hint no longer covers the top of the graph. The view refits when the window changes width, unless you have zoomed or moved it.
+- Engine stress suite: one new check (correlation conflicts, 34 checks). Browser suite: one new step (correlation checks and the Simes warning, 28 checks); the phone step also checks the hint box and the resize rule.
+
 ## 1.1.4 (2026-10-21)
 
 - SAP / protocol text rewritten after a review against the primary papers, the FDA guidance on multiple endpoints (2022) and published SAPs.

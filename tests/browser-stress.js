@@ -432,7 +432,7 @@ async function step(name, fn) {
     await page.keyboard.press('?'); await sleep(50); if (await page.locator('#modal').isHidden()) return '? shortcut';
     await page.click('#modal', { position: { x: 5, y: 5 } }); if (!(await page.locator('#modal').isHidden())) return 'backdrop close';
     await page.click('#moreMenu summary'); await page.click('#selftestBtn'); await sleep(3000);
-    const st = await page.locator('#modalBody p').first().innerText(); if (!/47 of 47 checks passed/.test(st)) return 'self-test: ' + st;
+    const st = await page.locator('#modalBody p').first().innerText(); if (!/57 of 57 checks passed/.test(st)) return 'self-test: ' + st;
     await page.click('#modalClose');
   });
 
@@ -588,7 +588,43 @@ async function step(name, fn) {
     await page.selectOption('#sidedSelect', saved.sided === 'two' ? 'two' : 'one'); await sleep(100);
   });
 
-  await step('Phone-width layout: no horizontal overflow, tabs and toolbar usable at 390px', async () => {
+  await step('Correlation checks: impossible block named in the Test tab and live in the Power tab; Simes warning for negative correlations (Simes within groups: same group only)', async () => {
+    if ((await ev(() => mode)) === 'test') { await page.click('[data-action="exit-test"]'); await sleep(100); }
+    const saved = await ev(() => ({ g: JSON.stringify(serializeGraph(G)), sided: G.sided, adv: advanced, sim: JSON.stringify({ rho: SIM.rho, useMatrix: SIM.useMatrix, corr: SIM.corr }) }));
+    const K = await ev(() => { setAdvanced(true, true); loadGraph(templateJSON('parallel')); const id = G.nodes.map(n => n.id), k = (i, j) => pairKey(id[i], id[j]); G.sided = 'one'; G.test.type = 'parametric'; G.test.corr = { [k(0, 1)]: 0.9, [k(0, 2)]: 0.9, [k(1, 2)]: -0.9 }; SIM.rho = '0.5'; SIM.useMatrix = false; SIM.corr = {}; setTab('test'); renderAll(); return { k01: k(0, 1), k02: k(0, 2), k12: k(1, 2) }; });
+    await openDet('det-testtype');
+    let t = await page.locator('#det-testtype').innerText(); if (!/between H1, H2 and H3 cannot all hold/.test(t)) return 'Test tab block message: ' + t.slice(0, 400);
+    await ev(k => { G.test.corr = { [k]: 1 }; renderAll(); }, K.k01);
+    t = await page.locator('#det-testtype').innerText(); if (!/between H1 and H2 must lie strictly between/.test(t)) return 'Test tab pair message: ' + t.slice(0, 400);
+    await ev(() => { G.test.corr = {}; G.test.type = 'simes'; renderAll(); });
+    await page.click('#tabbtn-power'); await sleep(100);
+    if (await page.locator('#simCorrMsg').count()) return 'message shown for valid correlations';
+    await openDet('det-corr'); await page.check('#sim-usematrix'); await sleep(100);
+    const fill = async (sel, v) => { const c = page.locator(sel); await c.fill(v); await c.press('Tab'); await sleep(120); };
+    await fill(`[data-corr="${K.k01}"]`, '0.9'); await fill(`[data-corr="${K.k02}"]`, '0.9'); await fill(`[data-corr="${K.k12}"]`, '-0.9');
+    let msg = await page.locator('#simCorrMsg').count() ? await page.locator('#simCorrMsg').innerText() : '';
+    if (!/between H1, H2 and H3 cannot all hold/.test(msg)) return 'Power tab live message: ' + msg;
+    await page.click('#tabbtn-test'); await sleep(150);
+    let w = (await page.locator('#tab-test [data-warn="closed"]').allInnerTexts()).join(' | ');
+    if (!/H2 and H3, −0\.9 \(Power tab\)/.test(w) || !/Samuel-Cahn/.test(w)) return 'Simes warning (matrix): ' + w;
+    await ev(() => { G.test.type = 'simes-groups'; G.nodes.forEach((n, i) => { n.group = i < 2 ? 'primary' : 'secondary'; }); renderAll(); });
+    w = (await page.locator('#tab-test [data-warn="closed"]').allInnerTexts()).join(' | ');
+    if (/Negative correlation/.test(w)) return 'Simes within groups should ignore pairs across groups: ' + w;
+    await page.click('#tabbtn-power'); await sleep(100);
+    await fill(`[data-corr="${K.k12}"]`, '0.5'); await fill(`[data-corr="${K.k02}"]`, '0.2'); await fill(`[data-corr="${K.k01}"]`, '-0.3');
+    if (await page.locator('#simCorrMsg').count()) return 'message left after fixing';
+    await page.click('#tabbtn-test'); await sleep(150);
+    w = (await page.locator('#tab-test [data-warn="closed"]').allInnerTexts()).join(' | ');
+    if (!/H1 and H2, −0\.3/.test(w)) return 'Simes within groups, same group: ' + w;
+    await ev(() => { G.test.type = 'simes'; SIM.useMatrix = false; SIM.rho = '-0.2'; renderAll(); });
+    w = (await page.locator('#tab-test [data-warn="closed"]').allInnerTexts()).join(' | ');
+    if (!/−0\.2 for every pair/.test(w)) return 'Simes warning (single value): ' + w;
+    await ev(() => { G.test.type = 'bonferroni'; renderAll(); });
+    w = (await page.locator('#tab-test [data-warn="closed"]').allInnerTexts()).join(' | '); if (w) return 'Bonferroni warned: ' + w;
+    await ev(s => { const o = JSON.parse(s.sim); SIM.rho = o.rho; SIM.useMatrix = o.useMatrix; SIM.corr = o.corr; loadGraph(JSON.parse(s.g)); G.sided = s.sided; setAdvanced(s.adv, true); renderAll(); }, saved);
+  });
+
+  await step('Phone-width layout: no horizontal overflow, tabs and toolbar usable at 390px; the hint box does not cover the graph; a zoomed view is kept on resize', async () => {
     await page.setViewportSize({ width: 390, height: 800 }); await sleep(400);
     const over = await ev(() => document.documentElement.scrollWidth - window.innerWidth);
     if (over > 2) return 'horizontal overflow ' + over + 'px';
@@ -596,7 +632,24 @@ async function step(name, fn) {
     const offs = await ev(() => [...document.querySelectorAll('.topbar .btn, .topbar select, .topbar input')].filter(e => e.offsetParent !== null && !e.closest('.menu-pop')).filter(e => { const r = e.getBoundingClientRect(); return r.width && (r.right > window.innerWidth + 1 || r.left < -1); }).map(e => e.id || e.className));
     if (offs.length) return 'toolbar items off screen: ' + offs.join(',');
     await page.click('#tabbtn-graph');
+    /* the hint box must not cover the graph: after a width change (view not moved), after loading, and in test mode */
+    const saved = await ev(() => JSON.stringify(serializeGraph(G)));
+    const overlap = () => ev(() => { const c = document.getElementById('hintChip'); if (c.hidden) return -999; const cb = c.getBoundingClientRect().bottom; return Math.max(...[...document.querySelectorAll('#canvas .node-body')].map(e => cb - e.getBoundingClientRect().top)); });
+    await page.setViewportSize({ width: 1400, height: 900 }); await sleep(200);
+    await ev(() => { loadGraph(templateJSON('bretz2011')); fitView(); }); await sleep(100);
+    await page.setViewportSize({ width: 390, height: 800 }); await sleep(400);
+    let o = await overlap(); if (o > 0) return 'after narrowing, the hint covers a hypothesis by ' + Math.round(o) + 'px';
+    await ev(() => loadGraph(templateJSON('parallel'))); await sleep(200);
+    o = await overlap(); if (o > 0) return 'after loading, the hint covers a hypothesis by ' + Math.round(o) + 'px';
+    await ev(() => setMode('test')); await sleep(300);
+    o = await overlap(); if (o > 0) return 'in test mode, the hint covers a hypothesis by ' + Math.round(o) + 'px';
+    await ev(() => setMode('design')); await sleep(200);
+    /* a view the user has zoomed is kept when the window changes width */
+    await page.click('#zoomIn'); await sleep(100);
+    const k1 = await ev(() => view.k);
     await page.setViewportSize({ width: 1400, height: 900 }); await sleep(300);
+    if (Math.abs((await ev(() => view.k)) - k1) > 1e-9) return 'zoomed view was refitted on resize';
+    await ev(s => { loadGraph(JSON.parse(s)); }, saved); await sleep(100);
   });
 
   await step('Artifact build (iframe-like, non-top) hides the download buttons until the capability resolves and shows the share code', async () => {
