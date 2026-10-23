@@ -34,6 +34,9 @@ let exportPayload = null;
 let sapHTML = '';
 let bendSliding = false;
 let starterM = 3;
+/* The "Improved fallback I for any m" weights box: on the start panel (starterW) or in the Graph panel (tplW) */
+let starterWOpen = false, starterWFor = 0;
+let tplW = null;
 let mxView = 'current';
 let arrGap = 'normal';
 const GAPS = { compact: 170, normal: 230, wide: 300 };
@@ -48,6 +51,10 @@ let presenting = false;
 let advanced = false; // simple mode hides the matrix, power and technical exports until switched on
 const hist = { past: [], future: [] };
 const SIM = { power: {}, rho: '0.5', useMatrix: false, corr: {}, n: 10000, success: { ids: [], rule: 'any' }, running: null, result: null, runs: [], error: '' };
+/* Help on what correlation to enter, shown in the Power tab and in the parametric help of the Test tab */
+/* Result-text note for correlations entered as 1 and capped at 0.999999 so the matrix is positive definite (runSim and the Compare tab) */
+function corrCapText(capped) { return capped ? ` (${capped} pair${capped > 1 ? 's' : ''} entered as 1 ${capped > 1 ? 'were' : 'was'} set to 0.999999 so that the matrix is positive definite)` : ''; }
+const CORR_WHAT_TO_ENTER = 'What to enter. For two doses compared with one control, the correlation of the two z statistics is &radic;(n&#8321;n&#8322; / ((n&#8321; + n&#8320;)(n&#8322; + n&#8320;))), so 0.5 with equal group sizes (Bretz et al., 2011, p. 904; Li, Deng and Ting, 2023, section 3.4). For the same test in the full population and in a subgroup, it is about the square root of the subgroup\'s share of the sample (Zhao, Dmitrienko and Tamura, 2010, eq. 4). For two endpoints measured on the same patients, it is the correlation between the endpoints. For binary endpoints use the tetrachoric correlation, not the correlation of the 0/1 outcomes (Westfall et al., 2008, p. 620).';
 
 const fmt = q => Q.fmt(q, numMode);
 const editVal = q => (numMode === 'dec' ? Q.dec(q) : (Q.isExactShort(q) ? Q.exact(q) : Q.dec(q)));
@@ -113,6 +120,7 @@ function scheduleHash() {
 function loadGraph(o, opts = {}) {
   const r = deserializeGraph(o, false, nextId);
   if (opts.checkpoint !== false) checkpoint();
+  tplW = null; starterWOpen = false;
   if (mode === 'test') setMode('design', true);
   G = r.G; nextId = r.maxId + 1; sel = null; linking = null;
   if (o.alpha == null) G.alpha = 0.025;
@@ -410,7 +418,14 @@ function miniSVG(o) {
   const sc = Math.min((W - 2 * pad) / Math.max(1, maxX - minX), (H - 2 * pad) / Math.max(1, maxY - minY), 0.3);
   const ox = (W - (maxX - minX) * sc) / 2, oy = (H - (maxY - minY) * sc) / 2;
   const P = o.nodes.map(n => ({ x: ox + (n.x - minX) * sc, y: oy + (n.y - minY) * sc }));
-  const e = o.edges.map(r => { const a = P[+r.from], b = P[+r.to]; return `<line class="mini-e" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"/>`; }).join('');
+  /* an edge that would run over another node is drawn as an arc above it (the return edges of improved fallback I) */
+  const covers = (a, b) => P.some(p => p !== a && p !== b && Math.abs((b.x - a.x) * (a.y - p.y) - (a.x - p.x) * (b.y - a.y)) / Math.hypot(b.x - a.x, b.y - a.y) < 4 && (p.x - a.x) * (p.x - b.x) + (p.y - a.y) * (p.y - b.y) < 0);
+  const e = o.edges.map(r => {
+    const a = P[+r.from], b = P[+r.to];
+    if (!covers(a, b)) return `<line class="mini-e" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"/>`;
+    const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2 - Math.min(22, Math.hypot(b.x - a.x, b.y - a.y) / 3);
+    return `<path class="mini-e" d="M${a.x.toFixed(1)} ${a.y.toFixed(1)} Q${cx.toFixed(1)} ${cy.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)}" fill="none"/>`;
+  }).join('');
   const nn = P.map(p => `<circle class="mini-n" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="6"/>`).join('');
   return `<svg viewBox="0 0 ${W} ${H}" aria-hidden="true">${e}${nn}</svg>`;
 }
@@ -423,11 +438,37 @@ function renderStarter() {
     ['holm', 'Bonferroni-Holm', 'Equal weights, shared out on rejection', generatedTemplate('holm', starterM)],
     ['fixed', 'Fixed sequence', 'Test in a set order', generatedTemplate('fixed', starterM)],
     ['fallback', 'Fallback', 'Split alpha, pass it down the line', generatedTemplate('fallback', starterM)],
+    ['improvedFallbackI', 'Improved fallback I', 'Fallback that returns the last level', generatedTemplate('improvedFallbackI', starterM)],
     ['parallel', 'Parallel gatekeeping', 'Two primary, two secondary', templateJSON('parallel')],
     ['bretz', 'Two doses, two endpoints', 'Maurer et al. (2011)', templateJSON('bretz')]
   ];
   $('starterGrid').innerHTML = cards.map(c => `<button class="start-card" data-start="${c[0]}">${miniSVG(c[3])}<b>${c[1]}</b><span>${c[2]}</span></button>`).join('') +
     '<button class="start-card" data-start="import"><svg viewBox="0 0 140 58" aria-hidden="true"><text x="70" y="38" text-anchor="middle" font-size="22" font-family="monospace" fill="currentColor">c(&hellip;)</text></svg><b>Import from R</b><span>Paste weights and a matrix</span></button>';
+  $('starterWeights').hidden = !starterWOpen;
+  if (starterWOpen && starterWFor !== starterM) { starterWFor = starterM; $('starterW').value = equalWeightsText(starterM); $('starterWMsg').hidden = true; }
+}
+function equalWeightsText(m) { return Array.from({ length: m }, () => `1/${m}`).join(', '); }
+/* Builds "Improved fallback I for any m" from typed weights. Shows the problem in msgEl and returns false if the text is not usable. */
+function createImprovedFallbackI(txt, msgEl) {
+  try {
+    const w = parseWeightList(txt);
+    loadGraph(generatedTemplate('improvedFallbackI', w.length, w));
+    msgEl.hidden = true; starterWOpen = false; tplW = null;
+    return true;
+  } catch (err) { msgEl.hidden = false; msgEl.textContent = '✕ ' + err.message; return false; }
+}
+/* Opens the weights box: on the start panel when the canvas is empty, otherwise at the top of the Graph panel */
+function openImprovedFallbackI() {
+  if (!G.nodes.length) {
+    starterWOpen = true; starterWFor = starterM; $('starterW').value = equalWeightsText(starterM); $('starterWMsg').hidden = true;
+    if (mode === 'test') setMode('design', true);
+    renderStarter(); $('starterW').focus(); $('starterW').select();
+    return;
+  }
+  if (mode === 'test') setMode('design', true);
+  tplW = { text: equalWeightsText(G.nodes.length), msg: '' };
+  setSel(null); setTab('graph'); renderGraphPanel();
+  const el = $('tplW'); if (el) { el.focus(); el.select(); }
 }
 
 function renderStatus() {
@@ -475,6 +516,9 @@ function overviewPanel() {
     return `<tr><td><button class="btn small" data-action="select-node" data-id="${n.id}">${n.color ? `<span class="dot" style="background:${n.color}"></span>` : ''}${esc(n.label)}</button></td><td>${esc(fmt(n.w))}</td><td>${fmtNum(Q.toNum(n.w) * G.alpha)}</td><td class="sum ${st.cls}">${esc(fmt(r))} ${st.text}</td></tr>`;
   }).join('');
   return `<h2>Graph</h2>
+  ${tplW && mode === 'design' ? `<div class="tpl-w"><p class="small"><b>Improved fallback I for any m.</b> Type the initial weights of H1, H2, &hellip; separated by commas. The number of weights sets the number of hypotheses; the last hypothesis returns its level to the others in proportion to these weights. This replaces the current graph (Undo brings it back).</p>
+    <div class="row-actions"><input class="txt" id="tplW" value="${esc(tplW.text)}" aria-label="Initial weights" spellcheck="false"><button class="btn small primary" data-action="tpl-w-create">Create</button><button class="btn small" data-action="tpl-w-cancel">Cancel</button></div>
+    <p class="err-text" id="tplWMsg"${tplW.msg ? '' : ' hidden'}>${esc(tplW.msg)}</p></div>` : ''}
   ${G.note ? `<p class="note">${esc(G.note)}</p>` : ''}
   ${plain && G.nodes.length ? `<div class="plain">${plainGraphText(G, plainName).map(t => `<p>${esc(t)}</p>`).join('')}</div>` : ''}
   ${G.nodes.length ? `<table class="t"><thead><tr><th scope="col">Hypothesis</th><th scope="col">Weight</th><th scope="col">Level w&alpha;</th><th scope="col">Passed on</th></tr></thead><tbody>${rows}</tbody></table>
@@ -711,7 +755,7 @@ function setMode(m, silent) {
   closeInline(false); linking = null; overlay.innerHTML = '';
   mode = m;
   if (m === 'test') {
-    T = newTest(); mxView = 'current';
+    T = newTest(); mxView = 'current'; tplW = null;
     if (sel) sel = null;
     if (activeTab !== 'matrix') setTab('test');
   } else { T = null; manual = false; if (presenting) { presenting = false; document.body.classList.remove('present'); $('presentBar').hidden = true; } }
@@ -942,6 +986,7 @@ function testTypeSection() {
   else {
     const prob = corrProblem();
     body += `<p class="small muted">Weighted parametric test (Xi et al., 2017, section 4.3, eq. 6): within each block of hypotheses with known correlations the test uses the multivariate normal distribution of the one-sided test statistics, with a separate constant for each block, and blocks are combined by Bonferroni. gMCP uses one common constant for all blocks instead (Bretz et al., 2011, eq. 3), so its results can differ slightly. It assumes that Φ⁻¹(1 − p) is multivariate normal under the null with the correlations entered here, so the p-values must be one-sided. Leave a pair blank when its correlation is unknown; known pairs must form complete blocks.</p>
+      <p class="small muted">${CORR_WHAT_TO_ENTER}</p>
       ${prob ? `<p class="${/same as Bonferroni/.test(prob) ? 'small muted' : 'err-text'}">${/same as Bonferroni/.test(prob) ? '' : '✕ '}${esc(prob)}</p>` : ''}
       <div class="mx-scroll"><table class="mx"><thead><tr><th></th>${G.nodes.map(n => `<th scope="col">${esc(n.label)}</th>`).join('')}</tr></thead><tbody>${G.nodes.map((a, i) => `<tr><th scope="row">${esc(a.label)}</th>${G.nodes.map((b, j) => j <= i ? `<td style="text-align:center;color:var(--muted)">${j === i ? '1' : ''}</td>` : `<td><input id="tc-${a.id}-${b.id}" data-tcorr="${a.id < b.id ? a.id + '|' + b.id : b.id + '|' + a.id}" value="${testCorrAt(i, j) == null ? '' : esc(String(testCorrAt(i, j)))}" placeholder="?" aria-label="Correlation between ${esc(a.label)} and ${esc(b.label)}"></td>`).join('')}</tr>`).join('')}</tbody></table></div>
       <div class="row-actions" style="align-items:center"><label class="small" for="tcFill">Fill every pair with</label><input class="txt" id="tcFill" value="0.5" style="width:5em"><button class="btn small" data-action="tc-fill">Fill</button><button class="btn small" data-action="tc-clear">Clear all</button>${G.nodes.length > 1 ? '<button class="btn small" data-action="tc-from-sim">Copy from the power simulation</button>' : ''}</div>`;
@@ -1088,6 +1133,7 @@ function renderTestPanel() {
     if (badP.length) h += `<p class="err-text">✕ ${badP.map(n => esc(n.label)).join(', ')}: a p-value must be a number between 0 and 1.</p>`;
     const missing = G.nodes.filter(n => parseP(n.p) == null);
     if (!manual && missing.length && missing.length < G.nodes.length) h += `<p class="small muted">No p-value yet for ${missing.map(n => esc(n.label)).join(', ')}; ${missing.length > 1 ? 'they' : 'it'} will not be rejected.</p>`;
+    if (isBonf() && !manual) h += '<p class="small muted">A hypothesis is rejected when its p-value is at or below its level (Bretz et al., 2009, Algorithm 1).</p>';
     if (!inTest) {
       const can = G.nodes.length && !errs && G.nodes.some(n => { const p = parseP(n.p); return p != null && !Number.isNaN(p); });
       h += `<div class="row-actions"><button class="btn primary" data-action="run" ${can ? '' : 'disabled'}>Run test</button>${isBonf() ? `<button class="btn" data-action="enter-test" ${G.nodes.length && !errs ? '' : 'disabled'}>Step through it</button><button class="btn" data-action="mode-whatif" ${G.nodes.length && !errs ? '' : 'disabled'}>What if (no p-values)</button>` : `<button class="btn" data-action="mode-whatif" ${G.nodes.length && !errs ? '' : 'disabled'}>What if (Bonferroni graph)</button>`}</div>`;
@@ -1181,9 +1227,10 @@ function renderPowerPanel() {
       <div class="row-actions"><label class="chk"><input type="radio" name="sim-rule" value="any" ${SIM.success.rule === 'any' ? 'checked' : ''}> any</label><label class="chk"><input type="radio" name="sim-rule" value="all" ${SIM.success.rule === 'all' ? 'checked' : ''}> all</label><span class="small muted" style="align-self:center">of these are rejected:</span></div>
       <div class="row-actions">${G.nodes.map(n => `<label class="chk"><input type="checkbox" data-succ="${n.id}" ${SIM.success.ids.includes(n.id) ? 'checked' : ''}> ${esc(n.label)}</label>`).join('')}</div>`;
     let h = `<h2>Power by simulation</h2>
-      <p class="small muted">How often does the graph reject each hypothesis? Set the power each test would have on its own at the full &alpha;, and how correlated the test statistics are. One-sided z-tests, initial graph, &alpha; = ${fmtNum(G.alpha)}, ${esc(TEST_TYPES[testType()])} test (set in the Test tab).${G.sided === 'two' ? ' The p-values are set to two-sided in the toolbar, but the simulation is one-sided: read its &alpha; as a one-sided level.' : ''}</p>
+      <p class="small muted">How often does the graph reject each hypothesis? Set the power each test would have on its own at the full &alpha;, and how correlated the test statistics are. The mean of each z statistic is then &Phi;&#8315;&sup1;(1 &minus; &alpha;) + &Phi;&#8315;&sup1;(power), with the trial\'s one-sided &alpha; (Xi and Chen, 2024, eq. 2). One-sided z-tests, initial graph, &alpha; = ${fmtNum(G.alpha)}, ${esc(TEST_TYPES[testType()])} test (set in the Test tab).${G.sided === 'two' ? ' The p-values are set to two-sided in the toolbar, but the simulation is one-sided: read its &alpha; as a one-sided level.' : ''}</p>
       <table class="t"><thead><tr><th scope="col">Hyp.</th><th scope="col">Power alone (%)</th><th scope="col" class="num">Mean z</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="form"><label for="sim-rho">Correlation between test statistics <span class="hint">The same value for every pair, between &minus;1 and 1</span><input class="txt" id="sim-rho" value="${esc(String(SIM.rho))}" inputmode="decimal" style="max-width:8em" ${SIM.useMatrix ? 'disabled' : ''}></label></div>
+      <p class="small muted">${CORR_WHAT_TO_ENTER}</p>
       ${m > 1 ? det('det-corr', 'Set each pair separately', corrTable) : ''}
       ${!SIM.error && simCorrProblem() ? `<p class="err-text" id="simCorrMsg">✕ ${esc(simCorrProblem())}</p>` : ''}
       ${det('det-success', 'Define success', succ, SIM.success.ids.length ? `${SIM.success.rule} of ${SIM.success.ids.map(id => (nodeById(id) || {}).label).filter(Boolean).join(', ')}` : '')}
@@ -1228,10 +1275,12 @@ function runSim() {
   const pw = G.nodes.map(n => Number(simPower(n.id)));
   if (pw.some(x => !(x > 0 && x < 100))) { SIM.error = 'Each power must be a percentage between 0 and 100, such as 80.'; renderPowerPanel(); return; }
   const Rm = new Float64Array(m * m);
+  let capped = 0;
   for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) {
     const v = i === j ? 1 : Number(corrOf(G.nodes[i].id, G.nodes[j].id));
     if (!(v >= -1 && v <= 1)) { SIM.error = 'Correlations must be numbers between −1 and 1.'; renderPowerPanel(); return; }
     Rm[i * m + j] = i === j ? 1 : Math.min(v, 0.999999);
+    if (i < j && v > 0.999999) capped++;
   }
   const L = cholesky(Rm, m);
   if (!L) { SIM.error = 'Those correlations cannot all hold at once (the matrix is not positive definite). Try values closer to 0.'; renderPowerPanel(); return; }
@@ -1255,7 +1304,7 @@ function runSim() {
     } catch (err) { SIM.error = err.message; renderPowerPanel(); return; }
   } else testNote = 'Bonferroni' + (G.test.upscale ? ' (upscale is ignored in the step-by-step Bonferroni test)' : '');
   const total = SIM.n, sig = powerSig();
-  const corrText = SIM.useMatrix ? 'set pair by pair' : `${Number(SIM.rho)} for every pair`;
+  const corrText = (SIM.useMatrix ? 'set pair by pair' : `${Number(SIM.rho)} for every pair`) + corrCapText(capped);
   const successText = success ? `${success.rule} of ${sIdx.map(i => G.nodes[i].label).join(', ')}` : '';
   const labels = G.nodes.map(n => n.label), pwTxt = pw.map(x => fmtNum(x, 4));
   SIM.running = { done: 0, total };
@@ -1706,7 +1755,8 @@ function runComparePower() {
   const pw = G.nodes.map(n => Number(simPower(n.id)));
   if (pw.some(x => !(x > 0 && x < 100))) { CMP.error = 'Each power in the Power tab must be a percentage between 0 and 100.'; renderComparePanel(); return; }
   const Rm = new Float64Array(m * m);
-  for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) { const v = i === j ? 1 : Number(corrOf(G.nodes[i].id, G.nodes[j].id)); if (!(v >= -1 && v <= 1)) { CMP.error = 'Correlations in the Power tab must be numbers between −1 and 1.'; renderComparePanel(); return; } Rm[i * m + j] = i === j ? 1 : Math.min(v, 0.999999); }
+  let capped = 0;
+  for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) { const v = i === j ? 1 : Number(corrOf(G.nodes[i].id, G.nodes[j].id)); if (!(v >= -1 && v <= 1)) { CMP.error = 'Correlations in the Power tab must be numbers between −1 and 1.'; renderComparePanel(); return; } Rm[i * m + j] = i === j ? 1 : Math.min(v, 0.999999); if (i < j && v > 0.999999) capped++; }
   const L = cholesky(Rm, m);
   if (!L) { CMP.error = 'The correlations in the Power tab cannot all hold at once (the matrix is not positive definite).'; renderComparePanel(); return; }
   const za = qnorm(1 - G.alpha), mean = pw.map(x => za + qnorm(x / 100));
@@ -1728,7 +1778,7 @@ function runComparePower() {
   }
   const total = SIM.n, tally = newPairedTally(m), norm = normalGen(mulberry32(2009));
   const sig = cmpSig() + '|' + powerSig();
-  const corrText = SIM.useMatrix ? 'set pair by pair' : `${Number(SIM.rho)} for every pair`;
+  const corrText = (SIM.useMatrix ? 'set pair by pair' : `${Number(SIM.rho)} for every pair`) + corrCapText(capped);
   const successText = success ? `${success.rule} of ${sIdx.map(i => G.nodes[i].label).join(', ')}` : '';
   const labels = G.nodes.map(n => n.label);
   CMP.running = { done: 0, total }; renderComparePanel();
@@ -2181,8 +2231,14 @@ $('tab-graph').addEventListener('change', e => {
     bendSliding = false; renderGraphPanel(); scheduleHash();
   }
 });
+$('tab-graph').addEventListener('keydown', e => {
+  if (e.target.id !== 'tplW' || !tplW) return;
+  if (e.key === 'Enter') { e.preventDefault(); if (!createImprovedFallbackI(e.target.value, $('tplWMsg'))) tplW.msg = $('tplWMsg').textContent; }
+  else if (e.key === 'Escape') { e.stopPropagation(); tplW = null; renderGraphPanel(); }
+});
 $('tab-graph').addEventListener('input', e => {
   const t = e.target;
+  if (t.id === 'tplW' && tplW) { tplW.text = t.value; return; }
   if (t.id === 'edge-bend' && sel && sel.type === 'edge') {
     const [a, b] = sel.key.split('>');
     const ed = edgeOf(a, b);
@@ -2206,6 +2262,8 @@ $('tab-graph').addEventListener('click', e => {
   else if (act === 'color-all' && sel && sel.type === 'node') { const c = (nodeById(sel.id) || {}).color || ''; setColors(G.nodes.map(n => n.id), c); }
   else if (act === 'equal-row' && sel && sel.type === 'node') doFix({ act: 'equalRow', id: sel.id });
   else if (act === 'equal-w') doFix({ act: 'equalW' });
+  else if (act === 'tpl-w-create' && tplW) { const txt = $('tplW').value; if (!createImprovedFallbackI(txt, $('tplWMsg'))) tplW.msg = $('tplWMsg').textContent; }
+  else if (act === 'tpl-w-cancel') { tplW = null; renderGraphPanel(); }
   else if (act === 'vars-fix') { checkpoint(); G.nodes.forEach(n => { delete n.wexpr; }); G.edges.forEach(e => { delete e.expr; }); G.vars = {}; afterChange(); }
   else if (act === 'join') { const k = $('joinSelect').value; if (TEMPLATES[k]) loadGraph(joinGraphs(G, deserializeGraph(templateJSON(k), false, 1).G)); }
   else if (act === 'subgraph') {
@@ -2390,9 +2448,12 @@ $('starter').addEventListener('click', e => {
   if (!c) return;
   const k = c.dataset.start;
   if (k === 'import') openImport();
+  else if (k === 'improvedFallbackI') openImprovedFallbackI();
   else if (TEMPLATE_GEN[k]) loadGraph(generatedTemplate(k, starterM));
   else loadGraph(templateJSON(k));
 });
+$('starterWBtn').addEventListener('click', () => createImprovedFallbackI($('starterW').value, $('starterWMsg')));
+$('starterW').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); createImprovedFallbackI($('starterW').value, $('starterWMsg')); } else if (e.key === 'Escape') { starterWOpen = false; renderStarter(); } });
 
 /* ---------- toolbar events ---------- */
 $('modeDesign').addEventListener('click', () => setMode('design'));
@@ -2416,6 +2477,7 @@ $('templateSelect').addEventListener('change', e => {
   e.target.value = '';
   if (v === 'cycle') { const m = Math.max(2, Math.min(12, starterM)); loadGraph(cycleTemplate(m)); }
   else if (v === 'truncatedHolm') loadGraph(truncatedHolmTemplate());
+  else if (v === 'improvedFallbackIAny') openImprovedFallbackI();
   else if (v && TEMPLATES[v]) loadGraph(templateJSON(v));
 });
 $('undoBtn').addEventListener('click', undo);
@@ -2506,25 +2568,42 @@ const REFERENCES = [
   ['Xi2017', 'Xi D, Glimm E, Maurer W, Bretz F (2017). A unified framework for weighted parametric multiple test procedures. Biometrical Journal 59(5):918–931. doi:10.1002/bimj.201600233', 'The parametric test used here: adjusted p-values within blocks of known correlation, Bonferroni between blocks.'],
   ['BMH2011', 'Bretz F, Maurer W, Hommel G (2011). Test and power considerations for multiple endpoint analyses using sequentially rejective graphical procedures. Statistics in Medicine 30(13):1489–1501. doi:10.1002/sim.3988', 'Worked trial example (three doses, two endpoints template) and power measures.'],
   ['Maurer2011', 'Maurer W, Glimm E, Bretz F (2011). Multiple and repeated testing of primary, coprimary, and secondary hypotheses. Statistics in Biopharmaceutical Research 3(2):336–352. doi:10.1198/sbr.2010.10010', 'Successive procedures (the two doses, two endpoints and successive templates).'],
+  ['Glimm2010', 'Glimm E, Maurer W, Bretz F (2010). Hierarchical testing of multiple endpoints in group-sequential trials. Statistics in Medicine 29(2):219–228. doi:10.1002/sim.3748', 'Why a secondary hypothesis must not be tested at the full α once its primary is rejected at an interim analysis (cited in the SAP interim analyses placeholder).'],
+  ['MaurerBretz2013a', 'Maurer W, Bretz F (2013). Memory and other properties of multiple test procedures generated by entangled graphs. Statistics in Medicine 32(10):1739–1753. doi:10.1002/sim.5711', 'Entangled graphs (not covered here); the definition of an alpha-exhaustive weighting scheme (eq. 3).'],
+  ['MaurerBretz2013b', 'Maurer W, Bretz F (2013). Multiple testing in group sequential trials using graphical approaches. Statistics in Biopharmaceutical Research 5(4):311–320.', 'Group sequential use of a graph (not covered here): boundaries from the spending function at the local level, repeated p-values.'],
   ['Hommel2007', 'Hommel G, Bretz F, Maurer W (2007). Powerful short-cuts for multiple testing procedures with special reference to gatekeeping strategies. Statistics in Medicine 26(22):4063–4073. doi:10.1002/sim.2873', 'Why the step-by-step procedure equals the full closed test; improved parallel gatekeeping.'],
   ['Hommel2008', 'Hommel G, Bretz F (2008). Aesthetics and power considerations in multiple testing: a contradiction? Biometrical Journal 50(5):657–666. doi:10.1002/bimj.200710463', 'Shows the weakness of the fallback procedure that the improved fallback graphs address; the improved fallback II graph itself is Bretz et al. (2009), Fig. 11.'],
   ['Wiens2003', 'Wiens BL (2003). A fixed sequence Bonferroni procedure for testing multiple endpoints. Pharmaceutical Statistics 2(3):211–215. doi:10.1002/pst.64', 'The fallback procedure.'],
   ['Wiens2005', 'Wiens BL, Dmitrienko A (2005). The fallback procedure for evaluating a single family of hypotheses. Journal of Biopharmaceutical Statistics 15(6):929–942.', 'Improved fallback I.'],
   ['Westfall2001', 'Westfall PH, Krishen A (2001). Optimally weighted, fixed sequence, and gatekeeping multiple testing procedures. Journal of Statistical Planning and Inference 99(1):25–40.', 'Fixed-sequence testing.'],
+  ['Zhang2015', 'Zhang Z, Wang C, Troendle JF (2015). Optimizing the order of hypotheses in serial testing of multiple endpoints in clinical trials. Statistics in Medicine 34(9):1467–1482.', 'Why the order of a fixed sequence matters, and when Holm is safer (fixed sequence template notes).'],
+  ['Paux2018', 'Paux G, Dmitrienko A (2018). Penalty-based approaches to evaluating multiplicity adjustments in clinical trials: traditional multiplicity problems. Journal of Biopharmaceutical Statistics 28(1):146–168.', 'Fixed sequence lacks robustness when the effects are uncertain (fixed sequence template notes).'],
   ['Dmitrienko2003', 'Dmitrienko A, Offen WW, Westfall PH (2003). Gatekeeping strategies for clinical trials that do not require all primary effects to be significant. Statistics in Medicine 22(15):2387–2400. doi:10.1002/sim.1526', 'Parallel gatekeeping.'],
+  ['Li2023', 'Li X, Deng Q, Ting N (2023). Consistency based multiplicity adjustment approach: multiple doses in phase III studies. Statistics in Biopharmaceutical Research 15(4):748–754. doi:10.1080/19466315.2022.2127872', 'Section 3.4: the correlation between two dose-versus-control z statistics (correlation help in the Power and Test tabs).'],
+  ['Zhao2010', 'Zhao YD, Dmitrienko A, Tamura R (2010). Design and analysis considerations in clinical trials with a sensitive subpopulation. Statistics in Biopharmaceutical Research 2(1):72–83.', 'Eq. 4: the correlation between a full-population test and a subgroup test (correlation help).'],
+  ['Westfall2008', 'Westfall PH, Tsai K, Ogenstad S, Tomoiaga A, Moseley S, Lu Y (2008). Clinical trials simulation: a statistical approach. Journal of Biopharmaceutical Statistics 18(4):611–630. doi:10.1080/10543400802071303', 'Binary endpoints need the tetrachoric correlation as the latent-normal input (correlation help).'],
+  ['XiChen2024', 'Xi D, Chen Y (2024). Optimal weighted Bonferroni tests and their graphical extensions. Statistics in Medicine 43(3):475–500.', 'Eq. 2: the mean of a z statistic from its marginal power (Power tab).'],
   ['Dmitrienko2008', 'Dmitrienko A, Tamhane AC, Wiens BL (2008). General multistage gatekeeping procedures. Biometrical Journal 50(5):667–677.', 'Truncated Holm (the γ template).'],
+  ['Huque2013', 'Huque MF, Dmitrienko A, D\'Agostino R (2013). Multiplicity issues in clinical trials with multiple objectives. Statistics in Biopharmaceutical Research 5(4):321–337. doi:10.1080/19466315.2013.807749', 'Fig. 4: the improved fallback graph with any split r of the last hypothesis\'s level between the earlier ones; also fixed sequence, fallback and truncated Holm drawn as graphs.'],
   ['Holm1979', 'Holm S (1979). A simple sequentially rejective multiple test procedure. Scandinavian Journal of Statistics 6(2):65–70.', 'Bonferroni-Holm.'],
   ['Marcus1976', 'Marcus R, Peritz E, Gabriel KR (1976). On closed testing procedures with special reference to ordered analysis of variance. Biometrika 63(3):655–660.', 'The closure principle.'],
   ['Simes1986', 'Simes RJ (1986). An improved Bonferroni procedure for multiple tests of significance. Biometrika 73(3):751–754.', 'The Simes test.'],
   ['Sarkar1998', 'Sarkar SK (1998). Some probability inequalities for ordered MTP2 random variables: a proof of the Simes conjecture. Annals of Statistics 26(2):494–504.', 'The (unweighted) Simes inequality for MTP2 statistics.'],
   ['SamuelCahn1996', 'Samuel-Cahn E (1996). Is the Simes improved Bonferroni procedure conservative? Biometrika 83(4):928–933.', 'When the Simes test is not valid (negative dependence).'],
+  ['Brannath2009', 'Brannath W, Bretz F, Maurer W, Sarkar S (2009). Trimmed weighted Simes’ test for two one-sided hypotheses with arbitrarily correlated test statistics. Biometrical Journal 51(6):885–898. doi:10.1002/bimj.200900132', 'Inflation of the one-sided Simes test under negative correlation (up to 1.5α for two hypotheses); the trimmed test is not offered here.'],
   ['BH1997', 'Benjamini Y, Hochberg Y (1997). Multiple hypotheses testing with weights. Scandinavian Journal of Statistics 24(3):407–418.', 'The weighted Simes test.'],
   ['BY2001', 'Benjamini Y, Yekutieli D (2001). The control of the false discovery rate in multiple testing under dependency. Annals of Statistics 29(4):1165–1188.', 'Positive regression dependence (PRDS); one-sided multivariate normal statistics with non-negative correlations are PRDS.'],
-  ['BHeller2007', 'Benjamini Y, Heller R (2007). False discovery rates for spatial signals. Journal of the American Statistical Association 102(480):1272–1281.', 'When the weighted Simes test is valid (PRDS, with the one-sided normal example), citing Kling (2005).'],
+  ['Kling2005', 'Kling Y (2005). Issues of multiple hypotheses testing in statistical process control. PhD thesis, Tel Aviv University.', 'The PRDS result for the weighted Simes test, as cited by Bretz et al. (2011, section 3.3); unpublished, so not checked here.'],
+  ['BHeller2007', 'Benjamini Y, Heller R (2007). False discovery rates for spatial signals. Journal of the American Statistical Association 102(480):1272–1281.', 'The one-sided multivariate normal example (non-negative correlations) under which the weighted Simes test is valid, as cited by Bretz et al. (2011, section 3.3).'],
   ['BrannathBretz2010', 'Brannath W, Bretz F (2010). Shortcuts for locally consonant closed test procedures. Journal of the American Statistical Association 105(490):660–669.', 'Restricted hypotheses (when the free combination condition fails).'],
+  ['Strassburger2008', 'Strassburger K, Bretz F (2008). Compatible simultaneous lower confidence bounds for the Holm procedure and other Bonferroni-based closed tests. Statistics in Medicine 27(24):4914–4927. doi:10.1002/sim.3338', 'Simultaneous confidence intervals compatible with Bonferroni-based closed tests (not computed here).'],
+  ['Guilbaud2008', 'Guilbaud O (2008). Simultaneous confidence regions corresponding to Holm’s step-down procedure and other closed-testing procedures. Biometrical Journal 50(5):678–692. doi:10.1002/bimj.200710449', 'Simultaneous confidence regions for Holm, fixed sequence, gatekeeping and fallback procedures (not computed here).'],
+  ['Guilbaud2018', 'Guilbaud O (2018). Simultaneous confidence intervals compatible with sequentially rejective graphical procedures. Statistics in Biopharmaceutical Research 10(3):220–232. doi:10.1080/19466315.2018.1497532', 'Simultaneous confidence intervals for graphical procedures (not computed here); truncated Holm as a graph for two primary hypotheses only.'],
+  ['Klinglmueller2014', 'Klinglmueller F, Posch M, Koenig F (2014). Adaptive graph-based multiple testing procedures. Pharmaceutical Statistics 13(6):345–356. doi:10.1002/pst.1640', 'Graphical procedures in adaptive designs with an interim analysis (not covered here).'],
   ['Lu2016', 'Lu K (2016). Graphical approaches using a Bonferroni mixture of weighted Simes tests. Statistics in Medicine 35(22):4041–4055.', 'Adjusted p-values for the Bonferroni mixture of Simes tests (Bretz et al., 2011, eq. 8).'],
   ['FDA2022', 'US Food and Drug Administration (2022). Multiple Endpoints in Clinical Trials: Guidance for Industry. October 2022.', 'Regulatory context; graphical approaches in the Appendix, section 8.'],
   ['EMA2002', 'European Medicines Agency, CPMP (2002). Points to consider on multiplicity issues in clinical trials. CPMP/EWP/908/99.', 'Regulatory context: strong control, prespecification in the protocol or analysis plan.'],
+  ['EMA2017', 'European Medicines Agency, CHMP (2017). Guideline on multiplicity issues in clinical trials (draft). EMA/CHMP/44762/2017.', 'Draft to replace the 2002 Points to Consider. Hierarchical testing in sections 5.1 and 6.2; the procedure must be in the protocol. It does not name graphical approaches.'],
   ['Genz2009', 'Genz A, Bretz F (2009). Computation of Multivariate Normal and t Probabilities. Lecture Notes in Statistics 195. Springer. doi:10.1007/978-3-642-01689-9', 'The randomised lattice rule used for the multivariate normal probabilities in the parametric test.'],
   ['gMCP', 'Rohmeyer K, Klinglmüller F (2024). gMCP: Graph Based Multiple Comparison Procedures. R package version 0.8-17. https://github.com/kornl/gMCP', 'Templates, ε convention, upscale option, Simes within groups rule; R export.'],
   ['graphicalMCP', 'Xi D, Brockmann E (2025). graphicalMCP: Graphical Multiple Comparison Procedures. R package version 0.3.0. https://openpharma.github.io/graphicalMCP/', 'R export and the validation scripts.']
@@ -2546,7 +2625,7 @@ function aboutHTML() {
     <li>The Bonferroni procedure controls the familywise error rate in the strong sense for any dependence between the test statistics. The Simes options need positively dependent (PRDS or MTP2) one-sided statistics; the parametric option needs one-sided p-values whose statistics are multivariate normal with the correlations you enter. The SAP text states the condition for the test you chose.</li>
     <li>Parametric adjusted p-values are Monte Carlo estimates (512-point lattice, 12 random shifts); the standard error is shown with the result. For a regulatory submission, confirm them in R with graphicalMCP or gMCP using the exported code.</li>
     <li>Closed tests are available for up to 12 hypotheses; the step-by-step view, adjusted p-values and power simulation for the Bonferroni graph have no such limit (power up to 10 for closed tests).</li>
-    <li>Not covered: trimmed Simes tests, entangled graphs (memory), group sequential or adaptive designs, simultaneous confidence intervals, sample size. The R packages above cover some of these.</li>
+    <li>Not covered: trimmed Simes tests, entangled graphs (memory; Maurer and Bretz, 2013, Statistics in Medicine), group sequential designs (Maurer and Bretz, 2013, Statistics in Biopharmaceutical Research), adaptive designs (Klinglmueller, Posch and Koenig, 2014), simultaneous confidence intervals (Strassburger and Bretz, 2008; Guilbaud, 2008; Guilbaud, 2018), sample size. The R packages above cover some of these.</li>
     <li>Two-sided p-values can be entered for the Bonferroni and Simes tests; the parametric test refuses them. For the Bonferroni graph, two-sided p-values with a check of the direction of the effect amount to one-sided testing at &alpha;/2. For the closed Simes test they do not: an effect in the harmful direction can help other hypotheses to be rejected, so use one-sided p-values for claims of benefit.</li>
     <li>With the Simes or parametric tests, a graph that is not alpha-exhaustive does not guarantee its order of testing: a hypothesis can be rejected while the hypotheses that pass weight to it are not.</li>
     <li>The hypotheses are assumed to satisfy the free combination condition (Holm, 1979). If some combinations of true and false hypotheses are impossible (restricted hypotheses), the procedures still control the familywise error rate but may be conservative (Bretz et al., 2011, p. 895; Brannath and Bretz, 2010); the tool does not exploit such restrictions.</li>

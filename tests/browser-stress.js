@@ -45,7 +45,7 @@ async function step(name, fn) {
       const s = await status(); if (/Error/.test(s)) return `${v}: ${s}`;
       const sel = await page.locator('#templateSelect').inputValue(); if (sel !== '') return 'select did not reset';
     }
-    return opts.length === 13 || 'expected 13 options, got ' + opts.length;
+    return opts.length === 14 || 'expected 14 options, got ' + opts.length;
   });
 
   await step('Starter cards: clear graph, size buttons, each card, Import from R', async () => {
@@ -67,6 +67,53 @@ async function step(name, fn) {
     await page.click('[data-start="import"]'); await sleep(150);
     if (await page.locator('#tab-matrix').isHidden()) return 'import card did not open the matrix tab';
     if (!(await page.locator('#det-import').evaluate(d => d.open))) return 'import details not open';
+  });
+
+  await step('Improved fallback I for any m: start card and toolbar entry take typed weights, refuse bad ones, Escape and Cancel close the box', async () => {
+    if (await nodeCount()) { await page.click('#moreMenu summary'); await page.click('#clearBtn'); await page.click('#clearYes'); await sleep(80); }
+    await page.click('#tabbtn-graph'); await sleep(60);
+    for (let i = 0; i < 12; i++) await page.click('[data-size="-1"]');
+    await page.click('[data-size="1"]'); await page.click('[data-size="1"]');
+    await page.click('[data-start="improvedFallbackI"]'); await sleep(100);
+    if (await page.locator('#starterWeights').isHidden()) return 'weights box hidden';
+    if ((await page.inputValue('#starterW')) !== '1/4, 1/4, 1/4, 1/4') return 'prefill ' + await page.inputValue('#starterW');
+    await page.click('[data-size="-1"]'); await sleep(60);
+    if ((await page.inputValue('#starterW')) !== '1/3, 1/3, 1/3') return 'prefill after size change ' + await page.inputValue('#starterW');
+    await page.fill('#starterW', '0.5, 0.6'); await page.press('#starterW', 'Enter'); await sleep(100);
+    if (await nodeCount() !== 0) return 'bad weights made a graph';
+    if (!/more than 1/.test(await page.locator('#starterWMsg').innerText())) return 'no message for bad weights';
+    await page.press('#starterW', 'Escape'); await sleep(60);
+    if (!(await page.locator('#starterWeights').isHidden())) return 'Escape did not close the start box';
+    await page.click('[data-start="improvedFallbackI"]'); await sleep(60);
+    await page.fill('#starterW', '1/2, 3/10, 1/5'); await page.click('#starterWBtn'); await sleep(200);
+    if (await nodeCount() !== 3) return 'start card gave ' + await nodeCount() + ' nodes';
+    const ret = await ev(() => G.edges.filter(e => e.from === G.nodes[2].id).map(e => Q.exact(e.g)).join(' '));
+    if (ret !== '5/8 3/8') return 'return transitions ' + ret;
+    if (!/alpha-exhaustive\./.test(await status())) return 'status: ' + await status();
+    /* toolbar entry with a graph open */
+    await page.selectOption('#templateSelect', 'improvedFallbackIAny'); await sleep(150);
+    if (!(await page.locator('#tplW').count())) return 'Graph panel box missing';
+    if ((await page.inputValue('#tplW')) !== '1/3, 1/3, 1/3') return 'panel prefill ' + await page.inputValue('#tplW');
+    await page.fill('#tplW', 'a, b'); await page.click('[data-action="tpl-w-create"]'); await sleep(100);
+    if (await nodeCount() !== 3) return 'bad panel weights changed the graph';
+    if (!/Could not read/.test(await page.locator('#tplWMsg').innerText())) return 'no panel message';
+    if ((await page.inputValue('#tplW')) !== 'a, b') return 'typed text lost on re-render';
+    await page.click('[data-action="tpl-w-cancel"]'); await sleep(60);
+    if (await page.locator('#tplW').count()) return 'Cancel left the box open';
+    await page.selectOption('#templateSelect', 'improvedFallbackIAny'); await sleep(100);
+    await page.fill('#tplW', 'c(0.4, 0.25, 0.25, 0.05, 0.05)'); await page.press('#tplW', 'Enter'); await sleep(250);
+    if (await nodeCount() !== 5) return 'panel gave ' + await nodeCount() + ' nodes';
+    const ret5 = await ev(() => G.edges.filter(e => e.from === G.nodes[4].id).map(e => Q.exact(e.g)).join(' '));
+    if (ret5 !== '8/19 5/19 5/19 1/19') return 'm = 5 return transitions ' + ret5;
+    if (await page.locator('#tplW').count()) return 'box still open after Create';
+    await page.click('#undoBtn'); await sleep(150);
+    if (await nodeCount() !== 3) return 'undo gave ' + await nodeCount();
+    await page.selectOption('#templateSelect', 'improvedFallbackIAny'); await sleep(100);
+    await page.press('#tplW', 'Escape'); await sleep(60);
+    if (await page.locator('#tplW').count()) return 'Escape left the panel box open';
+    /* leave the page as the previous step did: empty canvas, Import from R open */
+    await page.click('#moreMenu summary'); await page.click('#clearBtn'); await page.click('#clearYes'); await sleep(80);
+    await page.click('[data-start="import"]'); await sleep(150);
   });
 
   await step('Matrix import: R code builds a graph; bad input gives a readable message; fill in current graph', async () => {
@@ -317,6 +364,14 @@ async function step(name, fn) {
     await page.click('[data-action="sim-run"]'); await sleep(150);
     if (!/positive definite/.test(await page.locator('#tab-power').innerText())) return 'non-PD message';
     await page.uncheck('#sim-usematrix'); await sleep(80);
+    // correlations entered as 1 are capped at 0.999999 and the result text says so (1.1.6)
+    await page.fill('#sim-rho', '1'); await page.press('#sim-rho', 'Tab'); await sleep(80);
+    await page.click('[data-action="sim-run"]'); await page.waitForFunction(() => SIM.result && !SIM.running, null, { timeout: 20000 }); await sleep(100);
+    const capT = await page.locator('#tab-power').innerText();
+    if (!/Correlation: 1 for every pair \(6 pairs entered as 1 were set to 0\.999999/.test(capT)) return 'cap notice: ' + capT.slice(capT.indexOf('Correlation:'), capT.indexOf('Correlation:') + 120);
+    await page.fill('#sim-rho', '0.5'); await page.press('#sim-rho', 'Tab'); await sleep(80);
+    await page.click('[data-action="sim-run"]'); await page.waitForFunction(() => SIM.result && !SIM.running, null, { timeout: 20000 }); await sleep(100);
+    if (/set to 0\.999999/.test(await page.locator('#tab-power').innerText())) return 'cap notice shown without a cap';
     await openDet('det-success'); await page.locator('[data-succ]').first().check(); await page.locator('[data-succ]').nth(1).check(); await page.check('input[name="sim-rule"][value="all"]'); await sleep(80);
     await page.click('[data-action="sim-run"]'); await page.waitForFunction(() => SIM.result && !SIM.running, null, { timeout: 20000 }); await sleep(100);
     if (!/Success \(all of H1, H2\)/.test(await page.locator('#tab-power').innerText())) return 'success rule text';
@@ -432,7 +487,7 @@ async function step(name, fn) {
     await page.keyboard.press('?'); await sleep(50); if (await page.locator('#modal').isHidden()) return '? shortcut';
     await page.click('#modal', { position: { x: 5, y: 5 } }); if (!(await page.locator('#modal').isHidden())) return 'backdrop close';
     await page.click('#moreMenu summary'); await page.click('#selftestBtn'); await sleep(3000);
-    const st = await page.locator('#modalBody p').first().innerText(); if (!/57 of 57 checks passed/.test(st)) return 'self-test: ' + st;
+    const st = await page.locator('#modalBody p').first().innerText(); if (!/82 of 82 checks passed/.test(st)) return 'self-test: ' + st;
     await page.click('#modalClose');
   });
 

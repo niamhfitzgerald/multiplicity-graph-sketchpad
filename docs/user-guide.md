@@ -8,7 +8,9 @@ The Sketchpad opens in simple mode: draw, test, explain and share. Tick **Advanc
 
 ## Draw a graph
 
-Start from a template or from an empty canvas. The template picker in the toolbar loads Bonferroni-Holm, fixed sequence, fallback, parallel gatekeeping or the two doses, two endpoints example (simple successive II). On an empty canvas the start panel also lets you choose how many hypotheses the first three templates have.
+Start from a template or from an empty canvas. The template picker in the toolbar loads Bonferroni-Holm, fixed sequence, fallback, parallel gatekeeping or the two doses, two endpoints example (simple successive II). On an empty canvas the start panel also lets you choose how many hypotheses the first four templates have.
+
+**Improved fallback I for any m.** The start panel card, and "Improved fallback I for any m" in the template picker, ask for the initial weights before building the graph. Type them separated by commas, as fractions or decimals (for example `1/2, 3/10, 1/5`, or `c(0.5, 0.3, 0.2)` pasted from R). The number of weights sets the number of hypotheses. The last hypothesis's return transitions are worked out from these weights, so the graph is the Wiens and Dmitrienko procedure for the weights you typed. If you change the weights afterwards, the return transitions stay as they were: use the entry again instead of editing. The three-hypothesis "Improved fallback I" entry in the "More from gMCP" group keeps return transitions of 1/2 and 1/2 for any weights, like gMCP.
 
 - **Add a hypothesis:** double-click empty space, or press + Hypothesis.
 - **Rename or reweight it:** double-click the top half of the circle to rename, the bottom half to change the weight. Weights can be decimals (0.25) or fractions (1/3); fractions are kept exactly.
@@ -66,7 +68,7 @@ The default is the weighted Bonferroni test, which is the one that can be steppe
 
 ## Power by simulation
 
-The Power tab estimates how often the graph rejects each hypothesis. Enter the power each test would have on its own at the full alpha, and the correlation between the test statistics (one value for every pair, or pair by pair). If the correlations cannot all hold at once, a red message names the hypotheses involved as soon as you leave the box. Define a success rule if you want one, such as "any of H1, H2". Run simulation gives the power for each hypothesis, the chance of at least one and of all rejections, and the expected number rejected. "Keep for comparison" stores a run so you can compare designs side by side. The matching graphicalMCP code is underneath. If you change the graph, the test or any simulation setting after a run, a notice asks you to run again.
+The Power tab estimates how often the graph rejects each hypothesis. Enter the power each test would have on its own at the full alpha, and the correlation between the test statistics (one value for every pair, or pair by pair). A note under the correlation box says what to enter for the common cases: two doses against one control, a full population and a subgroup, two endpoints on the same patients, and binary endpoints. The same note appears with the correlation matrix of the parametric test in the Test tab. If the correlations cannot all hold at once, a red message names the hypotheses involved as soon as you leave the box. A correlation entered as 1 is set to 0.999999 so that the simulation can run; the result text says how many pairs were changed. Define a success rule if you want one, such as "any of H1, H2". Run simulation gives the power for each hypothesis, the chance of at least one and of all rejections, and the expected number rejected. "Keep for comparison" stores a run so you can compare designs side by side. The matching graphicalMCP code is underneath. If you change the graph, the test or any simulation setting after a run, a notice asks you to run again.
 
 ## Compare two graphs
 

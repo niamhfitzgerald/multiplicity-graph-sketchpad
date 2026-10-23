@@ -397,6 +397,7 @@ check('Every template is valid, has weights summing to at most 1 and rows at mos
   for (let m = 2; m <= 12; m++) all.push(['cycle' + m, C.cycleTemplate(m)]);
   all.push(['truncatedHolm', C.truncatedHolmTemplate()]);
   for (const k of ['holm', 'fixed', 'fallback']) for (let m = 1; m <= 40; m++) all.push([k + m, C.generatedTemplate(k, m)]);
+  for (let m = 2; m <= 40; m++) all.push(['improvedFallbackI' + m, C.generatedTemplate('improvedFallbackI', m)]);
   for (const [k, o] of all) {
     const G = toG(o);
     const V = C.validateGraph(G, q => Q.fmt(q));
@@ -415,11 +416,23 @@ check('Every template is valid, has weights summing to at most 1 and rows at mos
   return true;
 });
 
-check('Template contents match the literature (improved fallback I and II, two doses two endpoints, Bretz 2011)', () => {
+check('Template contents match the literature (improved fallback I and II, generated improved fallback I, two doses two endpoints, Bretz 2011)', () => {
   const e = (k, a, b) => { const G = toG(C.templateJSON(k)); const ed = G.edges.find(x => x.from === G.nodes[a].id && x.to === G.nodes[b].id); return ed ? Q.exact(ed.g) : '0'; };
   const vals = k => { const G = toG(C.templateJSON(k)); return G.nodes.map(n => Q.exact(n.w)).join(','); };
   if (!(e('improvedFallbackI', 0, 1) === '1' && e('improvedFallbackI', 1, 2) === '1' && e('improvedFallbackI', 2, 0) === '1/2' && e('improvedFallbackI', 2, 1) === '1/2')) return 'improved fallback I edges';
   if (!(e('improvedFallbackII', 0, 1) === '1' && e('improvedFallbackII', 1, 0) === '999/1000' && e('improvedFallbackII', 1, 2) === '1/1000' && e('improvedFallbackII', 2, 0) === '1')) return 'improved fallback II edges';
+  /* generated improved fallback I: equal weights give the three-node template; typed weights give w_i / (w_1 + ... + w_(m-1)) */
+  const gen = (m, txt) => { const o = C.generatedTemplate('improvedFallbackI', m, txt ? C.parseWeightList(txt) : undefined); return o.edges.map(x => x.from + '>' + x.to + '=' + x.weight).join(' '); };
+  if (gen(3) !== '0>1=1 1>2=1 2>0=1/2 2>1=1/2') return 'generated improved fallback I, equal weights: ' + gen(3);
+  if (gen(3, '1/2, 3/10, 1/5') !== '0>1=1 1>2=1 2>0=5/8 2>1=3/8') return 'generated improved fallback I, typed weights: ' + gen(3, '1/2, 3/10, 1/5');
+  if (gen(4, 'c(0.4, 0.3, 0, 0.3)') !== '0>1=1 1>2=1 2>3=1 3>0=4/7 3>1=3/7') return 'generated improved fallback I, zero weight: ' + gen(4, 'c(0.4, 0.3, 0, 0.3)');
+  if (gen(2, '0.9 0.1') !== '0>1=1 1>0=1') return 'generated improved fallback I, m = 2: ' + gen(2, '0.9 0.1');
+  for (const [txt, re] of [['1/2', /at least 2/], ['0.5, 0.6', /more than 1/], ['a, b', /Could not read/], ['1/2, -1/2, 1', /Could not read/]]) {
+    let msg = ''; try { C.parseWeightList(txt); } catch (err) { msg = err.message; }
+    if (!re.test(msg)) return `parseWeightList("${txt}") gave "${msg}"`;
+  }
+  let msg0 = ''; try { C.generatedTemplate('improvedFallbackI', 3, C.parseWeightList('0, 0, 1')); } catch (err) { msg0 = err.message; }
+  if (!/must not all be zero/.test(msg0)) return 'zero return sum: ' + msg0;
   if (vals('bretz') !== '1/2,1/2,0,0' || e('bretz', 0, 1) !== '1/2' || e('bretz', 2, 1) !== '1') return 'two doses template';
   if (vals('bretz2011') !== '1/3,1/3,1/3,0,0,0' || e('bretz2011', 1, 0) !== '1/3') return 'bretz2011 template';
   if (!/Maurer/.test(C.TEMPLATES.bretz.name) || !/Bretz, Maurer and Hommel/.test(C.TEMPLATES.bretz2011.name)) return 'template names';
