@@ -1,7 +1,7 @@
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.1.6';
-const APP_DATE = '2026-10-23';
+const APP_VERSION = '1.1.7';
+const APP_DATE = '2026-10-26';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
 /* The author's LinkedIn profile; the header byline and About link to it. */
@@ -1014,6 +1014,18 @@ const TEMPLATES = {
     note: 'Two doses compared with control on a primary and a secondary endpoint. H1, H2: dose 1 and dose 2 on the primary endpoint. H3, H4: the same doses on the secondary endpoint. Each secondary hypothesis is tested only after its own dose succeeds on the primary endpoint. Figure 2(b) of Maurer, Glimm and Bretz (2011), also Figure 6 of Bretz, Maurer and Hommel (2011) with γ₁ = γ₂ = 1/2 (gMCP: simpleSuccessiveII).',
     nodes: [['H1', '1/2', 0, 0], ['H2', '1/2', 280, 0], ['H3', '0', 0, 210], ['H4', '0', 280, 210]],
     edges: [[0, 1, '1/2'], [0, 2, '1/2'], [1, 0, '1/2'], [1, 3, '1/2'], [2, 1, '1'], [3, 0, '1']]
+  },
+  bretzFig14Left: {
+    name: 'Two doses, three endpoints: each dose in sequence (Bretz et al., 2009, Fig. 14 left)',
+    note: 'Two doses compared with control on three ordered endpoints (Bretz et al., 2009, Fig. 14 left, p. 600, their multiple sclerosis example). H11, H12, H13: dose 1 on endpoints 1, 2 and 3; H21, H22, H23: dose 2 on the same endpoints. Each dose starts with alpha/2 on its first endpoint and the three endpoints are tested in a fixed sequence within the dose; when a dose\'s last hypothesis is rejected, its level passes to the first hypothesis of the other dose. Alpha-exhaustive. The same graph is Fig. 4 of Minini, Paux and Dmitrienko (2026); Li and Zhou (2021, Fig. 7) work both Fig. 14 graphs through with p-values, and Guilbaud and Karlsson (2011, Example 2) show that this one is the default graph of the two sequences 123456 and 456123 with weight 1/2 each.',
+    nodes: [['H11', '1/2', 0, 0], ['H12', '0', 260, 0], ['H13', '0', 520, 0], ['H21', '1/2', 520, 230], ['H22', '0', 260, 230], ['H23', '0', 0, 230]],
+    edges: [[0, 1, '1'], [1, 2, '1'], [2, 3, '1'], [3, 4, '1'], [4, 5, '1'], [5, 0, '1']]
+  },
+  bretzFig14Right: {
+    name: 'Two doses, three endpoints: shared between doses (Bretz et al., 2009, Fig. 14 right)',
+    note: 'Two doses compared with control on three ordered endpoints (Bretz et al., 2009, Fig. 14 right, p. 600, their multiple sclerosis example). H11, H12, H13: dose 1 on endpoints 1, 2 and 3; H21, H22, H23: dose 2 on the same endpoints. Each dose starts with alpha/2 on its first endpoint. A rejected hypothesis passes half its level to the next endpoint of its own dose and half to the first open hypothesis of the other dose (H11 and H12 to H21; H21 and H22 to H11); a dose\'s last hypothesis passes everything to the other dose. Alpha-exhaustive. The same graph is Fig. 5 of Minini, Paux and Dmitrienko (2026); Li and Zhou (2021, Fig. 7) work both Fig. 14 graphs through with p-values. It is close to, but not the same as, the six-sequence default graph of Guilbaud and Karlsson (2011, Example 2): four of the 63 intersections differ.',
+    nodes: [['H11', '1/2', 0, 0], ['H12', '0', 260, 0], ['H13', '0', 520, 0], ['H21', '1/2', 520, 230], ['H22', '0', 260, 230], ['H23', '0', 0, 230]],
+    edges: [[0, 1, '1/2'], [0, 3, '1/2'], [1, 2, '1/2'], [1, 3, '1/2'], [2, 3, '1'], [3, 0, '1/2'], [3, 4, '1/2'], [4, 5, '1/2'], [4, 0, '1/2'], [5, 0, '1']]
   }
 };
 Object.assign(TEMPLATES, {
@@ -1046,6 +1058,18 @@ Object.assign(TEMPLATES, {
     note: 'Alpha-exhaustive fallback (Wiens and Dmitrienko, 2005, section 3.2; Bretz et al., 2009, Fig. 7): the level of the last hypothesis is returned to the earlier ones in proportion to their initial weights (r = α₂/(α₁ + α₂) to H2 and 1 − r to H1, so 1/2 each here), so no alpha is lost. The two return transitions are stored as 1/2 and do not follow the weights: if you change the weights, re-enter them as w₁/(w₁ + w₂) and w₂/(w₁ + w₂), or choose "Improved fallback I for any m" in the template picker, which works them out from the weights you type (gMCP: improvedFallbackI, which also keeps 1/2, 1/2; graphicalMCP: fallback_improved_1, which works them out). Any split 0 ≤ r ≤ 1 keeps the procedure valid (Huque, Dmitrienko and D\'Agostino, 2013, Fig. 4); this r is the choice of Wiens and Dmitrienko (2005).',
     nodes: [['H1', '1/3', 0, 0], ['H2', '1/3', 220, 0], ['H3', '1/3', 440, 0]],
     edges: [[0, 1, '1'], [1, 2, '1'], [2, 0, '1/2', -60], [2, 1, '1/2']]
+  },
+  efficacySafety: {
+    name: 'Efficacy and safety for three treatments (Bretz et al., 2009, Fig. 8)',
+    note: 'Three treatments, each with an efficacy hypothesis and a safety hypothesis (Bretz et al., 2009, Fig. 8, p. 594). HE1, HE2, HE3 (efficacy) share alpha equally; HS1, HS2, HS3 (safety) start at 0. A treatment\'s safety hypothesis is tested only once its efficacy hypothesis is rejected, which passes it the whole level; a rejected safety hypothesis passes its level equally to the efficacy hypotheses of the other two treatments. Alpha-exhaustive. The paper gives the graph only, with no worked numbers.',
+    nodes: [['HE1', '1/3', 0, 0], ['HE2', '1/3', 260, 0], ['HE3', '1/3', 520, 0], ['HS1', '0', 0, 230], ['HS2', '0', 260, 230], ['HS3', '0', 520, 230]],
+    edges: [[0, 3, '1'], [1, 4, '1'], [2, 5, '1'], [3, 1, '1/2'], [3, 2, '1/2'], [4, 0, '1/2'], [4, 2, '1/2'], [5, 0, '1/2'], [5, 1, '1/2']], groups: ['efficacy', 'efficacy', 'efficacy', 'safety', 'safety', 'safety']
+  },
+  hungWang: {
+    name: 'Hung and Wang (2010): non-inferiority then superiority, two endpoints',
+    note: 'Non-inferiority and superiority on a primary and a secondary endpoint (Hung and Wang, 2010, Biometrical Journal 52:747-756, Fig. 1, p. 751; section 7, pp. 754-755). H1,NI (non-inferiority on the primary endpoint) holds all of alpha. When it is rejected, a share ν goes to superiority on the primary endpoint (H1,S) and 1−ν to non-inferiority on the secondary endpoint (H2,NI). H1,S passes τ to H2,S and 1−τ to H2,NI; H2,NI passes ω to H1,S and 1−ω to H2,S. H2,S (superiority on the secondary endpoint) passes nothing on, so the graph is not alpha-exhaustive and validation shows that one warning. The paper warns (p. 755) that τ = ω = 1 lets H2,S be tested without H2,NI having been rejected, and then H2,S can never be tested unless H1,S is. The defaults here are ν = τ = ω = 1/2.',
+    nodes: [['H1,NI', '1', 0, 0], ['H1,S', '0', 300, 0], ['H2,NI', '0', 0, 220], ['H2,S', '0', 300, 220]],
+    edges: [[0, 1, 'ν'], [0, 2, '1-ν'], [1, 3, 'τ'], [1, 2, '1-τ'], [2, 1, 'ω'], [2, 3, '1-ω']]
   },
   improvedFallbackII: {
     name: 'Improved fallback II (Bretz et al., 2009, Fig. 11)',
@@ -1488,6 +1512,27 @@ const TEMPLATE_GEN = {
     w: () => `1/${m}`,
     edges: () => { const e = []; for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) if (i !== j) e.push([i, j, m === 2 ? '1' : `1/${m - 1}`]); return e; }
   }),
+  /* Weighted Holm for any m, built from typed initial weights w_1 ... w_m that add up to 1:
+     g_ij = w_j / (1 - w_i) (Bretz et al., 2009, p. 594; Wiens, Dmitrienko and Marchenko, 2013, p. 1412).
+     The graph is the weighted Holm procedure of Holm (1979) with the typed weights. At least two weights
+     must be positive, since a hypothesis with weight 1 has 1 - w_i = 0. A zero-weight hypothesis is allowed:
+     no edge leads into it, but it still passes on any level it is given. The gMCP helper BonferroniHolm(n,
+     weights) and graphicalMCP's bonferroni_holm_weighted() keep equal transitions 1/(m - 1) whatever the
+     weights are (read in both sources), so they are different graphs; both R exports write this matrix
+     explicitly. `weights` is an array of m exact rationals; equal weights when it is missing. */
+  weightedHolm: (m, weights) => {
+    const w = weights && weights.length === m ? weights : Array.from({ length: m }, () => Q.make(1n, BigInt(m)));
+    const tot = w.reduce((a, q) => Q.add(a, q), Q.ZERO);
+    if (Q.cmp(tot, Q.ONE) !== 0) throw new Error(`The weights add up to ${Q.exact(tot)}. Weighted Holm needs them to add up to exactly 1.`);
+    if (w.filter(q => !Q.isZero(q)).length < 2) throw new Error('At least two weights must be positive: a hypothesis with weight 1 would have nowhere to pass its level.');
+    const g = (i, j) => Q.div(w[j], Q.sub(Q.ONE, w[i]));
+    const list = w.map(q => Q.exact(q)).join(', ');
+    return {
+      note: `Weighted Holm with ${m} hypotheses (Holm, 1979; as a graph in Bretz et al., 2009, p. 594): the initial weights ${list}, and each hypothesis passes its level to the others in proportion to their initial weights, gᵢⱼ = wⱼ/(1 − wᵢ). The procedure tests the smallest pᵢ/wᵢ first and is alpha-exhaustive. These transitions do not follow the weights if you edit them later, so create the template again instead. The weighted Holm helpers in gMCP (BonferroniHolm with weights) and graphicalMCP (bonferroni_holm_weighted) keep equal transitions of 1/(m − 1) whatever the weights, which is a different graph, so the R exports write this matrix out in full.`,
+      pos: circlePositions(m), w: i => Q.exact(w[i]),
+      edges: () => { const e = []; for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) if (i !== j && !Q.isZero(w[j])) e.push([i, j, Q.exact(g(i, j))]); return e; }
+    };
+  },
   fixed: m => ({
     note: `Fixed-sequence (hierarchical) testing with ${m} hypotheses (Maurer, Hothorn and Lehmacher, 1995; Westfall and Krishen, 2001; Bretz et al., 2009, Fig. 6): H1 gets all of alpha, and each later hypothesis is tested only after the one before it is rejected. The order is the whole design: a hypothesis placed after one that fails can never be tested, whatever its p-value. Choose the order from clinical priority and expected effect sizes, and check it by simulation in the Power tab. With poor estimates of the effects a Holm graph is often safer (Zhang, Wang and Troendle, 2015, section 4; Paux and Dmitrienko, 2018, section 4.2).`,
     pos: rowPositions(m), w: i => (i === 0 ? '1' : '0'),
@@ -2462,6 +2507,32 @@ function runLiteratureSelfTests() {
     o = order(wh, p2, 0.05); if (o !== 'H2') return 'weighted Holm scenario 2 ' + o;
     got = lvl(wh, after(wh, ['H2']), 'H3'); return got === '1/60' || 'weighted Holm after H2: ' + got;
   });
+  check('Weighted Holm for any m (Bretz et al., 2009, p. 594; Holm, 1979), built from typed weights. With w = (2/5, 1/4, 1/4, 1/10) every transition is w_j/(1 - w_i) exactly (rows 5/12, 5/12, 1/6; 8/15, 1/3, 2/15; 8/15, 1/3, 2/15; 4/9, 5/18, 5/18), the graph validates clean and is alpha-exhaustive, and the Dmitrienko, Wiens and Westfall (2006) Table 1 scenarios (p. 747) reject H1 only and H2 only. With w = (1/2, 3/10, 1/5) the closure weights are w_j divided by the sum over the intersection, as in Guilbaud (2018) Example 6, p. 225. A zero weight is allowed (no edge leads into it); weights not adding up to 1, or fewer than two positive weights, are refused', () => {
+    const w = ['2/5', '1/4', '1/4', '1/10'].map(x => Q.parse(x));
+    const G = load(generatedTemplate('weightedHolm', 4, w));
+    const want = [['0', '5/12', '5/12', '1/6'], ['8/15', '0', '1/3', '2/15'], ['8/15', '1/3', '0', '2/15'], ['4/9', '5/18', '5/18', '0']];
+    const got = G.nodes.map(a => G.nodes.map(b => { if (a.id === b.id) return '0'; const e = G.edges.find(x => x.from === a.id && x.to === b.id); return e ? Q.exact(e.g) : '0'; }));
+    if (JSON.stringify(got) !== JSON.stringify(want)) return 'transitions ' + JSON.stringify(got);
+    if (G.nodes.map(n => Q.exact(n.w)).join(' ') !== '2/5 1/4 1/4 1/10') return 'weights ' + G.nodes.map(n => Q.exact(n.w)).join(' ');
+    const v = validateGraph(G, q => Q.fmt(q)); if (v.length) return 'validation: ' + v.map(x => x.text).join('; ');
+    if (isAlphaExhaustive(G) !== true) return 'not exhaustive';
+    let o = order(G, [0.0036, 0.0240, 0.0394, 0.1962], 0.05); if (o !== 'H1') return 'scenario 1 ' + o;
+    o = order(G, [0.0562, 0.0106, 0.0232, 0.0196], 0.05); if (o !== 'H2') return 'scenario 2 ' + o;
+    const w3 = ['1/2', '3/10', '1/5'].map(x => Q.parse(x)), G3 = load(generatedTemplate('weightedHolm', 3, w3));
+    for (let mask = 1; mask < 8; mask++) {
+      const keep = [0, 1, 2].filter(i => mask & (1 << i)), st = after(G3, [0, 1, 2].filter(i => !(mask & (1 << i))).map(i => 'H' + (i + 1)));
+      const S = keep.reduce((a, i) => Q.add(a, w3[i]), Q.ZERO);
+      for (const i of keep) if (wOf(G3, st, 'H' + (i + 1)) !== Q.exact(Q.div(w3[i], S))) return `intersection ${keep.map(i => 'H' + (i + 1)).join(',')}: ${wOf(G3, st, 'H' + (i + 1))}`;
+    }
+    const Gz = load(generatedTemplate('weightedHolm', 3, ['1/2', '1/2', '0'].map(x => Q.parse(x))));
+    const z = Gz.nodes[2].id;
+    if (Gz.edges.some(e => e.to === z)) return 'edge into a zero-weight hypothesis';
+    if (Gz.edges.filter(e => e.from === z).map(e => Q.exact(e.g)).join(' ') !== '1/2 1/2') return 'zero-weight hypothesis edges ' + Gz.edges.filter(e => e.from === z).map(e => Q.exact(e.g)).join(' ');
+    let threw = 0;
+    try { generatedTemplate('weightedHolm', 2, ['1/2', '1/4'].map(x => Q.parse(x))); } catch (e) { threw += /add up to 3\/4/.test(e.message) ? 1 : 0; }
+    try { generatedTemplate('weightedHolm', 2, ['1', '0'].map(x => Q.parse(x))); } catch (e) { threw += /two weights/.test(e.message) ? 1 : 0; }
+    return threw === 2 || 'refusals: ' + threw;
+  });
   check('Guilbaud (2018) Examples 4 and 5, p. 224: weights (1/2, 1/4, 1/4), alpha 0.05, p = (0.03, 0.01, 0.04). Fallback rejects H2 only and then tests H3 at 0.025. Improved fallback II rejects H2, H1, H3 in that order, with H1 tested at (1/2 + (1 - ε)/4) alpha and H3 at alpha', () => {
     const w = ['1/2', '1/4', '1/4'], p = [0.03, 0.01, 0.04];
     const fb = mk(w, [['0', '1', '0'], ['0', '0', '1'], ['0', '0', '0']], null, 0.05);
@@ -2480,6 +2551,30 @@ function runLiteratureSelfTests() {
     const got = wOf(G, runProcedure(stateFromGraph(G), pOfG(G, p), 0.025).final, 'H2');
     return got === '3/4' || 'H2 weight ' + got;
   });
+  check('Hung and Wang (2010) Fig. 1, p. 751, and section 7, pp. 754-755: the template has H1,NI at weight 1, the other three at 0, and transitions ν, 1 - ν (from H1,NI), τ, 1 - τ (from H1,S), ω, 1 - ω (from H2,NI); at ν = τ = ω = 1/2 every transition is 1/2, the graph is not alpha-exhaustive and validation gives the one warning that H2,S passes nothing on. With τ = ω = 1 and alpha 0.025, p = (0.01, 0.01, 0.5, 0.01) rejects H1,NI, H1,S and H2,S without H2,NI, and p = (0.01, 0.5, 0.001, 0.001) rejects H1,NI and H2,NI while H2,S is never tested (p. 755). At 1/2, 1/2, 1/2, p = (0.01, 0.02, 0.005, 0.02) rejects H1,NI and H2,NI and leaves H1,S at weight 3/4 (level 3/160)', () => {
+    const o = templateJSON('hungWang');
+    const G = load(o);
+    const L = ['H1,NI', 'H1,S', 'H2,NI', 'H2,S'];
+    if (G.nodes.map(n => n.label).join('|') !== L.join('|')) return 'labels ' + G.nodes.map(n => n.label).join('|');
+    if (G.nodes.map(n => Q.exact(n.w)).join(' ') !== '1 0 0 0') return 'weights ' + G.nodes.map(n => Q.exact(n.w)).join(' ');
+    const ex = (a, b) => { const e = G.edges.find(x => x.from === byLabel(G, a) && x.to === byLabel(G, b)); return e ? (e.expr || Q.exact(e.g)) : '0'; };
+    const want = { 'H1,NI': ['0', 'ν', '1-ν', '0'], 'H1,S': ['0', '0', '1-τ', 'τ'], 'H2,NI': ['0', 'ω', '0', '1-ω'], 'H2,S': ['0', '0', '0', '0'] };
+    for (const a of L) { const got = L.map(b => ex(a, b)).join(' '); if (got !== want[a].join(' ')) return `${a}: ${got}`; }
+    if (Object.keys(G.vars).sort().join('') !== 'ντω' || Object.values(G.vars).some(v => Q.exact(v) !== '1/2')) return 'variables ' + JSON.stringify(Object.fromEntries(Object.entries(G.vars).map(([k, v]) => [k, Q.exact(v)])));
+    const num = L.map(a => L.map(b => Q.exact(getg(stateFromGraph(G), byLabel(G, a), byLabel(G, b)))).join(' '));
+    if (num.join('|') !== '0 1/2 1/2 0|0 0 1/2 1/2|0 1/2 0 1/2|0 0 0 0') return 'numeric transitions ' + num.join('|');
+    if (isAlphaExhaustive(G) !== false) return 'should not be exhaustive';
+    const v = validateGraph(G, q => Q.fmt(q)); if (v.length !== 1 || v[0].level !== 'warn' || !/H2,S/.test(v[0].text)) return 'validation: ' + JSON.stringify(v.map(x => x.level + ': ' + x.text));
+    const o1 = templateJSON('hungWang'); o1.vars = { 'ν': '1/2', 'τ': '1', 'ω': '1' };
+    const G1 = load(o1);
+    let r = order(G1, [0.01, 0.01, 0.5, 0.01], 0.025); if (r !== 'H1,NI,H1,S,H2,S') return 'tau = omega = 1, first run: ' + r;
+    const run2 = runProcedure(stateFromGraph(G1), pOfG(G1, [0.01, 0.5, 0.001, 0.001]), 0.025);
+    r = run2.order.map(id => G1.nodes.find(n => n.id === id).label).join(','); if (r !== 'H1,NI,H2,NI') return 'tau = omega = 1, second run: ' + r;
+    if (wOf(G1, run2.final, 'H2,S') !== '0') return 'H2,S should still have weight 0, got ' + wOf(G1, run2.final, 'H2,S');
+    const run3 = runProcedure(stateFromGraph(G), pOfG(G, [0.01, 0.02, 0.005, 0.02]), 0.025);
+    r = run3.order.map(id => G.nodes.find(n => n.id === id).label).join(','); if (r !== 'H1,NI,H2,NI') return 'third run: ' + r;
+    const w = wOf(G, run3.final, 'H1,S'); return w === '3/4' || 'H1,S weight ' + w;
+  });
   check('Li and Zhou (2021) Fig. 7, pp. 52 and 54, on Bretz et al. (2009) Fig. 14, p. 600 (left and right), alpha 0.05. Scenario 1, p = (0.024, 0.024, 0.024, 0.04, 0.04, 0.04): the left graph rejects all six, the right graph H11 only. Scenario 2, p = (0.0374, 0.024, 0.024, 0.024, 0.04, 0.024): left H21 only, right H11, H12 and H21', () => {
     const L = ['H11', 'H12', 'H13', 'H21', 'H22', 'H23'], w = ['1/2', '0', '0', '1/2', '0', '0'];
     const left = mk(w, [['0', '1', '0', '0', '0', '0'], ['0', '0', '1', '0', '0', '0'], ['0', '0', '0', '1', '0', '0'], ['0', '0', '0', '0', '1', '0'], ['0', '0', '0', '0', '0', '1'], ['1', '0', '0', '0', '0', '0']], L, 0.05);
@@ -2489,6 +2584,49 @@ function runLiteratureSelfTests() {
     const got = [rej(left, s1), rej(right, s1), rej(left, s2), rej(right, s2)];
     const want = ['H11,H12,H13,H21,H22,H23', 'H11', 'H21', 'H11,H12,H21'];
     return got.join(' | ') === want.join(' | ') || 'got ' + got.join(' | ');
+  });
+  check('Bretz et al. (2009) Fig. 14, p. 600, as templates (also Minini, Paux and Dmitrienko, 2026, Figs. 4 and 5): each equals its transcribed matrix exactly, with weights (1/2, 0, 0, 1/2, 0, 0); both validate with no message and are alpha-exhaustive; the Li and Zhou (2021) Fig. 7 scenarios (pp. 52 and 54, alpha 0.05) give all six and H11 only (scenario 1), and H21 only and H11, H12, H21 (scenario 2); after H11 the right graph holds H12 at 1/4 and H21 at 3/4 (Guilbaud and Karlsson, 2011, p. 689)', () => {
+    const L = ['H11', 'H12', 'H13', 'H21', 'H22', 'H23'];
+    const want = {
+      bretzFig14Left: [['0', '1', '0', '0', '0', '0'], ['0', '0', '1', '0', '0', '0'], ['0', '0', '0', '1', '0', '0'], ['0', '0', '0', '0', '1', '0'], ['0', '0', '0', '0', '0', '1'], ['1', '0', '0', '0', '0', '0']],
+      bretzFig14Right: [['0', '1/2', '0', '1/2', '0', '0'], ['0', '0', '1/2', '1/2', '0', '0'], ['0', '0', '0', '1', '0', '0'], ['1/2', '0', '0', '0', '1/2', '0'], ['1/2', '0', '0', '0', '0', '1/2'], ['1', '0', '0', '0', '0', '0']]
+    };
+    const Gs = {};
+    for (const k of Object.keys(want)) {
+      const o = templateJSON(k); o.alpha = 0.05; const G = load(o); Gs[k] = G;
+      if (G.nodes.map(n => n.label).join(',') !== L.join(',')) return k + ' labels ' + G.nodes.map(n => n.label).join(',');
+      if (G.nodes.map(n => Q.exact(n.w)).join(' ') !== '1/2 0 0 1/2 0 0') return k + ' weights ' + G.nodes.map(n => Q.exact(n.w)).join(' ');
+      const got = G.nodes.map(a => G.nodes.map(b => { if (a.id === b.id) return '0'; const e = G.edges.find(x => x.from === a.id && x.to === b.id); return e ? Q.exact(e.g) : '0'; }));
+      if (JSON.stringify(got) !== JSON.stringify(want[k])) return k + ' transitions ' + JSON.stringify(got);
+      const v = validateGraph(G, q => Q.fmt(q)); if (v.length) return k + ' validation: ' + v.map(x => x.text).join('; ');
+      if (isAlphaExhaustive(G) !== true) return k + ' not exhaustive';
+    }
+    const s1 = [0.024, 0.024, 0.024, 0.04, 0.04, 0.04], s2 = [0.0374, 0.024, 0.024, 0.024, 0.04, 0.024];
+    const rej = (G, p) => labels(G, runProcedure(stateFromGraph(G), pOfG(G, p), 0.05).order);
+    const got = [rej(Gs.bretzFig14Left, s1), rej(Gs.bretzFig14Right, s1), rej(Gs.bretzFig14Left, s2), rej(Gs.bretzFig14Right, s2)];
+    const wantR = ['H11,H12,H13,H21,H22,H23', 'H11', 'H21', 'H11,H12,H21'];
+    if (got.join(' | ') !== wantR.join(' | ')) return 'scenarios: ' + got.join(' | ');
+    const st = after(Gs.bretzFig14Right, ['H11']);
+    const w = [wOf(Gs.bretzFig14Right, st, 'H12'), wOf(Gs.bretzFig14Right, st, 'H21')].join(' ');
+    return w === '1/4 3/4' || 'after H11: ' + w;
+  });
+  check('Bretz et al. (2009) Fig. 8, p. 594, as a template: HE1, HE2, HE3 at 1/3 and HS1, HS2, HS3 at 0; HEi passes 1 to HSi and HSi passes 1/2 to each other HEj, exactly; validates with no message; alpha-exhaustive. With p = (0.01, 0.02, 0.2, 0.03, 0.5, 0.01) at alpha 0.05 only HE1 is rejected and HS1 is then held at 1/3 (level 1/60); after HE1 and HS1 the other two efficacy hypotheses hold 1/2 each', () => {
+    const o = templateJSON('efficacySafety'); o.alpha = 0.05; const G = load(o);
+    const L = ['HE1', 'HE2', 'HE3', 'HS1', 'HS2', 'HS3'];
+    if (G.nodes.map(n => n.label).join(',') !== L.join(',')) return 'labels ' + G.nodes.map(n => n.label).join(',');
+    if (G.nodes.map(n => Q.exact(n.w)).join(' ') !== '1/3 1/3 1/3 0 0 0') return 'weights ' + G.nodes.map(n => Q.exact(n.w)).join(' ');
+    if (G.nodes.map(n => n.group).join(',') !== 'efficacy,efficacy,efficacy,safety,safety,safety') return 'groups ' + G.nodes.map(n => n.group).join(',');
+    const want = [['0', '0', '0', '1', '0', '0'], ['0', '0', '0', '0', '1', '0'], ['0', '0', '0', '0', '0', '1'], ['0', '1/2', '1/2', '0', '0', '0'], ['1/2', '0', '1/2', '0', '0', '0'], ['1/2', '1/2', '0', '0', '0', '0']];
+    const got = G.nodes.map(a => G.nodes.map(b => { if (a.id === b.id) return '0'; const e = G.edges.find(x => x.from === a.id && x.to === b.id); return e ? Q.exact(e.g) : '0'; }));
+    if (JSON.stringify(got) !== JSON.stringify(want)) return 'transitions ' + JSON.stringify(got);
+    const v = validateGraph(G, q => Q.fmt(q)); if (v.length) return 'validation: ' + v.map(x => x.text).join('; ');
+    if (isAlphaExhaustive(G) !== true) return 'not exhaustive';
+    const run = runProcedure(stateFromGraph(G), pOfG(G, [0.01, 0.02, 0.2, 0.03, 0.5, 0.01]), 0.05);
+    const r = run.order.map(id => G.nodes.find(n => n.id === id).label).join(','); if (r !== 'HE1') return 'rejected ' + r;
+    if (wOf(G, run.final, 'HS1') !== '1/3') return 'HS1 weight ' + wOf(G, run.final, 'HS1');
+    const st = after(G, ['HE1', 'HS1']);
+    const w = [wOf(G, st, 'HE2'), wOf(G, st, 'HE3'), wOf(G, st, 'HS2'), wOf(G, st, 'HS3')].join(' ');
+    return w === '1/2 1/2 0 0' || 'after HE1, HS1: ' + w;
   });
   check('Maurer, Glimm and Bretz (2011) section 4.2, p. 344: simple successive I and II (Fig. 2a, 2b), alpha 0.05, p = (0.01, 0.03, 0.02, 0.08): both reject exactly H1, H2 and H3, in the orders H1, H3, H2 and H1, H2, H3, and every rejection order ends with the same set. Section 4.3, p. 347: the two uncoupled chains of Quan et al. (H1 to H3, H2 to H4) reject H1 and H3 only', () => {
     const p = [0.01, 0.03, 0.02, 0.08];

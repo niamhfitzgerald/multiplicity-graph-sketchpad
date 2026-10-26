@@ -393,11 +393,14 @@ table.t td:first-child { white-space: nowrap; }
       <select class="sel" id="templateSelect" aria-label="Load a template">
         <option value="">Templates&hellip;</option>
         <option value="holm">Bonferroni-Holm</option>
+        <option value="weightedHolmAny">Weighted Holm for any m (type the weights)</option>
         <option value="fixed">Fixed sequence</option>
         <option value="fallback">Fallback</option>
         <option value="parallel">2 primary + 2 secondary, parallel gatekeeping</option>
         <option value="bretz">Two doses, two endpoints (simple successive II)</option>
-        <optgroup label="More from gMCP">
+        <option value="bretzFig14Left">Two doses, three endpoints: each dose in sequence (Bretz et al., 2009, Fig. 14 left)</option>
+        <option value="bretzFig14Right">Two doses, three endpoints: shared between doses (Fig. 14 right)</option>
+        <optgroup label="More templates">
           <option value="improvedParallel">Improved parallel gatekeeping (ε edges)</option>
           <option value="successiveI">Simple successive I</option>
           <option value="successive">General successive (γ, δ)</option>
@@ -407,6 +410,8 @@ table.t td:first-child { white-space: nowrap; }
           <option value="improvedFallbackIAny">Improved fallback I for any m (type the weights)</option>
           <option value="improvedFallbackII">Improved fallback II (ε edge)</option>
           <option value="cycle">Cycle graph</option>
+          <option value="efficacySafety" data-adv="1">Efficacy and safety for three treatments (Bretz et al., 2009, Fig. 8)</option>
+          <option value="hungWang" data-adv="1">Hung and Wang (2010): non-inferiority then superiority (ν, τ, ω)</option>
         </optgroup>
       </select>
     </div>
@@ -462,10 +467,10 @@ table.t td:first-child { white-space: nowrap; }
         <div class="starter-box">
           <h2>Start a graph</h2>
           <p class="muted">Pick a common design to begin from, or double-click anywhere on the canvas to start from scratch.</p>
-          <div class="starter-size"><span>Hypotheses for the first four:</span><button class="btn icon small" data-size="-1" aria-label="Fewer hypotheses">&minus;</button><output id="starterM">3</output><button class="btn icon small" data-size="1" aria-label="More hypotheses">+</button></div>
+          <div class="starter-size"><span>Hypotheses for the first five:</span><button class="btn icon small" data-size="-1" aria-label="Fewer hypotheses">&minus;</button><output id="starterM">3</output><button class="btn icon small" data-size="1" aria-label="More hypotheses">+</button></div>
           <div class="starter-grid" id="starterGrid"></div>
           <div class="starter-weights" id="starterWeights" hidden>
-            <label for="starterW"><b>Improved fallback I.</b> Type the initial weights of H1, H2, &hellip; separated by commas. The number of weights sets the number of hypotheses; the last hypothesis returns its level to the others in proportion to these weights.</label>
+            <label for="starterW" id="starterWLabel"><b>Improved fallback I.</b> Type the initial weights of H1, H2, &hellip; separated by commas. The number of weights sets the number of hypotheses; the last hypothesis returns its level to the others in proportion to these weights.</label>
             <div class="row-actions"><input class="txt" id="starterW" value="1/3, 1/3, 1/3" aria-label="Initial weights" spellcheck="false"><button class="btn primary" id="starterWBtn">Create graph</button></div>
             <p class="err-text" id="starterWMsg" hidden></p>
           </div>

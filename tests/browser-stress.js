@@ -45,7 +45,7 @@ async function step(name, fn) {
       const s = await status(); if (/Error/.test(s)) return `${v}: ${s}`;
       const sel = await page.locator('#templateSelect').inputValue(); if (sel !== '') return 'select did not reset';
     }
-    return opts.length === 14 || 'expected 14 options, got ' + opts.length;
+    return opts.length === 17 || 'expected 17 options, got ' + opts.length;
   });
 
   await step('Starter cards: clear graph, size buttons, each card, Import from R', async () => {
@@ -241,6 +241,27 @@ async function step(name, fn) {
     await page.click('[data-action="vars-fix"]'); await sleep(120);
     if ((await ev(() => Object.keys(G.vars).length)) !== 0) return 'vars not replaced';
     if ((await ev(() => Q.exact(G.edges[0].g))) !== '1/4') return 'values lost after replace';
+  });
+
+  await step('Advanced-only templates: shown in the picker in advanced mode, loaded with their variables, taken out in simple mode', async () => {
+    const adv = await page.locator('#templateSelect option[data-adv]').evaluateAll(os => os.map(o => o.value));
+    if (!adv.includes('hungWang') || !adv.includes('efficacySafety')) return 'advanced options: ' + adv.join(',');
+    const full = await page.locator('#templateSelect option').evaluateAll(os => os.map(o => o.value));
+    for (const v of adv) {
+      await page.selectOption('#templateSelect', v); await sleep(150);
+      const n = await nodeCount(); if (n < 2) return `${v}: ${n} nodes`;
+    }
+    await page.selectOption('#templateSelect', 'hungWang'); await sleep(150);
+    const lab = await ev(() => G.nodes.map(n => n.label).join('|')); if (lab !== 'H1,NI|H1,S|H2,NI|H2,S') return 'labels ' + lab;
+    const vars = await ev(() => Object.keys(G.vars).sort().join('')); if (vars !== 'ντω') return 'vars ' + vars;
+    const s = await status(); if (!/H2,S has no outgoing/.test(s)) return 'status: ' + s;
+    await page.click('#moreMenu summary'); await page.uncheck('#advToggle'); await page.keyboard.press('Escape'); await sleep(100);
+    const simple = await page.locator('#templateSelect option').evaluateAll(os => os.map(o => o.value));
+    if (adv.some(v => simple.includes(v))) return 'advanced options still listed in simple mode';
+    await page.click('#moreMenu summary'); await page.check('#advToggle'); await page.keyboard.press('Escape'); await sleep(100);
+    const back = await page.locator('#templateSelect option').evaluateAll(os => os.map(o => o.value));
+    if (!adv.every(v => back.includes(v))) return 'advanced options not restored';
+    if (back.join() !== full.join()) return 'options not back in their places: ' + back.join(',');
   });
 
   await step('Test tab, Bonferroni: enter p-values, step, run, step back, redo, reset, what-if, order table, what would it take', async () => {
@@ -487,7 +508,7 @@ async function step(name, fn) {
     await page.keyboard.press('?'); await sleep(50); if (await page.locator('#modal').isHidden()) return '? shortcut';
     await page.click('#modal', { position: { x: 5, y: 5 } }); if (!(await page.locator('#modal').isHidden())) return 'backdrop close';
     await page.click('#moreMenu summary'); await page.click('#selftestBtn'); await sleep(3000);
-    const st = await page.locator('#modalBody p').first().innerText(); if (!/82 of 82 checks passed/.test(st)) return 'self-test: ' + st;
+    const st = await page.locator('#modalBody p').first().innerText(); if (!/86 of 86 checks passed/.test(st)) return 'self-test: ' + st;
     await page.click('#modalClose');
   });
 

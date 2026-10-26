@@ -12,7 +12,7 @@ Created by Niamh Fitzgerald.
 
 ## What it does
 
-- Draw a graph on a canvas (double-click to add a hypothesis, drag the blue dot to connect two), or build it from a matrix, R code (`c()`, `matrix()`, `rbind()`) or a template: Bonferroni-Holm, fixed sequence, fallback, parallel gatekeeping, improved parallel gatekeeping, successive procedures, improved fallback I and II, cycle, truncated Holm, and the published two-dose and three-dose examples.
+- Draw a graph on a canvas (double-click to add a hypothesis, drag the blue dot to connect two), or build it from a matrix, R code (`c()`, `matrix()`, `rbind()`) or a template: Bonferroni-Holm, fixed sequence, fallback, parallel gatekeeping, improved parallel gatekeeping, successive procedures, weighted Holm, improved fallback I and II, cycle, truncated Holm, and published examples: two doses with two or three endpoints, three doses with two endpoints, efficacy and safety for three treatments, and non-inferiority then superiority (Hung and Wang, 2010).
 - Live validation with one-click fixes; symbolic weights such as ε, γ and δ; groups, colours and descriptions.
 - Test with p-values: step through the Bonferroni procedure one rejection at a time, in any order, with the weight moving along the arrows; see what it would take to reject a hypothesis; run closed tests with weighted Simes, Simes within groups, or parametric tests with known correlations; adjusted p-values.
 - Power by simulation, with runs kept for comparison and the matching graphicalMCP code.

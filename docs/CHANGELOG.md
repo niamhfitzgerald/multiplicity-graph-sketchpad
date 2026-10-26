@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.7 (2026-10-26)
+
+Four new templates (part 5 of the plan that followed the methods check of 22 October).
+
+- Weighted Holm for any number of hypotheses (Bretz et al., 2009, p. 594). A start panel card and a template picker entry ("Weighted Holm for any m") ask for the initial weights, which must add up to 1 (at least two positive), and build the transitions w_j/(1 − w_i) as exact fractions. A zero weight is allowed. The weights box on the start panel and in the Graph tab now serves both this and improved fallback I. The note says that gMCP's `BonferroniHolm(n, weights)` and graphicalMCP's `bonferroni_holm_weighted()` keep equal transitions 1/(m − 1), a different graph, so the R exports write the matrix in full.
+- Two doses, three ordered endpoints: Bretz et al. (2009) Fig. 14 left ("each dose in sequence") and right ("shared between doses"), in the main picker group. The same graphs are Figs. 4 and 5 of Minini, Paux and Dmitrienko (2026). Drawn as a six-node cycle so that no transitions cross.
+- Efficacy and safety for three treatments (Bretz et al., 2009, Fig. 8), with efficacy and safety bands. Advanced features only.
+- Hung and Wang (2010) Fig. 1: non-inferiority then superiority on two endpoints, with variables ν, τ and ω (default 1/2) and a note on the τ = ω = 1 choice (p. 755). Advanced features only. No gMCP mapping yet (see the handover).
+- The picker group "More from gMCP" is now "More templates". Entries for advanced features only are taken out of the picker in simple mode and put back in advanced mode.
+- About: references added for Hung and Wang (2010), Guilbaud and Karlsson (2011), Li and Zhou (2021) and Minini, Paux and Dmitrienko (2026).
+- Self-test: four structural checks with exact weights and transitions, exhaustiveness, validation and worked p-values (Dmitrienko, Wiens and Westfall, 2006, Table 1, and Guilbaud, 2018, Example 6, on the weighted Holm generator; the two p. 755 statements of Hung and Wang; the Li and Zhou, 2021, Fig. 7 scenarios on the Fig. 14 templates; the Fig. 8 run from the methods check). 86 checks in all.
+- Engine stress suite: 34 checks (the weighted Holm generator and the three fixed templates are in the template and exhaustiveness loops). Browser suite: 30 checks (new step for advanced-only picker entries).
+- `R/validate-templates-1.1.7.R`: graphicalMCP runs of the four templates' self-test p-values, to be run on a machine with graphicalMCP.
+
 ## 1.1.6 (2026-10-23)
 
 Follows a methods check of the app against 61 papers (22 October 2026): no engine fault was found in 232 checks. The changes are wording, one new template entry, help text and self-tests.

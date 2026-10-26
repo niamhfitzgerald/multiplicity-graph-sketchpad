@@ -382,11 +382,12 @@ check('isAlphaExhaustive agrees with brute force; detects the g_lj g_jl = 1 trap
   const trap = toG({ alpha: 0.025, nodes: [{ id: '0', label: 'H1', weight: '1/2' }, { id: '1', label: 'H2', weight: '1/2' }, { id: '2', label: 'H3', weight: '0' }], edges: [{ from: '0', to: '1', weight: '1' }, { from: '1', to: '0', weight: '1' }, { from: '2', to: '0', weight: '1' }] });
   if (C.isAlphaExhaustive(trap) !== false) return 'trap graph reported exhaustive';
   if (C.isAlphaExhaustive(toG(C.generatedTemplate('holm', 5))) !== true) return 'Holm not exhaustive';
+  if (C.isAlphaExhaustive(toG(C.generatedTemplate('weightedHolm', 5, ['1/2', '1/5', '1/10', '1/10', '1/10'].map(x => Q.parse(x))))) !== true) return 'weighted Holm not exhaustive';
   if (C.isAlphaExhaustive(toG(C.truncatedHolmTemplate())) !== false) return 'truncated Holm (gamma 1/2) should be non-exhaustive';
   if (C.isAlphaExhaustive(toG(C.generatedTemplate('fixed', 3))) !== true) return 'fixed sequence should be exhaustive';
   if (C.isAlphaExhaustive(toG(C.generatedTemplate('fallback', 3))) !== false) return 'fallback should be non-exhaustive';
   if (C.isAlphaExhaustive(toG(C.templateJSON('parallel'))) !== false) return 'parallel gatekeeping is known to be non-exhaustive';
-  for (const key of ['improvedFallbackI', 'improvedFallbackII', 'bretz', 'bretz2011', 'successive', 'successiveI', 'improvedParallel']) if (C.isAlphaExhaustive(toG(C.templateJSON(key))) !== true) return key + ' should be exhaustive';
+  for (const key of ['improvedFallbackI', 'improvedFallbackII', 'bretz', 'bretz2011', 'successive', 'successiveI', 'improvedParallel', 'bretzFig14Left', 'bretzFig14Right', 'efficacySafety']) if (C.isAlphaExhaustive(toG(C.templateJSON(key))) !== true) return key + ' should be exhaustive';
   if (C.isAlphaExhaustive({ nodes: [], edges: [] }) !== null) return 'empty should be null';
   return true;
 });
@@ -398,6 +399,7 @@ check('Every template is valid, has weights summing to at most 1 and rows at mos
   all.push(['truncatedHolm', C.truncatedHolmTemplate()]);
   for (const k of ['holm', 'fixed', 'fallback']) for (let m = 1; m <= 40; m++) all.push([k + m, C.generatedTemplate(k, m)]);
   for (let m = 2; m <= 40; m++) all.push(['improvedFallbackI' + m, C.generatedTemplate('improvedFallbackI', m)]);
+  for (let m = 2; m <= 40; m++) all.push(['weightedHolm' + m, C.generatedTemplate('weightedHolm', m)]);
   for (const [k, o] of all) {
     const G = toG(o);
     const V = C.validateGraph(G, q => Q.fmt(q));

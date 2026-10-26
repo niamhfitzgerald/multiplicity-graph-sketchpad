@@ -34,9 +34,14 @@ let exportPayload = null;
 let sapHTML = '';
 let bendSliding = false;
 let starterM = 3;
-/* The "Improved fallback I for any m" weights box: on the start panel (starterW) or in the Graph panel (tplW) */
-let starterWOpen = false, starterWFor = 0;
+/* The "for any m" weights box (improved fallback I, weighted Holm): on the start panel (starterW) or in the Graph panel (tplW).
+   starterWKey and tplW.key name the TEMPLATE_GEN generator the box builds. */
+let starterWOpen = false, starterWFor = 0, starterWKey = 'improvedFallbackI';
 let tplW = null;
+const WEIGHT_GEN = {
+  improvedFallbackI: { title: 'Improved fallback I', blurb: 'The number of weights sets the number of hypotheses; the last hypothesis returns its level to the others in proportion to these weights.' },
+  weightedHolm: { title: 'Weighted Holm', blurb: 'The number of weights sets the number of hypotheses; they must add up to 1. Each hypothesis passes its level to the others in proportion to their weights (g<sub>ij</sub> = w<sub>j</sub>/(1 − w<sub>i</sub>)).' }
+};
 let mxView = 'current';
 let arrGap = 'normal';
 const GAPS = { compact: 170, normal: 230, wide: 300 };
@@ -436,6 +441,7 @@ function renderStarter() {
   $('starterM').textContent = starterM;
   const cards = [
     ['holm', 'Bonferroni-Holm', 'Equal weights, shared out on rejection', generatedTemplate('holm', starterM)],
+    ['weightedHolm', 'Weighted Holm', 'Your weights, shared out in proportion', generatedTemplate('weightedHolm', starterM)],
     ['fixed', 'Fixed sequence', 'Test in a set order', generatedTemplate('fixed', starterM)],
     ['fallback', 'Fallback', 'Split alpha, pass it down the line', generatedTemplate('fallback', starterM)],
     ['improvedFallbackI', 'Improved fallback I', 'Fallback that returns the last level', generatedTemplate('improvedFallbackI', starterM)],
@@ -445,28 +451,29 @@ function renderStarter() {
   $('starterGrid').innerHTML = cards.map(c => `<button class="start-card" data-start="${c[0]}">${miniSVG(c[3])}<b>${c[1]}</b><span>${c[2]}</span></button>`).join('') +
     '<button class="start-card" data-start="import"><svg viewBox="0 0 140 58" aria-hidden="true"><text x="70" y="38" text-anchor="middle" font-size="22" font-family="monospace" fill="currentColor">c(&hellip;)</text></svg><b>Import from R</b><span>Paste weights and a matrix</span></button>';
   $('starterWeights').hidden = !starterWOpen;
+  if (starterWOpen) $('starterWLabel').innerHTML = `<b>${WEIGHT_GEN[starterWKey].title}.</b> Type the initial weights of H1, H2, &hellip; separated by commas. ${WEIGHT_GEN[starterWKey].blurb}`;
   if (starterWOpen && starterWFor !== starterM) { starterWFor = starterM; $('starterW').value = equalWeightsText(starterM); $('starterWMsg').hidden = true; }
 }
 function equalWeightsText(m) { return Array.from({ length: m }, () => `1/${m}`).join(', '); }
-/* Builds "Improved fallback I for any m" from typed weights. Shows the problem in msgEl and returns false if the text is not usable. */
-function createImprovedFallbackI(txt, msgEl) {
+/* Builds a "for any m" template (key in WEIGHT_GEN) from typed weights. Shows the problem in msgEl and returns false if the text is not usable. */
+function createFromWeights(key, txt, msgEl) {
   try {
     const w = parseWeightList(txt);
-    loadGraph(generatedTemplate('improvedFallbackI', w.length, w));
+    loadGraph(generatedTemplate(key, w.length, w));
     msgEl.hidden = true; starterWOpen = false; tplW = null;
     return true;
   } catch (err) { msgEl.hidden = false; msgEl.textContent = '✕ ' + err.message; return false; }
 }
-/* Opens the weights box: on the start panel when the canvas is empty, otherwise at the top of the Graph panel */
-function openImprovedFallbackI() {
+/* Opens the weights box for a generator: on the start panel when the canvas is empty, otherwise at the top of the Graph panel */
+function openWeightsBox(key) {
   if (!G.nodes.length) {
-    starterWOpen = true; starterWFor = starterM; $('starterW').value = equalWeightsText(starterM); $('starterWMsg').hidden = true;
+    starterWOpen = true; starterWKey = key; starterWFor = starterM; $('starterW').value = equalWeightsText(starterM); $('starterWMsg').hidden = true;
     if (mode === 'test') setMode('design', true);
     renderStarter(); $('starterW').focus(); $('starterW').select();
     return;
   }
   if (mode === 'test') setMode('design', true);
-  tplW = { text: equalWeightsText(G.nodes.length), msg: '' };
+  tplW = { key, text: equalWeightsText(G.nodes.length), msg: '' };
   setSel(null); setTab('graph'); renderGraphPanel();
   const el = $('tplW'); if (el) { el.focus(); el.select(); }
 }
@@ -516,7 +523,7 @@ function overviewPanel() {
     return `<tr><td><button class="btn small" data-action="select-node" data-id="${n.id}">${n.color ? `<span class="dot" style="background:${n.color}"></span>` : ''}${esc(n.label)}</button></td><td>${esc(fmt(n.w))}</td><td>${fmtNum(Q.toNum(n.w) * G.alpha)}</td><td class="sum ${st.cls}">${esc(fmt(r))} ${st.text}</td></tr>`;
   }).join('');
   return `<h2>Graph</h2>
-  ${tplW && mode === 'design' ? `<div class="tpl-w"><p class="small"><b>Improved fallback I for any m.</b> Type the initial weights of H1, H2, &hellip; separated by commas. The number of weights sets the number of hypotheses; the last hypothesis returns its level to the others in proportion to these weights. This replaces the current graph (Undo brings it back).</p>
+  ${tplW && mode === 'design' ? `<div class="tpl-w"><p class="small"><b>${WEIGHT_GEN[tplW.key].title} for any m.</b> Type the initial weights of H1, H2, &hellip; separated by commas. ${WEIGHT_GEN[tplW.key].blurb} This replaces the current graph (Undo brings it back).</p>
     <div class="row-actions"><input class="txt" id="tplW" value="${esc(tplW.text)}" aria-label="Initial weights" spellcheck="false"><button class="btn small primary" data-action="tpl-w-create">Create</button><button class="btn small" data-action="tpl-w-cancel">Cancel</button></div>
     <p class="err-text" id="tplWMsg"${tplW.msg ? '' : ' hidden'}>${esc(tplW.msg)}</p></div>` : ''}
   ${G.note ? `<p class="note">${esc(G.note)}</p>` : ''}
@@ -1858,8 +1865,18 @@ function updateToolbar() {
   const sd = $('sidedSelect');
   if (sd && sd.value !== (G.sided === 'two' ? 'two' : 'one')) sd.value = G.sided === 'two' ? 'two' : 'one';
 }
+/* Template picker entries marked data-adv are shown in advanced mode only. They are taken out of the select in simple
+   mode and put back in their place in advanced mode (CSS display: none on an option is ignored by Safari). */
+const ADV_OPTS = Array.from($('templateSelect').querySelectorAll('option[data-adv]')).map(o => { let next = o.nextElementSibling; while (next && next.dataset.adv) next = next.nextElementSibling; return { o, parent: o.parentNode, next }; });
+function syncAdvOptions() {
+  for (const r of ADV_OPTS) {
+    if (advanced) { if (!r.o.isConnected) r.parent.insertBefore(r.o, r.next); }
+    else if (r.o.isConnected) r.o.remove();
+  }
+}
 function setAdvanced(on, silent) {
   advanced = !!on;
+  syncAdvOptions();
   store.set('mgs-adv', advanced ? '1' : '0');
   document.body.classList.toggle('simple', !advanced);
   $('advToggle').checked = advanced;
@@ -2233,7 +2250,7 @@ $('tab-graph').addEventListener('change', e => {
 });
 $('tab-graph').addEventListener('keydown', e => {
   if (e.target.id !== 'tplW' || !tplW) return;
-  if (e.key === 'Enter') { e.preventDefault(); if (!createImprovedFallbackI(e.target.value, $('tplWMsg'))) tplW.msg = $('tplWMsg').textContent; }
+  if (e.key === 'Enter') { e.preventDefault(); if (!createFromWeights(tplW.key, e.target.value, $('tplWMsg'))) tplW.msg = $('tplWMsg').textContent; }
   else if (e.key === 'Escape') { e.stopPropagation(); tplW = null; renderGraphPanel(); }
 });
 $('tab-graph').addEventListener('input', e => {
@@ -2262,7 +2279,7 @@ $('tab-graph').addEventListener('click', e => {
   else if (act === 'color-all' && sel && sel.type === 'node') { const c = (nodeById(sel.id) || {}).color || ''; setColors(G.nodes.map(n => n.id), c); }
   else if (act === 'equal-row' && sel && sel.type === 'node') doFix({ act: 'equalRow', id: sel.id });
   else if (act === 'equal-w') doFix({ act: 'equalW' });
-  else if (act === 'tpl-w-create' && tplW) { const txt = $('tplW').value; if (!createImprovedFallbackI(txt, $('tplWMsg'))) tplW.msg = $('tplWMsg').textContent; }
+  else if (act === 'tpl-w-create' && tplW) { const txt = $('tplW').value; if (!createFromWeights(tplW.key, txt, $('tplWMsg'))) tplW.msg = $('tplWMsg').textContent; }
   else if (act === 'tpl-w-cancel') { tplW = null; renderGraphPanel(); }
   else if (act === 'vars-fix') { checkpoint(); G.nodes.forEach(n => { delete n.wexpr; }); G.edges.forEach(e => { delete e.expr; }); G.vars = {}; afterChange(); }
   else if (act === 'join') { const k = $('joinSelect').value; if (TEMPLATES[k]) loadGraph(joinGraphs(G, deserializeGraph(templateJSON(k), false, 1).G)); }
@@ -2448,12 +2465,12 @@ $('starter').addEventListener('click', e => {
   if (!c) return;
   const k = c.dataset.start;
   if (k === 'import') openImport();
-  else if (k === 'improvedFallbackI') openImprovedFallbackI();
+  else if (WEIGHT_GEN[k]) openWeightsBox(k);
   else if (TEMPLATE_GEN[k]) loadGraph(generatedTemplate(k, starterM));
   else loadGraph(templateJSON(k));
 });
-$('starterWBtn').addEventListener('click', () => createImprovedFallbackI($('starterW').value, $('starterWMsg')));
-$('starterW').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); createImprovedFallbackI($('starterW').value, $('starterWMsg')); } else if (e.key === 'Escape') { starterWOpen = false; renderStarter(); } });
+$('starterWBtn').addEventListener('click', () => createFromWeights(starterWKey, $('starterW').value, $('starterWMsg')));
+$('starterW').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); createFromWeights(starterWKey, $('starterW').value, $('starterWMsg')); } else if (e.key === 'Escape') { starterWOpen = false; renderStarter(); } });
 
 /* ---------- toolbar events ---------- */
 $('modeDesign').addEventListener('click', () => setMode('design'));
@@ -2477,7 +2494,8 @@ $('templateSelect').addEventListener('change', e => {
   e.target.value = '';
   if (v === 'cycle') { const m = Math.max(2, Math.min(12, starterM)); loadGraph(cycleTemplate(m)); }
   else if (v === 'truncatedHolm') loadGraph(truncatedHolmTemplate());
-  else if (v === 'improvedFallbackIAny') openImprovedFallbackI();
+  else if (v === 'improvedFallbackIAny') openWeightsBox('improvedFallbackI');
+  else if (v === 'weightedHolmAny') openWeightsBox('weightedHolm');
   else if (v && TEMPLATES[v]) loadGraph(templateJSON(v));
 });
 $('undoBtn').addEventListener('click', undo);
@@ -2599,6 +2617,10 @@ const REFERENCES = [
   ['Strassburger2008', 'Strassburger K, Bretz F (2008). Compatible simultaneous lower confidence bounds for the Holm procedure and other Bonferroni-based closed tests. Statistics in Medicine 27(24):4914–4927. doi:10.1002/sim.3338', 'Simultaneous confidence intervals compatible with Bonferroni-based closed tests (not computed here).'],
   ['Guilbaud2008', 'Guilbaud O (2008). Simultaneous confidence regions corresponding to Holm’s step-down procedure and other closed-testing procedures. Biometrical Journal 50(5):678–692. doi:10.1002/bimj.200710449', 'Simultaneous confidence regions for Holm, fixed sequence, gatekeeping and fallback procedures (not computed here).'],
   ['Guilbaud2018', 'Guilbaud O (2018). Simultaneous confidence intervals compatible with sequentially rejective graphical procedures. Statistics in Biopharmaceutical Research 10(3):220–232. doi:10.1080/19466315.2018.1497532', 'Simultaneous confidence intervals for graphical procedures (not computed here); truncated Holm as a graph for two primary hypotheses only.'],
+  ['HungWang2010', 'Hung HMJ, Wang SJ (2010). Challenges to multiple testing in clinical trials. Biometrical Journal 52(6):747–756.', 'Fig. 1: the non-inferiority then superiority template with ν, τ and ω.'],
+  ['GuilbaudKarlsson2011', 'Guilbaud O, Karlsson P (2011). Confidence regions for Bonferroni-based closed tests extended to more general closed tests. Journal of Biopharmaceutical Statistics 21(4):682–707.', 'Example 2: Bretz et al. (2009) Fig. 14 left as the default graph of two sequences (the right graph is only close to its six-sequence default graph).'],
+  ['LiZhou2021', 'Li H, Zhou H (2021). A new approach to address multiplicity in hypothesis testing with constraints. Communications in Statistics, Theory and Methods 50(1):35–60. doi:10.1080/03610926.2019.1628989', 'Fig. 7: p-value scenarios worked through the two Bretz et al. (2009) Fig. 14 graphs (self-tests).'],
+  ['Minini2026', 'Minini P, Paux G, Dmitrienko A (2026). Comparison of multiple testing procedures for clinical trials with two doses and multiple ranked endpoints. Journal of Biopharmaceutical Statistics, published online 11 October 2026. doi:10.1080/10543406.2026.2741424', 'Figs. 4 and 5 are the two doses, three endpoints templates (Bretz et al., 2009, Fig. 14).'],
   ['Klinglmueller2014', 'Klinglmueller F, Posch M, Koenig F (2014). Adaptive graph-based multiple testing procedures. Pharmaceutical Statistics 13(6):345–356. doi:10.1002/pst.1640', 'Graphical procedures in adaptive designs with an interim analysis (not covered here).'],
   ['Lu2016', 'Lu K (2016). Graphical approaches using a Bonferroni mixture of weighted Simes tests. Statistics in Medicine 35(22):4041–4055.', 'Adjusted p-values for the Bonferroni mixture of Simes tests (Bretz et al., 2011, eq. 8).'],
   ['FDA2022', 'US Food and Drug Administration (2022). Multiple Endpoints in Clinical Trials: Guidance for Industry. October 2022.', 'Regulatory context; graphical approaches in the Appendix, section 8.'],
