@@ -60,10 +60,10 @@ check_shortcut("Hung and Wang, nu = tau = omega = 1/2", hw(1/2, 1/2, 1/2),
                c(0.01, 0.02, 0.005, 0.02), 0.025,
                c(TRUE, FALSE, TRUE, FALSE), c(0.01, 0.02666667, 0.01, 0.02666667))
 check_weights_after("Hung and Wang, 1/2 each", hw(1/2, 1/2, 1/2), c(1, 3), c(0, 3/4, 0, 1/4))
-check_shortcut("Hung and Wang, tau = omega = 1, H2,S without H2,NI (p. 755)", hw(1/2, 1, 1),
+check_shortcut("Hung and Wang, tau = omega = 1, H2,S without H2,NI (p. 754)", hw(1/2, 1, 1),
                c(0.01, 0.01, 0.5, 0.01), 0.025,
                c(TRUE, TRUE, FALSE, TRUE), c(0.01, 0.02, 1, 0.02))
-check_shortcut("Hung and Wang, tau = omega = 1, H2,S never tested (p. 755)", hw(1/2, 1, 1),
+check_shortcut("Hung and Wang, tau = omega = 1, H2,S never tested (p. 754)", hw(1/2, 1, 1),
                c(0.01, 0.5, 0.001, 0.001), 0.025,
                c(TRUE, FALSE, TRUE, FALSE), c(0.01, 0.5, 0.01, 0.5))
 
