@@ -40,8 +40,15 @@ let starterWOpen = false, starterWFor = 0, starterWKey = 'improvedFallbackI';
 let tplW = null;
 const WEIGHT_GEN = {
   improvedFallbackI: { title: 'Improved fallback I', blurb: 'The number of weights sets the number of hypotheses; the last hypothesis returns its level to the others in proportion to these weights.' },
-  weightedHolm: { title: 'Weighted Holm', blurb: 'The number of weights sets the number of hypotheses; they must add up to 1. Each hypothesis passes its level to the others in proportion to their weights (g<sub>ij</sub> = w<sub>j</sub>/(1 − w<sub>i</sub>)).' }
+  weightedHolm: { title: 'Weighted Holm', blurb: 'The number of weights sets the number of hypotheses; they must add up to 1. Each hypothesis passes its level to the others in proportion to their weights (g<sub>ij</sub> = w<sub>j</sub>/(1 − w<sub>i</sub>)).' },
+  /* kind 'kofm': the box takes "k of m" (or "k, m") and builds the entangled graph of Maurer and Bretz (2013), section 5.3.2 */
+  kOfM: { title: 'At least k of m primaries', kind: 'kofm', prompt: 'Type how many of the primary hypotheses must be rejected and how many there are, such as <code>3 of 4</code> or <code>2, 3</code> (2 to 6 primaries).', blurb: 'The secondary hypothesis is tested only once at least k of the m primaries are rejected: one component graph per set of k primaries, Holm within each set (Maurer and Bretz, 2013, section 5.3.2 and Fig. 6; Guilbaud, 2018, Fig. 5(b)).', text: '3 of 4' }
 };
+function parseKOfM(txt) {
+  const m = /^\s*(\d+)\s*(?:of|,|\/|\s)\s*(\d+)\s*$/i.exec(String(txt || ''));
+  if (!m) throw new Error('Type two numbers, such as 3 of 4.');
+  return { k: +m[1], m: +m[2] };
+}
 let mxView = 'current';
 let arrGap = 'normal';
 const GAPS = { compact: 170, normal: 230, wide: 300 };
@@ -54,6 +61,7 @@ let witForce = false; // user asked to enumerate a large graph anyway
 let plain = false;    // plain-language view for clinicians
 let presenting = false;
 let advanced = false; // simple mode hides the matrix, power and technical exports until switched on
+let allView = false;  // entangled graphs: show every component overlaid (read-only) instead of the active one
 const hist = { past: [], future: [] };
 const SIM = { power: {}, rho: '0.5', useMatrix: false, corr: {}, n: 10000, success: { ids: [], rule: 'any' }, running: null, result: null, runs: [], error: '' };
 /* Help on what correlation to enter, shown in the Power tab and in the parametric help of the Test tab */
@@ -65,6 +73,13 @@ const fmt = q => Q.fmt(q, numMode);
 const editVal = q => (numMode === 'dec' ? Q.dec(q) : (Q.isExactShort(q) ? Q.exact(q) : Q.dec(q)));
 const nodeById = id => G.nodes.find(n => n.id === id);
 const edgeOf = (a, b) => G.edges.find(e => e.from === a && e.to === b);
+/* Transitions to draw for a test state: the active component's for an entangled graph (its combined weights are in st.w) */
+const activeG = st => (st.ent ? st.ent.comps[G.ent.active].g : st.g);
+const compName = k => `Graph ${k + 1}`;
+const inAllView = () => allView && isEntangled(G);
+const COMP_STYLE = ['solid', 'dashed', 'dotted', 'dash-dot'];
+const compStyleName = k => COMP_STYLE[k % COMP_STYLE.length] + (k >= COMP_STYLE.length ? ' (again)' : '');
+const compKeySVG = k => `<svg width="34" height="10" aria-hidden="true"><line x1="1" y1="5" x2="33" y2="5" stroke="currentColor" stroke-width="1.8" ${k % 4 === 1 ? 'stroke-dasharray="9 5"' : k % 4 === 2 ? 'stroke-dasharray="2.5 4" stroke-linecap="round"' : k % 4 === 3 ? 'stroke-dasharray="10 4 2.5 4"' : ''}/></svg>`;
 const reduced = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -265,6 +280,7 @@ function toClient(x, y) { return new DOMPoint(x, y).matrixTransform(svg.getScree
 
 /* ---------- view model ---------- */
 function buildVM() {
+  if (inAllView()) return buildAllVM();
   const nodes = G.nodes.map(n => {
     const v = { id: n.id, label: n.label, x: n.x, y: n.y, rx: nodeRx(n.label), ry: NODE_R, p: n.p, w: n.w, color: n.color || '', group: n.group || '', wexpr: mode === 'test' ? '' : (n.wexpr || ''), rejected: false, capH: mode === 'test' ? (manual ? 24 : 40) : (witActive() ? 24 : 0) };
     if (mode === 'test' && T) {
@@ -280,7 +296,7 @@ function buildVM() {
   let edges;
   if (mode === 'test' && T) {
     edges = [];
-    for (const [k, g] of T.st.g) {
+    for (const [k, g] of activeG(T.st)) {
       if (Q.isZero(g)) continue;
       const [a, b] = k.split('>');
       const orig = edgeOf(a, b);
@@ -290,6 +306,40 @@ function buildVM() {
   return { nodes, edges };
 }
 
+/* All view of an entangled graph (Maurer and Bretz, 2013, Fig. 3; Xi and Bretz, 2019, Fig. 5): every component's
+   transitions overlaid with one line style each, and the vector of component weights at each hypothesis */
+function buildAllVM() {
+  const inTest = mode === 'test' && T, st = inTest ? T.st : stateFromGraph(G);
+  const comps = st.ent.comps, n = comps.length;
+  const nodes = G.nodes.map(nd => {
+    const v = { id: nd.id, label: nd.label, x: nd.x, y: nd.y, rx: nodeRx(nd.label), ry: NODE_R, p: nd.p, w: st.w.get(nd.id) || Q.ZERO, color: nd.color || '', group: nd.group || '', wexpr: '', rejected: false, capH: inTest ? (manual ? 24 : 40) : (witActive() ? 24 : 0) };
+    const r = inTest ? T.rejected.get(nd.id) : null;
+    if (r) { v.w = r.w; v.rejected = true; v.step = r.step; if (r.wvec) v.wvec = r.wvec; }
+    else {
+      v.wvec = comps.map(cs => cs.w.get(nd.id) || Q.ZERO);
+      if (inTest && T.pending === nd.id) { v.rejected = true; v.pending = true; }
+    }
+    return v;
+  });
+  const edges = [];
+  comps.forEach((cs, k) => {
+    const stored = inTest ? null : entViewGraph(G, k).edges;
+    if (stored) stored.forEach(e => edges.push({ from: e.from, to: e.to, g: e.g, bend: e.bend, expr: e.expr, text: e.expr ? exprDisplay(e.expr) : fmt(e.g), comp: k }));
+    else {
+      const bends = new Map(entViewGraph(G, k).edges.map(e => [gKey(e.from, e.to), e.bend]));
+      for (const [key, g] of cs.g) { if (Q.isZero(g)) continue; const [a, b] = key.split('>'); edges.push({ from: a, to: b, g, bend: bends.has(key) ? bends.get(key) : null, text: fmt(g), comp: k }); }
+    }
+  });
+  return { nodes, edges, all: true, n, c: st.ent.c };
+}
+/* All view of an entangled graph object outside Test mode (the Compare tab's pictures) */
+function designAllVM(Gx) {
+  const views = Gx.ent.comps.map((_, k) => entViewGraph(Gx, k)), st = stateFromGraph(Gx);
+  const nodes = Gx.nodes.map(nd => ({ id: nd.id, label: nd.label, x: nd.x, y: nd.y, rx: nodeRx(nd.label), ry: NODE_R, p: nd.p, w: st.w.get(nd.id) || Q.ZERO, color: nd.color || '', group: nd.group || '', wexpr: '', rejected: false, wvec: views.map(v => v.nodes.find(n => n.id === nd.id).w) }));
+  const edges = [];
+  views.forEach((v, k) => v.edges.forEach(e => edges.push({ from: e.from, to: e.to, g: e.g, bend: e.bend, expr: e.expr, text: e.expr ? exprDisplay(e.expr) : fmt(e.g), comp: k })));
+  return { nodes, edges, all: true, n: views.length, c: Gx.ent.c };
+}
 /* ---------- canvas rendering ---------- */
 function renderCanvas() {
   const ae = document.activeElement;
@@ -315,7 +365,8 @@ function renderCanvas() {
     const isSel = mode === 'design' && sel && sel.type === 'edge' && sel.key === e.key;
     const isErr = errRows.has(e.from) || errEdges.has(e.key);
     const flash = T && T.flashEdges && T.flashEdges.has(e.key);
-    P.push(`<g class="edge${isSel ? ' sel' : ''}${isErr ? ' err' : ''}${flash ? ' flash' : ''}" data-edge="${e.key}"><path class="edge-hit" d="${e.d}"/><path class="edge-line" d="${e.d}" marker-end="url(#${isSel ? 'ahSel' : isErr ? 'ahErr' : 'ah'})"/></g>`);
+    const compCls = e.comp != null ? ` comp-${e.comp % 4}` : '';
+    P.push(`<g class="edge${isSel ? ' sel' : ''}${isErr ? ' err' : ''}${flash ? ' flash' : ''}${compCls}"${vm.all ? '' : ` data-edge="${e.key}"`} data-flow="${e.key}"><path class="edge-hit" d="${e.d}"/><path class="edge-line" d="${e.d}" marker-end="url(#${isSel ? 'ahSel' : isErr ? 'ahErr' : 'ah'})"/></g>`);
   }
   P.push('</g><g class="nodes">');
   for (const n of vm.nodes) {
@@ -332,8 +383,8 @@ function renderCanvas() {
     const lab = lp ? `<text class="nlabel" y="-3" style="${tcol}">${esc(lp.base)}<tspan font-size="12" dy="5">${esc(lp.sub)}</tspan></text>`
       : `<text class="nlabel" y="-3" style="font-size:15px;${tcol}">${esc(n.label)}</text>`;
     const flash = T && T.flashNodes && T.flashNodes.has(n.id);
-    const wt = (mode !== 'test' && !n.rejected && (nodeById(n.id) || {}).wexpr) ? exprDisplay(nodeById(n.id).wexpr) : fmt(n.w);
-    let aria = `${n.label}, weight ${wt}`;
+    const wt = n.wvec ? `(${n.wvec.map(q => fmt(q)).join(', ')})` : (mode !== 'test' && !n.rejected && (nodeById(n.id) || {}).wexpr) ? exprDisplay(nodeById(n.id).wexpr) : fmt(n.w);
+    let aria = n.wvec ? `${n.label}, weights by component ${wt}` : `${n.label}, weight ${wt}`;
     if (n.rejected) aria += ', rejected';
     let extra = '';
     if (n.rejected) extra += `<line class="strike" x1="${(-n.rx * 0.6).toFixed(1)}" y1="-9" x2="${(n.rx * 0.6).toFixed(1)}" y2="-9"/>`;
@@ -364,14 +415,14 @@ function renderCanvas() {
     const hx = ((n.rx + 6.5) * Math.SQRT1_2).toFixed(1), hy = (-(n.ry + 6.5) * Math.SQRT1_2).toFixed(1);
     P.push(`<g class="${cls.join(' ')}" data-node="${n.id}" transform="translate(${n.x.toFixed(1)},${n.y.toFixed(1)})" tabindex="0" role="button" aria-label="${esc(aria)}">` +
       `<ellipse class="node-ring" rx="${n.rx + 6.5}" ry="${n.ry + 6.5}"/><ellipse class="node-body" rx="${n.rx}" ry="${n.ry}"${colored ? ` style="fill:${n.color}"` : ''}/>${lab}` +
-      `<text class="nweight${flash ? ' flash' : ''}" y="16"${colored ? ` style="${tcol}opacity:.85"` : ''}>${esc(wt)}</text>${extra}<circle class="handle" cx="${hx}" cy="${hy}" r="7"><title>Drag to another hypothesis, or click then click the target, to add a transition</title></circle></g>`);
+      `<text class="nweight${flash ? ' flash' : ''}" y="16"${colored ? ` style="${tcol}opacity:.85"` : ''}${n.wvec && wt.length > 7 ? ' style="font-size:11px"' : ''}>${esc(wt)}</text>${extra}${vm.all ? '' : `<circle class="handle" cx="${hx}" cy="${hy}" r="7"><title>Drag to another hypothesis, or click then click the target, to add a transition</title></circle>`}</g>`);
   }
   P.push('</g><g class="labels">');
   for (const e of layout) {
     const l = e.label;
     const isSel = mode === 'design' && sel && sel.type === 'edge' && sel.key === e.key;
     const isErr = errRows.has(e.from) || errEdges.has(e.key);
-    P.push(`<g class="elabel${isSel ? ' sel' : ''}${isErr ? ' err' : ''}" data-elabel="${e.key}" transform="translate(${l.x.toFixed(1)},${l.y.toFixed(1)})"><rect x="${(-l.w / 2).toFixed(1)}" y="${(-l.h / 2).toFixed(1)}" width="${l.w.toFixed(1)}" height="${l.h}" rx="4"/><text y="4.4">${esc(e.text)}</text></g>`);
+    P.push(`<g class="elabel${isSel ? ' sel' : ''}${isErr ? ' err' : ''}${e.comp != null ? ` comp-${e.comp % 4}` : ''}"${vm.all ? '' : ` data-elabel="${e.key}"`} transform="translate(${l.x.toFixed(1)},${l.y.toFixed(1)})"><rect x="${(-l.w / 2).toFixed(1)}" y="${(-l.h / 2).toFixed(1)}" width="${l.w.toFixed(1)}" height="${l.h}" rx="4"/><text y="4.4">${esc(e.text)}</text></g>`);
     if (isSel && Math.abs(l.t - 0.5) > 0.01) {
       const m = pointAt(e, 0.5);
       P.push(`<circle class="bend-handle" data-bend="${e.key}" cx="${m.x.toFixed(1)}" cy="${m.y.toFixed(1)}" r="6.5"/>`);
@@ -403,6 +454,7 @@ function hintText() {
     return 'Hypotheses outlined in green can be rejected now. Click one to reject it, in any order, or press Run test.';
   }
   if (!hints || !G.nodes.length) return '';
+  if (inAllView()) return `All ${G.ent.comps.length} component graphs shown together, with the weights listed by component at each hypothesis. Pick a graph in the bar above to edit its weights and transitions.`;
   if (inline) return 'Type a number such as 0.5 or 1/2, then press Enter. Esc cancels.';
   if (sel && sel.type === 'node') return 'Drag the blue dot onto another hypothesis to add a transition (or click the dot, then the target). Double-click to rename or change the weight.';
   if (sel && sel.type === 'edge') return 'Click the weight label again to change it. Drag the label to bend the arrow. Delete removes it.';
@@ -451,15 +503,15 @@ function renderStarter() {
   $('starterGrid').innerHTML = cards.map(c => `<button class="start-card" data-start="${c[0]}">${miniSVG(c[3])}<b>${c[1]}</b><span>${c[2]}</span></button>`).join('') +
     '<button class="start-card" data-start="import"><svg viewBox="0 0 140 58" aria-hidden="true"><text x="70" y="38" text-anchor="middle" font-size="22" font-family="monospace" fill="currentColor">c(&hellip;)</text></svg><b>Import from R</b><span>Paste weights and a matrix</span></button>';
   $('starterWeights').hidden = !starterWOpen;
-  if (starterWOpen) $('starterWLabel').innerHTML = `<b>${WEIGHT_GEN[starterWKey].title}.</b> Type the initial weights of H1, H2, &hellip; separated by commas. ${WEIGHT_GEN[starterWKey].blurb}`;
-  if (starterWOpen && starterWFor !== starterM) { starterWFor = starterM; $('starterW').value = equalWeightsText(starterM); $('starterWMsg').hidden = true; }
+  if (starterWOpen) $('starterWLabel').innerHTML = `<b>${WEIGHT_GEN[starterWKey].title}.</b> ${WEIGHT_GEN[starterWKey].prompt || 'Type the initial weights of H1, H2, &hellip; separated by commas.'} ${WEIGHT_GEN[starterWKey].blurb}`;
+  if (starterWOpen && starterWFor !== starterM) { starterWFor = starterM; $('starterW').value = WEIGHT_GEN[starterWKey].text || equalWeightsText(starterM); $('starterWMsg').hidden = true; }
 }
 function equalWeightsText(m) { return Array.from({ length: m }, () => `1/${m}`).join(', '); }
 /* Builds a "for any m" template (key in WEIGHT_GEN) from typed weights. Shows the problem in msgEl and returns false if the text is not usable. */
 function createFromWeights(key, txt, msgEl) {
   try {
-    const w = parseWeightList(txt);
-    loadGraph(generatedTemplate(key, w.length, w));
+    if (WEIGHT_GEN[key].kind === 'kofm') { const r = parseKOfM(txt); loadGraph(entangledKOfM(r.m, r.k, G.alpha)); }
+    else { const w = parseWeightList(txt); loadGraph(generatedTemplate(key, w.length, w)); }
     msgEl.hidden = true; starterWOpen = false; tplW = null;
     return true;
   } catch (err) { msgEl.hidden = false; msgEl.textContent = '✕ ' + err.message; return false; }
@@ -467,15 +519,94 @@ function createFromWeights(key, txt, msgEl) {
 /* Opens the weights box for a generator: on the start panel when the canvas is empty, otherwise at the top of the Graph panel */
 function openWeightsBox(key) {
   if (!G.nodes.length) {
-    starterWOpen = true; starterWKey = key; starterWFor = starterM; $('starterW').value = equalWeightsText(starterM); $('starterWMsg').hidden = true;
+    starterWOpen = true; starterWKey = key; starterWFor = starterM; $('starterW').value = WEIGHT_GEN[key].text || equalWeightsText(starterM); $('starterWMsg').hidden = true;
     if (mode === 'test') setMode('design', true);
     renderStarter(); $('starterW').focus(); $('starterW').select();
     return;
   }
   if (mode === 'test') setMode('design', true);
-  tplW = { key, text: equalWeightsText(G.nodes.length), msg: '' };
+  tplW = { key, text: WEIGHT_GEN[key].text || equalWeightsText(G.nodes.length), msg: '' };
   setSel(null); setTab('graph'); renderGraphPanel();
   const el = $('tplW'); if (el) { el.focus(); el.select(); }
+}
+
+/* ---------- entangled graphs: component bar and actions ---------- */
+function renderCompBar() {
+  const bar = $('compBar'), wrap = bar.parentElement;
+  if (!isEntangled(G) || presenting) { bar.hidden = true; wrap.style.setProperty('--comp-h', '0px'); return; }
+  bar.hidden = false;
+  const n = G.ent.comps.length, k = G.ent.active, design = mode === 'design';
+  const all = allView;
+  const btns = G.ent.comps.map((_, i) => `<button data-comp="${i}" aria-pressed="${!all && i === k}" title="Show and edit ${compName(i)}">${compName(i)}<span class="cw">c = ${esc(fmt(G.ent.c[i]))}</span></button>`).join('') +
+    `<button data-comp="all" aria-pressed="${all}" title="Show every component at once">All</button>`;
+  bar.innerHTML = `<span class="muted"><b>Entangled graph</b> (${n} component${n === 1 ? '' : 's'}):</span><div class="seg small" role="group" aria-label="Component graph">${btns}</div>` +
+    (all ? `<span class="key muted small" aria-label="Line styles">${G.ent.comps.map((_, i) => `<span>${compKeySVG(i)} ${compName(i)}</span>`).join('')}</span><span class="muted small">Read only: pick a graph to edit it.</span>`
+      : (advanced && design ? `<button class="btn small" data-action="comp-add" title="Add a component graph, starting as a copy of this one">+ Graph</button>${n > 1 ? `<button class="btn small" data-action="comp-remove" title="Remove ${compName(k)}">Remove ${compName(k)}</button>` : ''}` : '') +
+    `<span class="muted small">Weights and transitions belong to ${compName(k)}; names, positions and p-values are shared.</span>`);
+  /* the hint chip and zoom buttons sit below the bar */
+  wrap.style.setProperty('--comp-h', bar.offsetHeight + 'px');
+}
+function switchComponent(k) {
+  if (!isEntangled(G)) return;
+  if (k === 'all') { if (allView) return; closeInline(false); linking = null; allView = true; if (sel && sel.type === 'edge') sel = null; renderAll(); return; }
+  if (k === G.ent.active && !allView) return;
+  closeInline(false); linking = null; allView = false;
+  entLoad(G, k);
+  if (sel && sel.type === 'edge' && !G.edges.some(e => gKey(e.from, e.to) === sel.key)) sel = null;
+  renderAll(); scheduleHash();
+}
+/* Turns the current graph into an entangled graph of two identical components with c = 1/2 each: the same procedure
+   (Maurer and Bretz, 2013, Appendix A), ready for the components to be edited apart */
+function makeEntangled() {
+  if (isEntangled(G) || !G.nodes.length) return;
+  checkpoint();
+  const cs = () => ({ w: Object.fromEntries(G.nodes.map(n => [n.id, n.w])), wexpr: Object.fromEntries(G.nodes.filter(n => n.wexpr).map(n => [n.id, n.wexpr])), edges: entCloneEdges(G.edges) });
+  G.ent = { c: [Q.make(1n, 2n), Q.make(1n, 2n)], cexpr: [], active: 0, comps: [cs(), cs()] };
+  G.diag = {};
+  afterChange();
+}
+function addComponent() {
+  if (!isEntangled(G)) return;
+  checkpoint(); entSync(G);
+  const src = G.ent.comps[G.ent.active];
+  G.ent.comps.push({ w: Object.assign({}, src.w), wexpr: Object.assign({}, src.wexpr || {}), edges: entCloneEdges(src.edges) });
+  G.ent.c.push(Q.ZERO); G.ent.cexpr = (G.ent.cexpr || []).concat([undefined]);
+  entLoad(G, G.ent.comps.length - 1);
+  afterChange();
+}
+function removeComponent() {
+  if (!isEntangled(G) || G.ent.comps.length < 2) return;
+  checkpoint(); entSync(G);
+  const k = G.ent.active;
+  G.ent.comps.splice(k, 1); G.ent.c.splice(k, 1); if (G.ent.cexpr) G.ent.cexpr.splice(k, 1);
+  G.ent.active = Math.min(k, G.ent.comps.length - 1);
+  entLoad(G, G.ent.active, true);
+  afterChange();
+}
+/* Keeps one component as an ordinary graph (gMCP joinGraphs and subgraph do not take entangled graphs) */
+function extractComponent(k) {
+  if (!isEntangled(G)) return;
+  const v = entViewGraph(G, k), o = serializeGraph(Object.assign({}, G, { ent: undefined, nodes: v.nodes, edges: v.edges, diag: {} }));
+  o.note = (G.note ? G.note + ' ' : '') + `${compName(k)} of an entangled graph, kept as an ordinary graph.`;
+  loadGraph(o);
+}
+function entangledSection() {
+  if (mode !== 'design' || !G.nodes.length) return '';
+  if (!isEntangled(G)) {
+    return advanced ? det('det-ent', 'Entangled graph', `<p class="small">An entangled graph (Maurer and Bretz, 2013) is several component graphs on the same hypotheses, each with a weight c. A hypothesis is tested at the sum of its levels across the components, and every component is updated separately after a rejection. It can remember where a level came from, which one graph cannot.</p>
+      <div class="row-actions"><button class="btn small" data-action="make-ent">Make this an entangled graph</button></div><p class="small muted">Starts with two copies of this graph, c = 1/2 each, which gives the same procedure until you edit them apart.</p>`) : '';
+  }
+  const n = G.ent.comps.length, k = G.ent.active, dis = mode === 'test' ? 'disabled' : '';
+  let cs = Q.ZERO; for (const v of G.ent.c) cs = Q.add(cs, v);
+  const st = sumStatus(cs);
+  const rows = G.ent.comps.map((_, i) => `<tr><th scope="row">${i === k ? `<b>${compName(i)}</b> (shown)` : `<button class="btn small" data-comp="${i}">${compName(i)}</button>`}</th><td><input id="cw-${i}" data-cw="${i}" value="${esc(weightText(G.ent.c[i], (G.ent.cexpr || [])[i]))}" aria-label="Component weight c${i + 1}" ${advanced ? '' : 'readonly'} ${dis}></td></tr>`).join('');
+  const col = entCollapse(G);
+  return det('det-ent', 'Entangled graph', `<p class="small">${n} component graph${n === 1 ? '' : 's'} on the same hypotheses (Maurer and Bretz, 2013, Statistics in Medicine 32:1739-1753). Each hypothesis is tested at &alpha; times the sum over components of c &times; its weight there (Algorithm 1, p. 1743). Use the bar above the canvas to switch the component you are editing.</p>
+    <table class="t"><thead><tr><th scope="col">Component</th><th scope="col">Weight c</th></tr></thead><tbody>${rows}</tbody></table>
+    <p class="small sum ${st.cls}">Component weights add up to <b>${esc(fmt(cs))}</b> ${st.text}</p>
+    ${advanced ? `<div class="row-actions"><button class="btn small" data-action="comp-add">Add a component (copy of ${compName(k)})</button>${n > 1 ? `<button class="btn small" data-action="comp-remove">Remove ${compName(k)}</button>` : ''}<button class="btn small" data-action="comp-extract">Keep only ${compName(k)} as an ordinary graph</button>${col ? '<button class="btn small" data-action="comp-collapse">Reduce to a single graph</button>' : ''}</div>
+    ${col ? '<p class="small muted">Every component has the same transition matrix, so this is one graph with the c-weighted average of the weights (Appendix A, p. 1752).</p>' : ''}
+    <p class="small muted">Join and extract subgraph work on ordinary graphs only.</p>` : ''}`, `${n} components, c = ${G.ent.c.map(v => fmt(v)).join(', ')}`);
 }
 
 function renderStatus() {
@@ -518,21 +649,24 @@ function sumStatus(q) {
 
 function overviewPanel() {
   const tot = weightSum();
+  const ent = isEntangled(G), stAll = ent ? stateFromGraph(G) : null;
   const rows = G.nodes.map(n => {
     const r = rowSum(n.id), st = sumStatus(r);
-    return `<tr><td><button class="btn small" data-action="select-node" data-id="${n.id}">${n.color ? `<span class="dot" style="background:${n.color}"></span>` : ''}${esc(n.label)}</button></td><td>${esc(fmt(n.w))}</td><td>${fmtNum(Q.toNum(n.w) * G.alpha)}</td><td class="sum ${st.cls}">${esc(fmt(r))} ${st.text}</td></tr>`;
+    const lvl = ent ? Q.toNum(stAll.w.get(n.id) || Q.ZERO) * G.alpha : Q.toNum(n.w) * G.alpha;
+    return `<tr><td><button class="btn small" data-action="select-node" data-id="${n.id}">${n.color ? `<span class="dot" style="background:${n.color}"></span>` : ''}${esc(n.label)}</button></td><td>${esc(fmt(n.w))}</td><td>${fmtNum(lvl)}</td><td class="sum ${st.cls}">${esc(fmt(r))} ${st.text}</td></tr>`;
   }).join('');
   return `<h2>Graph</h2>
-  ${tplW && mode === 'design' ? `<div class="tpl-w"><p class="small"><b>${WEIGHT_GEN[tplW.key].title} for any m.</b> Type the initial weights of H1, H2, &hellip; separated by commas. ${WEIGHT_GEN[tplW.key].blurb} This replaces the current graph (Undo brings it back).</p>
+  ${tplW && mode === 'design' ? `<div class="tpl-w"><p class="small"><b>${WEIGHT_GEN[tplW.key].title}${WEIGHT_GEN[tplW.key].kind === 'kofm' ? '' : ' for any m'}.</b> ${WEIGHT_GEN[tplW.key].prompt || 'Type the initial weights of H1, H2, &hellip; separated by commas.'} ${WEIGHT_GEN[tplW.key].blurb} This replaces the current graph (Undo brings it back).</p>
     <div class="row-actions"><input class="txt" id="tplW" value="${esc(tplW.text)}" aria-label="Initial weights" spellcheck="false"><button class="btn small primary" data-action="tpl-w-create">Create</button><button class="btn small" data-action="tpl-w-cancel">Cancel</button></div>
     <p class="err-text" id="tplWMsg"${tplW.msg ? '' : ' hidden'}>${esc(tplW.msg)}</p></div>` : ''}
   ${G.note ? `<p class="note">${esc(G.note)}</p>` : ''}
   ${plain && G.nodes.length ? `<div class="plain">${plainGraphText(G, plainName).map(t => `<p>${esc(t)}</p>`).join('')}</div>` : ''}
-  ${G.nodes.length ? `<table class="t"><thead><tr><th scope="col">Hypothesis</th><th scope="col">Weight</th><th scope="col">Level w&alpha;</th><th scope="col">Passed on</th></tr></thead><tbody>${rows}</tbody></table>
-  <p class="small muted">Total initial weight ${esc(fmt(tot))}, &alpha; = ${fmtNum(G.alpha)}. Click a hypothesis to edit it.</p>` : '<p class="muted">Add a hypothesis to get started.</p>'}
+  ${G.nodes.length ? `<table class="t"><thead><tr><th scope="col">Hypothesis</th><th scope="col">Weight${ent ? ` in ${compName(G.ent.active)}` : ''}</th><th scope="col">${ent ? 'Level (all graphs)' : 'Level w&alpha;'}</th><th scope="col">Passed on</th></tr></thead><tbody>${rows}</tbody></table>
+  <p class="small muted">Total initial weight ${esc(fmt(tot))}${ent ? ` in ${compName(G.ent.active)}` : ''}, &alpha; = ${fmtNum(G.alpha)}. Click a hypothesis to edit it.</p>` : '<p class="muted">Add a hypothesis to get started.</p>'}
   ${G.nodes.length > 1 && mode === 'design' ? `<div class="row-actions"><button class="btn small" data-action="equal-w">Give every hypothesis equal weight</button></div>` : ''}
   ${varsSection()}
-  ${advanced && mode === 'design' && G.nodes.length ? det('det-build', 'Join or extract', `<p class="small"><b>Join with a template</b> (gMCP joinGraphs): adds a second graph below this one. Weights are rescaled if they then add up to more than 1.</p>
+  ${entangledSection()}
+  ${advanced && mode === 'design' && G.nodes.length && !isEntangled(G) ? det('det-build', 'Join or extract', `<p class="small"><b>Join with a template</b> (gMCP joinGraphs): adds a second graph below this one. Weights are rescaled if they then add up to more than 1.</p>
     <div class="row-actions"><select class="sel" id="joinSelect" aria-label="Template to join">${Object.entries(TEMPLATES).map(([k, t]) => `<option value="${k}">${esc(t.name)}</option>`).join('')}</select><button class="btn small" data-action="join">Join</button></div>
     <p class="small"><b>Extract a subgraph</b> (gMCP subgraph): keep only the ticked hypotheses, with the transitions among them.</p>
     <div class="row-actions">${G.nodes.map(n => `<label class="chk"><input type="checkbox" data-keep="${n.id}" checked> ${esc(n.label)}</label>`).join('')}</div>
@@ -554,7 +688,20 @@ function varsSection() {
     ${names.length ? `<table class="t"><thead><tr><th scope="col">Variable</th><th scope="col">Value</th><th scope="col">Used in</th></tr></thead><tbody>${rows}</tbody></table>
     <div class="row-actions"><button class="btn small" data-action="vars-fix" ${dis}>Replace variables with their values</button></div>` : '<p class="small muted">No variables yet.</p>'}`, names.length ? names.map(v => `${v} = ${fmt(G.vars[v])}`).join(', ') : '');
 }
+/* Node panel in the All view of an entangled graph: read only, one row per component */
+function nodePanelAll(n) {
+  const st = (mode === 'test' && T) ? T.st : stateFromGraph(G);
+  const rows = st.ent.comps.map((cs, k) => {
+    const v = entViewGraph(G, k), outs = v.edges.filter(e => e.from === n.id).map(e => `${esc(nodeById(e.to).label)} (${esc(e.expr ? exprDisplay(e.expr) : fmt(e.g))})`);
+    return `<tr><th scope="row"><button class="btn small" data-comp="${k}">${compName(k)}</button></th><td>${esc(fmt(cs.w.get(n.id) || Q.ZERO))}</td><td class="small">${outs.length ? outs.join(', ') : '<span class="muted">none</span>'}</td></tr>`;
+  }).join('');
+  return `<div class="row-actions" style="justify-content:space-between;align-items:center"><h2>Hypothesis ${esc(n.label)}</h2><button class="btn small" data-action="deselect">Done</button></div>
+  <p class="small muted">All components shown. Level now: ${fmtNum(Q.toNum(st.w.get(n.id) || Q.ZERO) * G.alpha)} (&alpha; times the sum of c &times; weight over the components). Pick a graph to edit it.</p>
+  <table class="t"><thead><tr><th scope="col">Component</th><th scope="col">Weight</th><th scope="col">Passes on to</th></tr></thead><tbody>${rows}</tbody></table>
+  <div class="form"><label for="node-p">p-value <span class="hint">Used when you test the graph</span><input class="txt" id="node-p" value="${esc(n.p || '')}" inputmode="decimal" autocomplete="off"></label></div>`;
+}
 function nodePanel(n) {
+  if (inAllView()) return nodePanelAll(n);
   const dis = mode === 'test' ? 'disabled' : '';
   const outs = G.edges.filter(e => e.from === n.id);
   const r = rowSum(n.id), st = sumStatus(r);
@@ -628,10 +775,64 @@ function matrixTables(editable, labels, wCells, gCell, wSum, rowSums) {
     <h3>Transition matrix G <span style="text-transform:none;letter-spacing:0;font-weight:400">(row = from, column = to)</span></h3>
     <div class="mx-scroll"><table class="mx"><thead><tr><th></th>${head}<th>Sum</th></tr></thead><tbody>${labels.map((l, i) => `<tr><th scope="row">${esc(l)}</th>${labels.map((_, j) => gCell(i, j)).join('')}<td class="sum ${rowSums[i].cls}">${rowSums[i].html}</td></tr>`).join('')}</tbody></table></div>`;
 }
+/* Matrix view of an entangled graph: the component weights c, then w and G for each component (Maurer and Bretz,
+   2013, section 3.2). Every component is editable here, whichever one the canvas shows. */
+function renderMatrixEntangled(el) {
+  const inTest = mode === 'test' && T, cur = inTest && mxView === 'current';
+  const dis = inTest ? 'disabled' : '', ro = advanced ? '' : 'readonly';
+  const ids = G.nodes.map(n => n.id), labels = G.nodes.map(n => n.label);
+  const st = inTest ? T.st : null;
+  const live = id => !cur || st.ids.includes(id);
+  const cellTxt = (txt, muted) => `<td style="text-align:center;padding:6px 8px;${muted ? 'color:var(--rej)' : ''}">${txt}</td>`;
+  let cs = Q.ZERO; for (const v of G.ent.c) cs = Q.add(cs, v);
+  const css = sumStatus(cs);
+  const cRow = `<h3>Component weights c</h3><div class="mx-scroll"><table class="mx"><thead><tr><th></th>${G.ent.comps.map((_, k) => `<th scope="col">${compName(k)}</th>`).join('')}<th>Sum</th></tr></thead><tbody><tr><th scope="row">c</th>${G.ent.comps.map((_, k) => `<td><input id="mc-${k}" data-mc="${k}" value="${esc(weightText(G.ent.c[k], (G.ent.cexpr || [])[k]))}" aria-label="Component weight c${k + 1}" ${dis} ${ro}></td>`).join('')}<td class="sum ${css.cls}">${esc(fmt(cs))} ${css.text}</td></tr></tbody></table></div>`;
+  const parts = G.ent.comps.map((comp, k) => {
+    const v = entViewGraph(G, k);
+    const wOf = id => v.nodes.find(n => n.id === id).w, wxOf = id => v.nodes.find(n => n.id === id).wexpr;
+    const eOf = (a, b) => v.edges.find(e => e.from === a && e.to === b);
+    let title = `<h3 style="margin-top:18px">${compName(k)}${k === G.ent.active && !allView ? ' <span style="text-transform:none;letter-spacing:0;font-weight:400">(shown on the canvas)</span>' : ''}</h3>`;
+    if (cur) {
+      const cw = st.ent.comps[k].w, cg = { g: st.ent.comps[k].g };
+      let tw = Q.ZERO; for (const id of st.ids) tw = Q.add(tw, cw.get(id) || Q.ZERO);
+      return title + matrixTables(false, labels,
+        ids.map(id => live(id) ? cellTxt(esc(fmt(cw.get(id) || Q.ZERO))) : cellTxt('–', true)).join(''),
+        (i, j) => (!live(ids[i]) || !live(ids[j])) ? cellTxt('–', true) : cellTxt(i === j ? '0' : esc(fmt(getg(cg, ids[i], ids[j])))),
+        { cls: '', html: esc(fmt(tw)) },
+        ids.map(id => { if (!live(id)) return { cls: '', html: '' }; let r = Q.ZERO; for (const q of st.ids) r = Q.add(r, getg(cg, id, q)); return { cls: '', html: esc(fmt(r)) }; }));
+    }
+    let tot = Q.ZERO; for (const id of ids) tot = Q.add(tot, wOf(id));
+    const ts = sumStatus(tot);
+    const wCells = ids.map(id => { const w = wOf(id), bad = Q.cmp(w, Q.ZERO) < 0 || Q.cmp(w, Q.ONE) > 0; return `<td><input id="mw-${k}-${id}" data-mwk="${k}:${id}" value="${esc(weightText(w, wxOf(id)))}" class="${bad ? 'bad' : ''}" aria-label="Initial weight of ${esc(labels[ids.indexOf(id)])} in ${compName(k)}" ${dis}></td>`; }).join('');
+    const gCell = (i, j) => {
+      if (i === j) return `<td><input value="0" class="diag" readonly aria-label="Diagonal entry for ${esc(labels[i])} (always 0)" ${dis}></td>`;
+      const e = eOf(ids[i], ids[j]), bad = e && (Q.cmp(e.g, Q.ZERO) < 0 || Q.cmp(e.g, Q.ONE) > 0);
+      return `<td><input id="mg-${k}-${ids[i]}-${ids[j]}" data-mgk="${k}:${gKey(ids[i], ids[j])}" value="${e ? esc(weightText(e.g, e.expr)) : '0'}" class="${bad ? 'bad' : ''}" aria-label="Transition from ${esc(labels[i])} to ${esc(labels[j])} in ${compName(k)}" ${dis}></td>`;
+    };
+    const rs = ids.map(id => { let r = Q.ZERO; for (const e of v.edges) if (e.from === id) r = Q.add(r, e.g); const sst = sumStatus(r); return { cls: sst.cls, html: `${esc(fmt(r))} ${sst.text}` }; });
+    return title + matrixTables(true, labels, wCells, gCell, { cls: ts.cls, html: `${esc(fmt(tot))} ${ts.text}` }, rs);
+  });
+  el.innerHTML = `<h2>Matrix view</h2>
+    ${inTest ? `<div class="seg small" role="group" aria-label="Which graph"><button data-action="mx-current" aria-pressed="${cur}">Current graph</button><button data-action="mx-initial" aria-pressed="${!cur}">Initial graph</button></div><p class="small muted">${cur ? `After ${T.step} rejection${T.step === 1 ? '' : 's'}. Each component is updated separately; rejected hypotheses are shown as a dash.` : 'Switch to Design mode to edit.'}</p>` : `<p class="small muted">Entangled graph: ${G.ent.comps.length} components on the same hypotheses. Edits here and on the canvas stay in sync. Type 0 to remove a transition.</p>`}
+    ${cRow}${parts.join('')}`;
+}
+/* Edits a component's stored weights and transitions; the active component is the live copy on the canvas */
+function setCompWeight(k, id, q, expr) {
+  if (k === G.ent.active) { const n = nodeById(id); if (n) { n.w = q; n.wexpr = expr || undefined; } return; }
+  const cs = G.ent.comps[k]; cs.w[id] = q; cs.wexpr = cs.wexpr || {}; if (expr) cs.wexpr[id] = expr; else delete cs.wexpr[id];
+}
+function setCompEdge(k, a, b, q, expr) {
+  if (k === G.ent.active) { setEdgeWeight(a, b, q, expr); return; }
+  const cs = G.ent.comps[k], ex = cs.edges.find(e => e.from === a && e.to === b);
+  if (Q.isZero(q) && !expr) { cs.edges = cs.edges.filter(e => e !== ex); return; }
+  if (ex) { ex.g = q; ex.expr = expr || undefined; } else cs.edges.push({ from: a, to: b, g: q, bend: null, expr: expr || undefined });
+}
 function renderMatrixPanel() {
   const el = $('mx-dyn');
+  renderDefaultGraph();
   preserveFocus(el, () => {
     if (!G.nodes.length) { el.innerHTML = '<h2>Matrix view</h2><p class="muted">Add hypotheses on the canvas, or import weights and a matrix below.</p>'; return; }
+    if (isEntangled(G)) { entSync(G); renderMatrixEntangled(el); return; }
     if (mode === 'test' && T && mxView === 'current') {
       const ids = G.nodes.map(n => n.id), labels = G.nodes.map(n => n.label);
       const live = id => T.st.ids.includes(id);
@@ -642,9 +843,9 @@ function renderMatrixPanel() {
         <p class="small muted">After ${T.step} rejection${T.step === 1 ? '' : 's'}. Rejected hypotheses are shown as a dash.</p>` +
         matrixTables(false, labels,
           ids.map(id => live(id) ? cellTxt(esc(fmt(T.st.w.get(id)))) : cellTxt('–', true)).join(''),
-          (i, j) => (!live(ids[i]) || !live(ids[j])) ? cellTxt('–', true) : cellTxt(i === j ? '0' : esc(fmt(getg(T.st, ids[i], ids[j])))),
+          (i, j) => (!live(ids[i]) || !live(ids[j])) ? cellTxt('–', true) : cellTxt(i === j ? '0' : esc(fmt(getg({ g: activeG(T.st) }, ids[i], ids[j])))),
           { cls: '', html: esc(fmt(tw)) },
-          ids.map(id => { if (!live(id)) return { cls: '', html: '' }; let r = Q.ZERO; for (const k of T.st.ids) r = Q.add(r, getg(T.st, id, k)); return { cls: '', html: esc(fmt(r)) }; }));
+          ids.map(id => { if (!live(id)) return { cls: '', html: '' }; let r = Q.ZERO; for (const k of T.st.ids) r = Q.add(r, getg({ g: activeG(T.st) }, id, k)); return { cls: '', html: esc(fmt(r)) }; }));
       return;
     }
     const dis = mode === 'test' ? 'disabled' : '';
@@ -671,6 +872,7 @@ function renderMatrixPanel() {
 }
 function initMatrixStatic() {
   $('tab-matrix').innerHTML = `<div id="mx-dyn" class="form"></div>
+  <details class="more" id="det-default"><summary>Default graph: the procedure as fixed sequences with weights</summary><div class="det-body" id="dg-body"></div></details>
   <details class="more" id="det-import"><summary>Import from R or plain numbers</summary><div class="det-body" id="mx-import">
     <p class="small muted">Paste R code such as <code>c(1/2, 1/2, 0, 0)</code> and <code>matrix(c(...), nrow = 4, byrow = TRUE)</code>, or plain numbers separated by commas or spaces with one matrix row per line. This replaces the current graph (undo brings it back).</p>
     <label for="imp-w" class="small"><b>Weights</b><textarea class="txt" id="imp-w" rows="2" placeholder="c(1/2, 1/2, 0, 0)"></textarea></label>
@@ -678,7 +880,68 @@ function initMatrixStatic() {
     <label for="imp-names" class="small"><b>Names</b> <span class="muted">(optional, such as c("H1", "H2", "H3", "H4"))</span><input class="txt" id="imp-names" autocomplete="off"></label>
     <div class="row-actions"><button class="btn primary" data-action="import">Build graph</button><button class="btn" data-action="import-current">Fill in the current graph</button></div>
     <div id="imp-msg" aria-live="polite"></div>
+    <hr>
+    <label for="imp-ent" class="small"><b>Entangled graph from gMCP code</b> <span class="muted">(Maurer and Bretz, 2013)</span><textarea class="txt" id="imp-ent" rows="6" spellcheck="false" placeholder='m1 <- rbind(H1 = c(0, 1), H2 = c(1, 0))&#10;g1 <- new("graphMCP", m = m1, weights = c(1, 0))&#10;g2 <- new("graphMCP", m = m1, weights = c(0, 1))&#10;graph <- new("entangledMCP", subgraphs = list(g1, g2), weights = c(1/2, 1/2))'></textarea></label>
+    <p class="small muted">Paste the R lines that build the components (rbind, matrix, c) and the final new("entangledMCP", subgraphs = list(...), weights = c(...)). Quoted expressions such as "1-\\epsilon" become symbolic weights.</p>
+    <div class="row-actions"><button class="btn primary" data-action="import-ent">Build entangled graph</button></div>
+    <div id="imp-ent-msg" aria-live="polite"></div>
+    <hr>
+    <label for="imp-dg" class="small"><b>Default graph: fixed sequences with weights</b> <span class="muted">(Burman, Sonesson and Guilbaud, 2009)</span><textarea class="txt" id="imp-dg" rows="4" spellcheck="false" placeholder="H1 > H3 > H4 > H2 > H5 : 1/2&#10;H2 > H3 > H5 > H1 > H4 : 1/2"></textarea></label>
+    <p class="small muted">One sequence per line, most important hypothesis first, then a colon and its weight (a fraction, decimal or expression such as γ/2). The weights should add up to 1. Each sequence becomes one component graph of an entangled graph, with weight 1 on its first hypothesis and transitions of 1 along the chain (Maurer and Bretz, 2013, section 5.1, p. 1748).</p>
+    <div class="row-actions"><button class="btn primary" data-action="import-dg">Build from sequences</button></div>
+    <div id="imp-dg-msg" aria-live="polite"></div>
   </div></details>`;
+  $('det-default').addEventListener('toggle', () => renderDefaultGraph());
+}
+/* The default-graph view (Maurer and Bretz, 2013, Appendix A; plan section 3.1): computed only while its section is
+   open, for up to 6 hypotheses */
+const DG = { hide: false };
+function renderDefaultGraph() {
+  const el = $('dg-body'), d = $('det-default');
+  if (!el || !d) return;
+  if (!d.open) { el.innerHTML = ''; return; }
+  preserveFocus(el, () => {
+    const m = G.nodes.length;
+    if (!m) { el.innerHTML = '<p class="muted">Add hypotheses first.</p>'; return; }
+    if (m > 6) { el.innerHTML = `<p class="small muted">The default-graph view is available for up to 6 hypotheses (this graph has ${m}): a graph on m hypotheses can need up to m! sequences.</p>`; return; }
+    let dg;
+    try { dg = defaultGraphOf(G); } catch (err) { el.innerHTML = `<p class="err-text">✕ ${esc(err.message)}</p>`; return; }
+    const thr = Q.parse('1/100');
+    const shown = DG.hide ? dg.seqs.filter(s => Q.cmp(s.c, thr) >= 0) : dg.seqs;
+    const hidden = dg.seqs.length - shown.length;
+    let hiddenW = Q.ZERO; for (const s of dg.seqs) if (Q.cmp(s.c, thr) < 0) hiddenW = Q.add(hiddenW, s.c);
+    const small = dg.seqs.filter(s => Q.cmp(s.c, thr) < 0).length;
+    const seqText = s => s.order.map(id => nodeById(id).label).join(' > ');
+    const view = Object.assign({}, dg, { seqs: shown });
+    const hasEps = Object.keys(G.vars || {}).includes('ε');
+    const any = dg.seqs.length > 0;
+    let h = `<p class="small">${any ? `This procedure equals a default graph of ${dg.seqs.length} fixed sequence${dg.seqs.length === 1 ? '' : 's'}: a hypothesis is tested at α times the sum of the weights of the sequences in which it comes first among the hypotheses not yet rejected (Maurer and Bretz, 2013, section 5.1, p. 1748; the sequences and weights follow the decomposition of Appendix A, pp. 1752-1753).` : 'No sequence has a positive weight: every initial weight is 0.'}${isEntangled(G) ? ' Each component graph is decomposed and weighted by its c (section 5.2, pp. 1749-1750).' : ''}${Object.keys(G.vars || {}).length ? ` Symbolic weights are evaluated with ${Object.keys(G.vars).map(v => `${v} = ${fmt(G.vars[v])}`).join(', ')}.` : ''}</p>`;
+    if (small) h += `<label class="small"><input type="checkbox" id="dg-hide" ${DG.hide ? 'checked' : ''}> Hide the ${small} sequence${small === 1 ? '' : 's'} with weight below 1/100 (total ${esc(fmt(hiddenW))})${hasEps ? ', which carry the ε shares: the rest is the ε-free picture of Maurer and Bretz (2013), Fig. 4(a)' : ''}</label>`;
+    if (any) {
+      h += `<div class="mx-scroll">${defaultGraphSVG(G, view, fmt)}</div>`;
+      if (shown.length > 24) h += `<p class="small muted">The picture shows the first 24 of ${shown.length} sequences; the table has them all.</p>`;
+      if (dg.seqs.some(s => s.partial)) h += `<p class="small muted">* This sequence ends before every hypothesis: the weight left at its last hypothesis is lost, so the graph is not alpha-exhaustive.</p>`;
+      h += `<div class="mx-scroll"><table class="t"><thead><tr><th scope="col">#</th><th scope="col">Sequence</th><th scope="col" class="num">Weight</th><th scope="col" class="num">Level (weight × α)</th></tr></thead><tbody>${shown.map((s, i) => `<tr><td>${i + 1}</td><td>${esc(seqText(s))}${s.partial ? ' *' : ''}</td><td class="num">${esc(fmt(s.c))}</td><td class="num">${esc(fmtNum(Q.toNum(s.c) * G.alpha, 6))}</td></tr>`).join('')}</tbody></table></div>`;
+      if (hidden) h += `<p class="small muted">${hidden} sequence${hidden === 1 ? '' : 's'} hidden (total weight ${esc(fmt(hiddenW))}); the shown weights add up to ${esc(fmt(Q.sub(dg.total, hiddenW)))}.</p>`;
+      else if (!Q.eq(dg.total, Q.ONE)) h += `<p class="small muted">The weights add up to ${esc(fmt(dg.total))}, so the procedure does not use the full α.</p>`;
+      h += `<div class="row-actions"><button class="btn small" data-action="dg-copy">Copy as text</button>${advanced && mode === 'design' ? `<button class="btn small" data-action="dg-make" ${shown.length > 24 ? 'disabled title="At most 24 sequences"' : ''}>Make this an entangled graph of ${shown.length === 1 ? 'this sequence' : `these ${shown.length} sequences`}</button>` : ''}</div>`;
+      if (advanced && mode === 'design') h += `<p class="small muted">The entangled graph of fixed sequences has one component graph per sequence (weight 1 on its first hypothesis, transitions of 1 along the chain) with c = the weight, and runs the same test${hidden ? '; the hidden sequences are left out, so it uses less than the full α' : ''}. Symbolic weights become numbers. The text copies in the format of the "Default graph" import box.</p>`;
+    }
+    el.innerHTML = h;
+  });
+}
+function defaultGraphText(shown) {
+  return shown.map(s => `${s.order.map(id => nodeById(id).label).join(' > ')} : ${Q.isExactShort(s.c) ? Q.exact(s.c) : Q.dec(s.c)}`).join('\n');
+}
+function doImportDefaultGraph() {
+  const msg = $('imp-dg-msg');
+  try {
+    const parsed = parseDefaultGraph($('imp-dg').value);
+    loadGraph(defaultGraphJSON(parsed, autoPositions(parsed.names.length), G.alpha));
+    msg.innerHTML = `<p class="ok-text">✓ Built an entangled graph with ${parsed.names.length} hypotheses and ${parsed.seqs.length} component graph${parsed.seqs.length === 1 ? '' : 's'}, one per sequence.</p>`;
+  } catch (err) {
+    msg.innerHTML = `<p class="err-text" role="alert">✕ ${esc(err.message)}</p>`;
+  }
 }
 function autoPositions(m) {
   if (m > 8) return circlePositions(m);
@@ -724,6 +987,25 @@ function doImport() {
     msg.innerHTML = `<p class="err-text" role="alert">✕ ${esc(err.message)}</p>`;
   }
 }
+function doImportEntangled() {
+  const msg = $('imp-ent-msg');
+  try {
+    if (!$('imp-ent').value.trim()) throw new Error('Paste the gMCP code first.');
+    const r = parseEntangledR($('imp-ent').value);
+    const diag = r.comps.some(cs => cs.rows.some((row, i) => row[i] !== '0'));
+    const pos = autoPositions(r.m);
+    const o = entangledJSON({
+      alpha: G.alpha, note: '',
+      nodes: r.names.map((nm, i) => [nm || 'H' + (i + 1), pos[i].x, pos[i].y]),
+      c: r.c,
+      comps: r.comps.map(cs => ({ w: cs.w, edges: cs.rows.flatMap((row, i) => row.map((v, j) => (i !== j && v !== '0' ? [i, j, v] : null)).filter(Boolean)) }))
+    });
+    loadGraph(o);
+    msg.innerHTML = `<p class="ok-text">✓ Built an entangled graph with ${r.m} hypotheses and ${r.comps.length} components.${diag ? ' Diagonal entries were ignored (a hypothesis cannot pass weight to itself).' : ''}</p>`;
+  } catch (err) {
+    msg.innerHTML = `<p class="err-text" role="alert">✕ ${esc(err.message)}</p>`;
+  }
+}
 function openImport() {
   if (!advanced) setAdvanced(true);
   setTab('matrix');
@@ -761,6 +1043,7 @@ function setMode(m, silent) {
   if (animating || m === mode) return;
   closeInline(false); linking = null; overlay.innerHTML = '';
   mode = m;
+  if (isEntangled(G)) allView = m === 'test'; else allView = false;
   if (m === 'test') {
     T = newTest(); mxView = 'current'; tplW = null;
     if (sel) sel = null;
@@ -859,17 +1142,21 @@ async function doReject(id, info, fast, fromRedo) {
   if (!reduced()) await animateFlow(id, before, wj, fast);
   if (!T) { animating = false; return; }
   T.step += 1;
-  T.rejected.set(id, { step: T.step, w: wj });
+  T.rejected.set(id, { step: T.step, w: wj, wvec: before.ent ? before.ent.comps.map(cs => cs.w.get(id) || Q.ZERO) : null });
   T.order.push(id);
   if (info.manual) T.whatIfUsed = true;
   if (info.how === 'click') T.picked = true;
   T.pending = null; T.st = after;
   T.flashNodes = new Set(after.ids.filter(l => !Q.eq(after.w.get(l), before.w.get(l))));
-  T.flashEdges = new Set([...after.g.keys()].filter(k => !before.g.get(k) || !Q.eq(before.g.get(k), after.g.get(k))));
+  const changed = (b, a) => [...a.keys()].filter(k => !b.get(k) || !Q.eq(b.get(k), a.get(k)));
+  T.flashEdges = new Set(changed(before.g, after.g));
+  if (before.ent) before.ent.comps.forEach((cs, h) => changed(cs.g, after.ent.comps[h].g).forEach(k => T.flashEdges.add(`${k}#${h}`)));
   const n = nodeById(id);
   const lvl = Q.toNum(wj) * G.alpha;
-  const gave = before.ids.filter(l => l !== id && !Q.isZero(getg(before, id, l)) && !Q.isZero(wj))
-    .map(l => `+${fmt(Q.mul(wj, getg(before, id, l)))} to ${nodeById(l).label}`);
+  /* what each open hypothesis receives: w_j g_jl for one graph; sum over components of c_h w_hj g_hjl for an
+     entangled graph (Maurer and Bretz, 2013, Algorithm 1 step 3, p. 1743), listed by component when more than one gives */
+  const flows = flowAmounts(before, id);
+  const gave = flows.map(f => `+${fmt(f.total)} to ${nodeById(f.to).label}` + (f.parts && f.parts.filter(x => !Q.isZero(x)).length > 1 ? ` (${f.parts.map((x, h) => (Q.isZero(x) ? null : `${compName(h)} +${fmt(x)}`)).filter(Boolean).join(', ')})` : f.parts ? ` (${compName(f.parts.findIndex(x => !Q.isZero(x)))})` : ''));
   let text;
   if (info.manual) {
     const p = parseP(n.p);
@@ -879,27 +1166,46 @@ async function doReject(id, info, fast, fromRedo) {
   }
   const now = after.ids.length ? 'Weights now: ' + after.ids.map(l => `${nodeById(l).label} ${fmt(after.w.get(l))} (level ${fmtNum(Q.toNum(after.w.get(l)) * G.alpha)})`).join(', ') + '.' : '';
   T.log.push({ text, gave: gave.length ? 'Passed on: ' + gave.join(', ') + '.' : (Q.isZero(wj) ? '' : 'No outgoing arrows, so its weight is not passed on.'), now,
-    data: { label: n.label, p: info.p, level: lvl, manual: !!info.manual, wj, gave: before.ids.filter(l => l !== id && !Q.isZero(getg(before, id, l)) && !Q.isZero(wj)).map(l => [nodeById(l).label, Q.mul(wj, getg(before, id, l))]), now: after.ids.map(l => [nodeById(l).label, Q.toNum(after.w.get(l)) * G.alpha]) } });
+    data: { label: n.label, p: info.p, level: lvl, manual: !!info.manual, wj, gave: flows.map(f => [nodeById(f.to).label, f.total]), now: after.ids.map(l => [nodeById(l).label, Q.toNum(after.w.get(l)) * G.alpha]) } });
   if (!T.st.ids.length) { T.done = true; T.log.push({ stop: true, text: 'Stopped: every hypothesis is rejected.' }); recordOrderRun(); }
   else if (!manual && !rejectableIds(T.st, pOf, G.alpha).length) { T.done = true; T.log.push({ stop: true, text: stopText() }); recordOrderRun(); }
   animating = false;
   renderAll();
   if (T) { T.flashNodes = null; T.flashEdges = null; }
 }
+/* Weight that rejecting H_j passes to each open hypothesis: [{to, total, parts}] with parts per component
+   (c_h w_hj g_hjl) for an entangled state, or parts = null for one graph */
+function flowAmounts(st, j) {
+  const out = [];
+  for (const l of st.ids) {
+    if (l === j) continue;
+    if (st.ent) {
+      const parts = st.ent.comps.map((cs, h) => Q.mul(st.ent.c[h], Q.mul(cs.w.get(j) || Q.ZERO, cs.g.get(gKey(j, l)) || Q.ZERO)));
+      const total = parts.reduce((a, b) => Q.add(a, b), Q.ZERO);
+      if (!Q.isZero(total)) out.push({ to: l, total, parts });
+    } else {
+      const total = Q.mul(st.w.get(j) || Q.ZERO, getg(st, j, l));
+      if (!Q.isZero(total)) out.push({ to: l, total, parts: null });
+    }
+  }
+  return out;
+}
 function animateFlow(j, before, wj, fast) {
   return new Promise(resolve => {
     const ns = 'http://www.w3.org/2000/svg';
     const items = [];
-    for (const l of before.ids) {
-      if (l === j) continue;
-      const g = getg(before, j, l);
-      if (Q.isZero(g) || Q.isZero(wj)) continue;
-      const path = world.querySelector(`[data-edge="${j}>${l}"] .edge-line`);
-      if (!path) continue;
+    const add = (sel, amount) => {
+      const path = world.querySelector(`[data-flow="${sel}"] .edge-line`);
+      if (!path) return;
       const c = document.createElementNS(ns, 'circle'); c.setAttribute('r', '7'); c.setAttribute('class', 'flow-dot'); c.style.opacity = '0';
-      const t = document.createElementNS(ns, 'text'); t.setAttribute('class', 'flow-text'); t.textContent = '+' + fmt(Q.mul(wj, g)); t.style.opacity = '0';
+      const t = document.createElementNS(ns, 'text'); t.setAttribute('class', 'flow-text'); t.textContent = '+' + fmt(amount); t.style.opacity = '0';
       overlay.append(c, t);
       items.push({ path, len: path.getTotalLength(), c, t });
+    };
+    for (const f of flowAmounts(before, j)) {
+      /* All view: one dot per component edge with that component's share; one graph shown: the total along its edge */
+      if (f.parts && inAllView()) f.parts.forEach((x, h) => { if (!Q.isZero(x)) add(`${j}>${f.to}#${h}`, x); });
+      else add(`${j}>${f.to}`, f.total);
     }
     const wait = fast ? 180 : 420, dur = fast ? 520 : 950;
     const t0 = performance.now() + wait;
@@ -940,8 +1246,11 @@ async function runClosed() {
     ctRunning = null;
     if (!T || !T.closed) return;
     const rej = G.nodes.filter((n, i) => r.rejected[i]);
-    rej.forEach(n => { T.rejected.set(n.id, { step: 1, w: n.w }); });
-    T.st = { ids: G.nodes.filter(n => !T.rejected.has(n.id)).map(n => n.id), w: new Map(G.nodes.map(n => [n.id, n.w])), g: stateFromGraph(G).g };
+    /* the initial graph with the rejected hypotheses greyed out (a closed test has no step-through); an entangled
+       graph keeps its components so the All view can draw them */
+    const st0 = stateFromGraph(G);
+    rej.forEach(n => { T.rejected.set(n.id, { step: 1, w: st0.w.get(n.id) || n.w, wvec: st0.ent ? st0.ent.comps.map(cs => cs.w.get(n.id) || Q.ZERO) : null }); });
+    T.st = Object.assign(st0, { ids: G.nodes.filter(n => !T.rejected.has(n.id)).map(n => n.id) });
     T.step = rej.length ? 1 : 0; T.done = true;
     T.log.push({ text: `${TEST_TYPES[testType()]} closed test at α = ${fmtNum(G.alpha)}: rejected ${rej.length ? rej.map(n => n.label).join(', ') : 'nothing'}.`, gave: `Adjusted p-values: ${G.nodes.map((n, i) => `${n.label} ${fmtNum(r.adj[i])}`).join(', ')}.` });
     renderAll();
@@ -1186,7 +1495,10 @@ function renderTestPanel() {
 function simPower(id) { return SIM.power[id] != null ? SIM.power[id] : '80'; }
 /* Everything a power result depends on: graph, alpha, test settings, marginal powers, correlations and the success rule */
 function powerSig() { return simSig() + testType() + G.test.upscale + JSON.stringify(serializeTest(G.test) || '') + JSON.stringify([G.nodes.map(n => simPower(n.id)), SIM.rho, SIM.useMatrix, SIM.useMatrix ? G.nodes.map(a => G.nodes.map(b => corrOf(a.id, b.id))) : null, SIM.success, SIM.n]); }
-function simSig() { return JSON.stringify({ a: G.alpha, n: G.nodes.map(n => [n.id, Q.exact(n.w)]), e: G.edges.map(e => [e.from, e.to, Q.exact(e.g)]) }); }
+function simSig() {
+  if (isEntangled(G)) { const o = serializeGraph(G); return JSON.stringify({ a: G.alpha, ids: G.nodes.map(n => n.id), c: o.ent.c, k: o.ent.comps.map(cs => [cs.nodes.map(n => n.weight), cs.edges.map(e => [e.from, e.to, e.weight])]) }); }
+  return JSON.stringify({ a: G.alpha, n: G.nodes.map(n => [n.id, Q.exact(n.w)]), e: G.edges.map(e => [e.from, e.to, Q.exact(e.g)]) });
+}
 const pairKey = (a, b) => (a < b ? a + '|' + b : b + '|' + a);
 /* Live check of the Power tab correlations: '' when they are usable */
 function simCorrProblem() {
@@ -1264,15 +1576,22 @@ function renderPowerPanel() {
         <div class="mx-scroll"><table class="t"><thead><tr><th scope="col">Run</th>${labels.map(l => `<th scope="col" class="num">${esc(l)}</th>`).join('')}<th scope="col" class="num">Any</th><th scope="col" class="num">All</th><th scope="col" class="num">Success</th></tr></thead><tbody>${SIM.runs.map((r, k) => `<tr><td><input id="rn-${k}" data-runname="${k}" value="${esc(r.name)}" aria-label="Run name" style="min-width:6em"></td>${labels.map(l => { const i = r.labels.indexOf(l); return `<td class="num">${i < 0 ? '–' : r.power[i]}</td>`; }).join('')}<td class="num">${r.any}</td><td class="num">${r.all}</td><td class="num">${r.custom || '–'}</td></tr>`).join('')}</tbody></table></div>
         <div class="row-actions"><button class="btn small" data-action="sim-clear">Clear comparison</button></div>`, `${SIM.runs.length} kept`);
     }
-    h += det('det-simr', 'Check it in R with graphicalMCP', `<pre class="code" id="simRCode">${esc(powerRCode())}</pre><div class="row-actions"><button class="btn small" data-action="sim-copy-r">Copy</button></div><p class="small muted">Check the argument names with <code>?graph_calculate_power</code> for your installed version.</p>`);
+    h += det('det-simr', `Check it in R with ${isEntangled(G) ? 'gMCP' : 'graphicalMCP'}`, `<pre class="code" id="simRCode">${esc(powerRCode())}</pre><div class="row-actions"><button class="btn small" data-action="sim-copy-r">Copy</button></div><p class="small muted">Check the argument names with <code>?graph_calculate_power</code> for your installed version.</p>`);
     el.innerHTML = h;
   });
 }
 function powerRCode() {
   const m = G.nodes.length;
+  const rows = G.nodes.map(a => '    ' + G.nodes.map(b => (a.id === b.id ? '1' : String(Number(corrOf(a.id, b.id))))).join(', ')).join(',\n');
+  if (isEntangled(G)) {
+    /* gMCP's calcPower (graphicalMCP has no entangled graph): z ~ N(mean, corr.sim), p = 1 - pnorm(z), tested with the
+       Bonferroni shortcut of graphTest(); for an entangled graph alpha is the vector of partial levels alpha * c. */
+    const base = exportGMCP(G).split('\ngraph\n')[0];
+    const mean = G.nodes.map(n => fmtNum(qnorm(1 - G.alpha) + qnorm(Number(simPower(n.id)) / 100), 6)).join(', ');
+    return `${base}\n\n# Bonferroni power with gMCP's calcPower(): z ~ N(mean, corr.sim) and p = 1 - pnorm(z), one-sided.\n# mean = qnorm(1 - alpha) + qnorm(power) gives each hypothesis its marginal power at level alpha.\n# gMCP rejects when p < level (strict); the Sketchpad uses p <= level. The closed tests of the Sketchpad\n# (Simes, parametric) have no calcPower() equivalent for an entangled graph.\nset.seed(2009)\ncalcPower(weights = getWeights(graph), alpha = ${fmtNum(G.alpha, 12)} * graph@weights, G = getMatrices(graph),\n  mean = c(${mean}),\n  corr.sim = matrix(c(\n${rows}\n  ), nrow = ${m}, byrow = TRUE),\n  n.sim = 1e5)\n`;
+  }
   const base = exportGraphicalMCP(G).split('\ngraph\n')[0];
   const pm = G.nodes.map(n => fmtNum(Number(simPower(n.id)) / 100, 6)).join(', ');
-  const rows = G.nodes.map(a => '    ' + G.nodes.map(b => (a.id === b.id ? '1' : String(Number(corrOf(a.id, b.id))))).join(', ')).join(',\n');
   return `${base}\n\nset.seed(2009)\ngraph_calculate_power(\n  graph,\n  alpha = ${fmtNum(G.alpha, 12)},\n  power_marginal = c(${pm}),\n  sim_corr = matrix(c(\n${rows}\n  ), nrow = ${m}, byrow = TRUE),\n  sim_n = 1e5\n)\n`;
 }
 function runSim() {
@@ -1377,17 +1696,30 @@ function stepFrames() {
   /* Use the steps taken in Test mode if there are any; otherwise run the procedure on the p-values. */
   const states = [];
   let st = stateFromGraph(G), rejected = new Map(), caps = [];
+  /* entangled graph: every frame is the All view (vector of component weights, one line style per component) */
+  const rejVec = new Map();
+  const bendsOf = st.ent ? st.ent.comps.map((_, k) => new Map(entViewGraph(G, k).edges.map(e => [gKey(e.from, e.to), e.bend]))) : null;
+  const entVM = (s, rej) => {
+    const nodes = G.nodes.map(n => {
+      const v = { id: n.id, label: n.label, x: n.x, y: n.y, rx: nodeRx(n.label), ry: NODE_R, p: n.p, group: n.group || '', color: n.color || '', w: s.w.get(n.id) || Q.ZERO, rejected: rej.has(n.id) };
+      v.wvec = rej.has(n.id) ? (rejVec.get(n.id) || s.ent.comps.map(cs => cs.w.get(n.id) || Q.ZERO)) : s.ent.comps.map(cs => cs.w.get(n.id) || Q.ZERO);
+      return v;
+    });
+    const edges = [];
+    s.ent.comps.forEach((cs, k) => { for (const [key, g] of cs.g) { if (Q.isZero(g)) continue; const [a, b] = key.split('>'); edges.push({ from: a, to: b, g, bend: bendsOf[k].has(key) ? bendsOf[k].get(key) : null, text: fmt(g), comp: k }); } });
+    return { nodes, edges, all: true, n: s.ent.comps.length, c: s.ent.c };
+  };
   const captionFor = (data) => data ? (plain ? plainStepText(data, G.alpha) : (data.manual ? `Rejected ${data.label} (what if).` : `Rejected ${data.label}: p = ${fmtNum(data.p)} ≤ ${fmtNum(data.level)}.`) + (data.gave.length ? ' Passed on: ' + data.gave.map(([to, q]) => `+${fmt(q)} to ${to}`).join(', ') + '.' : '')) : '';
   const push = (s, rej, cap) => states.push({ st: s, rejected: new Map(rej), caption: cap });
   push(st, rejected, 'Initial graph. Each hypothesis is tested at its level, weight × α.');
   if (mode === 'test' && T && T.closed && T.done) {
     /* A closed test has no rejection sequence: one overlay for the initial graph and one for the result. */
     const rej = G.nodes.filter(n => T.rejected.has(n.id)), not = G.nodes.filter(n => !T.rejected.has(n.id));
-    rej.forEach((n, k) => rejected.set(n.id, k + 1));
+    rej.forEach((n, k) => { rejected.set(n.id, k + 1); const r = T.rejected.get(n.id); if (r && r.wvec) rejVec.set(n.id, r.wvec); });
     states[0].caption = `Initial graph (weights). Tested as a closed test with ${TEST_TYPES[testType()]} tests for every intersection hypothesis.`;
     push(st, rejected, `${TEST_TYPES[testType()]} closed test at α = ${fmtNum(G.alpha)}: rejected ${rej.length ? joinWords(rej.map(n => n.label)) : 'nothing'}${not.length ? `; not rejected ${joinWords(not.map(n => n.label))}` : ''}.`);
     return states.map(({ st: s, rejected: rj, caption }) => {
-      const vm = {
+      const vm = s.ent ? entVM(s, rj) : {
         nodes: G.nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y, rx: nodeRx(n.label), ry: NODE_R, p: n.p, group: n.group || '', color: n.color || '', w: n.w, rejected: rj.has(n.id) })),
         edges: [...s.g.entries()].filter(([, g]) => !Q.isZero(g)).map(([k, g]) => { const [a, b] = k.split('>'); const o = edgeOf(a, b); return { from: a, to: b, g, bend: o ? o.bend : null, text: fmt(g) }; })
       };
@@ -1401,6 +1733,7 @@ function stepFrames() {
       const next = T.history[T.history.indexOf(h) + 1];
       const after = next ? next.st : T.st;
       k++; rejected.set(h.id, k);
+      { const r = T.rejected.get(h.id); if (r && r.wvec) rejVec.set(h.id, r.wvec); }
       push(after, rejected, captionFor(steps[k - 1].data));
       cur = after;
     }
@@ -1412,18 +1745,19 @@ function stepFrames() {
       if (!c) break;
       const before = st; st = rejectNode(st, c.id); k++; rejected.set(c.id, k);
       const n = nodeById(c.id);
-      const gave = before.ids.filter(l => l !== c.id && !Q.isZero(getg(before, c.id, l))).map(l => [nodeById(l).label, Q.mul(before.w.get(c.id), getg(before, c.id, l))]);
+      if (before.ent) rejVec.set(c.id, before.ent.comps.map(cs => cs.w.get(c.id) || Q.ZERO));
+      const gave = flowAmounts(before, c.id).map(f => [nodeById(f.to).label, f.total]);
       push(st, rejected, captionFor({ label: n.label, p: c.p, level: c.level, manual: false, wj: before.w.get(c.id), gave, now: st.ids.map(l => [nodeById(l).label, Q.toNum(st.w.get(l)) * G.alpha]) }));
     }
   }
   const rem = states.length > 1 ? G.nodes.filter(n => !states[states.length - 1].rejected.has(n.id)).map(n => n.label) : [];
   if (states.length > 1) states[states.length - 1].caption += rem.length ? ` Final result: ${joinWords(rem)} not rejected.` : ' Final result: all hypotheses rejected.';
   return states.map(({ st: s, rejected: rej, caption }) => {
-    const vm = {
+    const vm = s.ent ? entVM(s, rej) : {
       nodes: G.nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y, rx: nodeRx(n.label), ry: NODE_R, p: n.p, group: n.group || '', color: n.color || '', w: rej.has(n.id) ? Q.ZERO : (s.w.get(n.id) || Q.ZERO), rejected: rej.has(n.id) })),
       edges: [...s.g.entries()].filter(([, g]) => !Q.isZero(g)).map(([k, g]) => { const [a, b] = k.split('>'); const o = edgeOf(a, b); return { from: a, to: b, g, bend: o ? o.bend : null, text: fmt(g) }; })
     };
-    for (const n of vm.nodes) if (n.rejected) { const r = G.nodes.find(x => x.id === n.id); n.w = r ? r.w : Q.ZERO; }
+    if (!s.ent) for (const n of vm.nodes) if (n.rejected) { const r = G.nodes.find(x => x.id === n.id); n.w = r ? r.w : Q.ZERO; }
     return { vm, layout: layoutEdges(vm), caption, alpha: G.alpha };
   });
 }
@@ -1529,13 +1863,13 @@ async function showExport(kind) {
     } catch (err) { out.innerHTML = `<p class="err-text">✕ ${esc(err.message)}</p>`; }
   } else if (kind === 'tikz') {
     exportPayload = exportTikZ(vm, layout);
-    out.innerHTML = codeBlock('TikZ', 'Same positions and curvature as the canvas (1 cm = 60 px). Paste into a LaTeX or beamer document.', exportPayload, 'multiplicity-graph.tex', 'text/x-tex');
+    out.innerHTML = codeBlock('TikZ', 'Same positions and curvature as the canvas (1 cm = 60 px). Paste into a LaTeX or beamer document.' + (vm.all ? ' All view: one line style per component and a key below the picture.' : ''), exportPayload, 'multiplicity-graph.tex', 'text/x-tex');
   } else if (kind === 'graphicalmcp') {
     exportPayload = exportGraphicalMCP(G);
-    out.innerHTML = codeBlock('R code for graphicalMCP', 'Initial graph, plus the test call when every hypothesis has a p-value. For the parametric test each block of known correlations becomes a test group; for Simes within groups, read the note in the code, since graphicalMCP\'s grouped Simes test is stronger than the Sketchpad\'s.', exportPayload, 'multiplicity-graph.R', 'text/plain');
+    out.innerHTML = codeBlock('R code for graphicalMCP', isEntangled(G) ? 'graphicalMCP has no entangled graph object. The code builds each component and gives the intersection weights of the whole procedure, with a Bonferroni closed test by hand when every hypothesis has a p-value.' : 'Initial graph, plus the test call when every hypothesis has a p-value. For the parametric test each block of known correlations becomes a test group; for Simes within groups, read the note in the code, since graphicalMCP\'s grouped Simes test is stronger than the Sketchpad\'s.', exportPayload, 'multiplicity-graph.R', 'text/plain');
   } else if (kind === 'gmcp') {
     exportPayload = exportGMCP(G);
-    out.innerHTML = codeBlock('R code for gMCP', 'Builds the graph with matrix2graph(), and tests it when every hypothesis has a p-value.', exportPayload, 'multiplicity-graph-gMCP.R', 'text/plain');
+    out.innerHTML = codeBlock('R code for gMCP', isEntangled(G) ? 'Builds each component with matrix2graph() and joins them as an entangledMCP object. gMCP tests an entangled graph with Bonferroni only, so the code also prints the intersection weights to check a closed test by hand.' : 'Builds the graph with matrix2graph(), and tests it when every hypothesis has a p-value.', exportPayload, 'multiplicity-graph-gMCP.R', 'text/plain');
   } else if (kind === 'json') {
     exportPayload = JSON.stringify(serializeGraph(G), null, 2);
     out.innerHTML = codeBlock('Graph file (JSON)', 'Keeps labels, exact weights, positions, curvature, p-values and &alpha;. Open it again with "Open a saved graph".', exportPayload, 'multiplicity-graph.json', 'application/json');
@@ -1637,9 +1971,10 @@ function compareTarget() {
     let o = null;
     if (key === 'cycle') o = cycleTemplate(Math.max(2, Math.min(12, starterM)));
     else if (key === 'truncatedHolm') o = truncatedHolmTemplate();
+    else if (key.startsWith('ent:') && ENTANGLED_TEMPLATES[key.slice(4)]) o = entangledTemplateJSON(key.slice(4));
     else if (TEMPLATES[key]) o = templateJSON(key);
     if (!o) return null;
-    const name = key === 'cycle' ? 'Cycle graph' : key === 'truncatedHolm' ? 'Truncated Holm' : TEMPLATES[key].name;
+    const name = key === 'cycle' ? 'Cycle graph' : key === 'truncatedHolm' ? 'Truncated Holm' : key.startsWith('ent:') ? ENTANGLED_TEMPLATES[key.slice(4)].name : TEMPLATES[key].name;
     return { name, graph: serializeGraph(deserializeGraph(o, false, 1).G) };
   }
   if (w === 'paste' && CMP.pasted) { try { return { name: 'Pasted graph', graph: parseGraphText(CMP.pasted) }; } catch (e) { return null; } }
@@ -1649,7 +1984,7 @@ function cmpSig() { const t = compareTarget(); return snapshot() + '|' + CMP.mat
 /* Picture of a serialized graph, as an inline SVG */
 function graphPicture(S) {
   const Gx = deserializeGraph(S, false, 1).G;
-  const vm = {
+  const vm = isEntangled(Gx) ? designAllVM(Gx) : {
     nodes: Gx.nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y, rx: nodeRx(n.label), ry: NODE_R, p: n.p, w: n.w, color: n.color || '', group: n.group || '', wexpr: n.wexpr || '', rejected: false })),
     edges: Gx.edges.map(e => ({ from: e.from, to: e.to, g: e.g, bend: e.bend, expr: e.expr, text: e.expr ? exprDisplay(e.expr) : fmt(e.g) }))
   };
@@ -1668,7 +2003,7 @@ function renderComparePanel() {
       <p class="small muted">A is the graph on the canvas. Keep a copy of it, change it, and compare the two; or compare it with a template or a pasted graph. Tests and power use the settings from the Test and Power tabs for both graphs.</p>
       <div class="row-actions" style="align-items:center"><input class="txt" id="cmpKeepName" placeholder="Name for the current graph" style="flex:1;min-width:10em" value="${esc(CMP.keepName || '')}" aria-label="Name for the kept copy"><button class="btn small primary" data-action="cmp-keep" ${G.nodes.length ? '' : 'disabled'}>Keep a copy of A</button></div>`;
     if (KEPT.length) h += `<table class="t"><thead><tr><th scope="col">Kept graph</th><th scope="col">Hyp.</th><th scope="col">Kept on</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead><tbody>${KEPT.map((k, i) => `<tr><td><input id="cmp-name-${i}" data-cmp-name="${i}" value="${esc(k.name)}" aria-label="Name of kept graph"></td><td>${k.graph.nodes.length}</td><td class="small muted">${esc(k.when || '')}</td><td style="white-space:nowrap"><button class="btn small" data-action="cmp-load" data-i="${i}" title="Put this graph on the canvas (A); undo brings the current one back">Load as A</button> <button class="btn small" data-action="cmp-remove" data-i="${i}" aria-label="Remove ${esc(k.name)}">Remove</button></td></tr>`).join('')}</tbody></table>`;
-    h += `<div class="form"><label for="cmpWith" class="small"><b>Compare A with (B)</b><select class="sel" id="cmpWith" style="max-width:none"><option value="">Choose a graph…</option>${keptOpts ? `<optgroup label="Kept graphs">${keptOpts}</optgroup>` : ''}<optgroup label="Templates">${tplOpts}</optgroup><option value="paste" ${CMP.with === 'paste' ? 'selected' : ''}>A pasted share link, share code or saved file</option></select></label>
+    h += `<div class="form"><label for="cmpWith" class="small"><b>Compare A with (B)</b><select class="sel" id="cmpWith" style="max-width:none"><option value="">Choose a graph…</option>${keptOpts ? `<optgroup label="Kept graphs">${keptOpts}</optgroup>` : ''}<optgroup label="Templates">${tplOpts}</optgroup><optgroup label="Entangled graphs">${Object.entries(ENTANGLED_TEMPLATES).map(([k, t]) => `<option value="tpl:ent:${k}" ${CMP.with === 'tpl:ent:' + k ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</optgroup><option value="paste" ${CMP.with === 'paste' ? 'selected' : ''}>A pasted share link, share code or saved file</option></select></label>
       ${CMP.with === 'paste' ? `<textarea class="txt" id="cmpPaste" rows="3" placeholder="Paste a share link, share code or JSON" aria-label="Graph to compare with">${esc(CMP.pasted)}</textarea><div class="row-actions"><button class="btn small" data-action="cmp-use-paste">Use it</button></div>${CMP.pasteMsg ? `<p class="err-text">✕ ${esc(CMP.pasteMsg)}</p>` : ''}` : ''}
       <label class="small" for="cmpMatch">Match hypotheses <select class="sel" id="cmpMatch"><option value="label" ${CMP.matchBy === 'label' ? 'selected' : ''}>by label</option><option value="position" ${CMP.matchBy === 'position' ? 'selected' : ''}>by position</option></select></label></div>`;
     if (!T || !G.nodes.length) { el.innerHTML = h + (G.nodes.length ? '' : '<p class="muted">Add hypotheses to the canvas first.</p>'); return; }
@@ -1680,11 +2015,25 @@ function renderComparePanel() {
     // structure
     const exA = isAlphaExhaustive(G), GB = deserializeGraph(B, false, 1).G, exB = isAlphaExhaustive(GB);
     const wq = s => Q.parse(String(s)) || Q.ZERO;
-    const rows = mt.pairs.map(p => { const a = p.a != null ? wq(A.nodes[p.a].weight) : null, b = p.b != null ? wq(B.nodes[p.b].weight) : null; const diff = a && b ? (Q.eq(a, b) ? '' : (Q.cmp(b, a) > 0 ? '+' : '') + fmt(Q.sub(b, a))) : (a ? 'only in A' : 'only in B'); return `<tr><th scope="row">${esc(p.label)}</th><td class="num">${a ? esc(fmt(a)) : '–'}</td><td class="num">${b ? esc(fmt(b)) : '–'}</td><td class="num ${diff && !/only/.test(diff) ? 'cmp-diff' : 'muted'}">${esc(diff)}</td></tr>`; }).join('');
-    const tdiff = transitionDiffs(A, B, mt.pairs);
-    h += det('det-cmp-structure', 'Weights and transitions', `<p class="small muted">A is ${exA === true ? '' : 'not '}alpha-exhaustive; B is ${exB === true ? '' : 'not '}alpha-exhaustive.</p>
+    /* An entangled graph (Maurer and Bretz, 2013) is compared on its combined weights c1 w1i + c2 w2i + …, which set the
+       levels, with the vector of component weights alongside; transitions are compared component by component, an
+       ordinary graph counting as one component with c = 1. */
+    const compsOf = S => (S.ent ? { c: S.ent.c.map(wq), comps: S.ent.comps.map(cs => ({ nodes: cs.nodes, edges: cs.edges })) } : { c: [Q.ONE], comps: [{ nodes: S.nodes, edges: S.edges }] });
+    const cA = compsOf(A), cB = compsOf(B), anyEnt = !!(A.ent || B.ent);
+    const combW = (C, i) => C.comps.reduce((s, cs, k) => Q.add(s, Q.mul(C.c[k], wq(cs.nodes[i].weight))), Q.ZERO);
+    const wCell = (S, C, i) => (i == null ? '–' : esc(fmt(combW(C, i))) + (S.ent ? ` <span class="small muted">(${C.comps.map(cs => esc(fmt(wq(cs.nodes[i].weight)))).join(', ')})</span>` : ''));
+    const rows = mt.pairs.map(p => { const a = p.a != null ? combW(cA, p.a) : null, b = p.b != null ? combW(cB, p.b) : null; const diff = a && b ? (Q.eq(a, b) ? '' : (Q.cmp(b, a) > 0 ? '+' : '') + fmt(Q.sub(b, a))) : (a ? 'only in A' : 'only in B'); return `<tr><th scope="row">${esc(p.label)}</th><td class="num">${wCell(A, cA, p.a)}</td><td class="num">${wCell(B, cB, p.b)}</td><td class="num ${diff && !/only/.test(diff) ? 'cmp-diff' : 'muted'}">${esc(diff)}</td></tr>`; }).join('');
+    const nK = Math.max(cA.comps.length, cB.comps.length);
+    const tdiff = [];
+    for (let k = 0; k < nK; k++) {
+      const a = cA.comps[k], b = cB.comps[k];
+      if (a && b) transitionDiffs(a, b, mt.pairs).forEach(d => tdiff.push(Object.assign({ comp: k }, d)));
+      else { const S = a || b; for (const pf of mt.pairs) for (const pt of mt.pairs) { const i = a ? pf.a : pf.b, j = a ? pt.a : pt.b; if (pf === pt || i == null || j == null) continue; const e = S.edges.find(x => x.from === S.nodes[i].id && x.to === S.nodes[j].id); if (e && !Q.isZero(wq(e.weight))) tdiff.push({ comp: k, from: pf.label, to: pt.label, a: a ? wq(e.weight) : null, b: b ? wq(e.weight) : null, missing: a ? 'B' : 'A' }); } }
+    }
+    const entNote = anyEnt ? `<p class="small muted">${A.ent ? `A is an entangled graph with ${cA.comps.length} component graphs (c = ${cA.c.map(fmt).join(', ')})` : 'A is an ordinary graph'}; ${B.ent ? `B is an entangled graph with ${cB.comps.length} component graphs (c = ${cB.c.map(fmt).join(', ')})` : 'B is an ordinary graph'}. The weights compared are the combined weights c1 × w1i + c2 × w2i + …, which set the levels (Maurer and Bretz, 2013, Algorithm 1, p. 1743), with each component graph's weight in brackets. Transitions are compared graph by graph${A.ent && B.ent ? '' : ', an ordinary graph counting as Graph 1'}.</p>` : '';
+    h += det('det-cmp-structure', 'Weights and transitions', `<p class="small muted">A is ${exA === true ? '' : 'not '}alpha-exhaustive; B is ${exB === true ? '' : 'not '}alpha-exhaustive.</p>${entNote}
       <table class="t"><thead><tr><th scope="col">Hyp.</th><th scope="col" class="num">Weight A</th><th scope="col" class="num">Weight B</th><th scope="col" class="num">B − A</th></tr></thead><tbody>${rows}</tbody></table>
-      ${tdiff.length ? `<p class="small"><b>Transitions that differ</b> (${tdiff.length})</p><div class="mx-scroll"><table class="t"><thead><tr><th scope="col">From → to</th><th scope="col" class="num">A</th><th scope="col" class="num">B</th></tr></thead><tbody>${tdiff.map(d => `<tr><td>${esc(d.from)} → ${esc(d.to)}</td><td class="num">${d.a ? esc(fmt(d.a)) : '–'}</td><td class="num">${d.b ? esc(fmt(d.b)) : '–'}</td></tr>`).join('')}</tbody></table></div>` : '<p class="small ok-text">✓ Every transition is the same.</p>'}`, tdiff.length ? `${tdiff.length} transition${tdiff.length === 1 ? '' : 's'} differ` : 'same transitions');
+      ${tdiff.length ? `<p class="small"><b>Transitions that differ</b> (${tdiff.length})</p><div class="mx-scroll"><table class="t"><thead><tr>${anyEnt ? '<th scope="col">Graph</th>' : ''}<th scope="col">From → to</th><th scope="col" class="num">A</th><th scope="col" class="num">B</th></tr></thead><tbody>${tdiff.map(d => `<tr>${anyEnt ? `<td>Graph ${d.comp + 1}</td>` : ''}<td>${esc(d.from)} → ${esc(d.to)}</td><td class="num">${d.a ? esc(fmt(d.a)) : (d.missing === 'A' ? '<span class="muted">no such graph</span>' : '–')}</td><td class="num">${d.b ? esc(fmt(d.b)) : (d.missing === 'B' ? '<span class="muted">no such graph</span>' : '–')}</td></tr>`).join('')}</tbody></table></div>` : '<p class="small ok-text">✓ Every transition is the same.</p>'}`, tdiff.length ? `${tdiff.length} transition${tdiff.length === 1 ? '' : 's'} differ` : 'same transitions');
     if (mt.same) {
       // same p-values
       const haveP = allPValid();
@@ -1899,6 +2248,7 @@ function setTab(name) {
 }
 function renderAll() {
   V = validateGraph(G, fmt);
+  renderCompBar();
   renderCanvas();
   renderGraphPanel();
   renderMatrixPanel();
@@ -1926,6 +2276,7 @@ function closeModal() { $('modal').hidden = true; }
 function closeMenu() { $('moreMenu').open = false; $('clearConfirm').hidden = true; }
 function startLinking(from) {
   if (mode !== 'design') return;
+  if (inAllView()) { flashMessage('Pick one graph in the bar above the canvas to add a transition to it.'); return; }
   linking = { from };
   renderCanvas();
 }
@@ -1934,6 +2285,7 @@ function cancelLinking() { if (!linking) return; linking = null; overlay.innerHT
 /* ---------- inline editor (transition weights, hypothesis labels and weights) ---------- */
 function openInline(target) {
   if (mode !== 'design') return;
+  if (inAllView() && target.kind !== 'nodelabel') { flashMessage('Pick one graph in the bar above the canvas to edit its weights.'); return; }
   let shown;
   if (target.kind === 'edge') {
     const [a, b] = target.key.split('>');
@@ -2217,6 +2569,11 @@ $('tab-graph').addEventListener('change', e => {
     if (!q) { t.classList.add('bad'); return; }
     if (G.vars[t.dataset.var] && Q.eq(q, G.vars[t.dataset.var])) return;
     checkpoint(); G.vars[t.dataset.var] = q; CT = null; deferChange();
+  } else if (t.dataset.cw != null && isEntangled(G)) {
+    const k = +t.dataset.cw, r = readWeight(t.value);
+    if (!r) { t.classList.add('bad'); return; }
+    if (Q.eq(r.q, G.ent.c[k]) && (r.expr || '') === ((G.ent.cexpr || [])[k] || '')) return;
+    checkpoint(); G.ent.c[k] = r.q; G.ent.cexpr = G.ent.cexpr || []; G.ent.cexpr[k] = r.expr || undefined; CT = null; deferChange();
   } else if (t.id === 'node-color-custom' && n) {
     setColors([n.id], validColor(t.value));
   } else if (t.id === 'node-desc' && n) {
@@ -2268,6 +2625,8 @@ $('tab-graph').addEventListener('input', e => {
 $('tab-graph').addEventListener('click', e => {
   const sw = e.target.closest('button[data-color]');
   if (sw && sel && sel.type === 'node') { setColors([sel.id], sw.dataset.color); return; }
+  const cb = e.target.closest('[data-comp]');
+  if (cb && !animating) { switchComponent(+cb.dataset.comp); return; }
   const b = e.target.closest('[data-action]');
   if (!b || b.disabled) return;
   const act = b.dataset.action;
@@ -2279,6 +2638,11 @@ $('tab-graph').addEventListener('click', e => {
   else if (act === 'color-all' && sel && sel.type === 'node') { const c = (nodeById(sel.id) || {}).color || ''; setColors(G.nodes.map(n => n.id), c); }
   else if (act === 'equal-row' && sel && sel.type === 'node') doFix({ act: 'equalRow', id: sel.id });
   else if (act === 'equal-w') doFix({ act: 'equalW' });
+  else if (act === 'make-ent') makeEntangled();
+  else if (act === 'comp-add') addComponent();
+  else if (act === 'comp-remove') removeComponent();
+  else if (act === 'comp-extract' && isEntangled(G)) extractComponent(G.ent.active);
+  else if (act === 'comp-collapse' && isEntangled(G)) { const o = entCollapse(G); if (o) loadGraph(o); }
   else if (act === 'tpl-w-create' && tplW) { const txt = $('tplW').value; if (!createFromWeights(tplW.key, txt, $('tplWMsg'))) tplW.msg = $('tplWMsg').textContent; }
   else if (act === 'tpl-w-cancel') { tplW = null; renderGraphPanel(); }
   else if (act === 'vars-fix') { checkpoint(); G.nodes.forEach(n => { delete n.wexpr; }); G.edges.forEach(e => { delete e.expr; }); G.vars = {}; afterChange(); }
@@ -2303,7 +2667,25 @@ $('tab-graph').addEventListener('click', e => {
 });
 $('tab-matrix').addEventListener('change', e => {
   const t = e.target;
-  if (t.dataset.mw) {
+  if (t.id === 'dg-hide') { DG.hide = t.checked; renderDefaultGraph(); return; }
+  if (t.dataset.mc != null && isEntangled(G)) {
+    const k = +t.dataset.mc, r = readWeight(t.value);
+    if (!r) { t.classList.add('bad'); return; }
+    if (Q.eq(r.q, G.ent.c[k]) && (r.expr || '') === ((G.ent.cexpr || [])[k] || '')) return;
+    checkpoint(); G.ent.c[k] = r.q; G.ent.cexpr = G.ent.cexpr || []; G.ent.cexpr[k] = r.expr || undefined; CT = null; deferChange();
+  } else if (t.dataset.mwk && isEntangled(G)) {
+    const [k, id] = t.dataset.mwk.split(':'), r = readWeight(t.value);
+    if (!r) { t.classList.add('bad'); return; }
+    const v = entViewGraph(G, +k), n = v.nodes.find(x => x.id === id);
+    if (n && Q.eq(r.q, n.w) && (r.expr || '') === (n.wexpr || '')) return;
+    checkpoint(); setCompWeight(+k, id, r.q, r.expr); deferChange();
+  } else if (t.dataset.mgk && isEntangled(G)) {
+    const [k, key] = t.dataset.mgk.split(':'), [a, b] = key.split('>'), r = readWeight(t.value);
+    if (!r) { t.classList.add('bad'); return; }
+    const v = entViewGraph(G, +k), ex = v.edges.find(x => x.from === a && x.to === b);
+    if ((ex && Q.eq(ex.g, r.q) && (r.expr || '') === (ex.expr || '')) || (!ex && Q.isZero(r.q) && !r.expr)) return;
+    checkpoint(); setCompEdge(+k, a, b, r.q, r.expr); deferChange();
+  } else if (t.dataset.mw) {
     const n = nodeById(t.dataset.mw);
     const r = readWeight(t.value);
     if (!r) { t.classList.add('bad'); return; }
@@ -2337,6 +2719,14 @@ $('tab-matrix').addEventListener('click', e => {
   if (!b) return;
   const act = b.dataset.action;
   if (act === 'import') doImport();
+  else if (act === 'import-ent') doImportEntangled();
+  else if (act === 'import-dg') doImportDefaultGraph();
+  else if (act === 'dg-copy' || act === 'dg-make') {
+    const dg = defaultGraphOf(G); if (!dg) return;
+    const shown = DG.hide ? dg.seqs.filter(s => Q.cmp(s.c, Q.parse('1/100')) >= 0) : dg.seqs;
+    if (act === 'dg-copy') copyText(defaultGraphText(shown), b);
+    else if (shown.length && shown.length <= 24) { loadGraph(defaultGraphToEntangled(G, Object.assign({}, dg, { seqs: shown }))); }
+  }
   else if (act === 'mx-current' || act === 'mx-initial') { mxView = act === 'mx-current' ? 'current' : 'initial'; renderMatrixPanel(); }
   else if (act === 'import-current') {
     $('imp-w').value = `c(${G.nodes.map(n => rNum(n.w)).join(', ')})`;
@@ -2497,6 +2887,16 @@ $('templateSelect').addEventListener('change', e => {
   else if (v === 'improvedFallbackIAny') openWeightsBox('improvedFallbackI');
   else if (v === 'weightedHolmAny') openWeightsBox('weightedHolm');
   else if (v && TEMPLATES[v]) loadGraph(templateJSON(v));
+  else if (v && v.startsWith('ent:') && ENTANGLED_TEMPLATES[v.slice(4)]) loadGraph(entangledTemplateJSON(v.slice(4)));
+  else if (v === 'entTruncatedHolmAny') { const m = Math.max(2, Math.min(12, starterM)); loadGraph(entangledTruncatedHolm(m)); }
+  else if (v === 'entKOfM') openWeightsBox('kOfM');
+});
+$('compBar').addEventListener('click', e => {
+  const b = e.target.closest('[data-comp],[data-action]');
+  if (!b || b.disabled || animating) return;
+  if (b.dataset.comp != null) switchComponent(b.dataset.comp === 'all' ? 'all' : +b.dataset.comp);
+  else if (b.dataset.action === 'comp-add') addComponent();
+  else if (b.dataset.action === 'comp-remove') removeComponent();
 });
 $('undoBtn').addEventListener('click', undo);
 $('redoBtn').addEventListener('click', redo);
@@ -2573,7 +2973,7 @@ $('helpBtn').addEventListener('click', () => openModal('Help and shortcuts', `
   </ul>
   <p class="small muted">Weights are kept as exact fractions and shown as fractions when the denominator is 100 or less. Type decimals (0.25) or fractions (1/3).</p>`));
 function showSelfTest() {
-  const r = runAllSelfTests().concat(runClosureSelfTests(), runLiteratureSelfTests());
+  const r = runAllSelfTests().concat(runClosureSelfTests(), runLiteratureSelfTests(), runEntangledSelfTests());
   const passed = r.filter(x => x.pass).length;
   openModal('Self-test', `<p><b>${passed} of ${r.length} checks passed.</b></p><ul class="check-list">${r.map(x => `<li><span class="${x.pass ? 'pass' : 'fail'}">${x.pass ? '✓ Pass' : '✕ Fail'}</span><span>${esc(x.name)}${x.detail ? `<br><span class="small muted">${esc(x.detail)}</span>` : ''}</span></li>`).join('')}</ul>`);
 }
@@ -2587,7 +2987,7 @@ const REFERENCES = [
   ['BMH2011', 'Bretz F, Maurer W, Hommel G (2011). Test and power considerations for multiple endpoint analyses using sequentially rejective graphical procedures. Statistics in Medicine 30(13):1489–1501. doi:10.1002/sim.3988', 'Worked trial example (three doses, two endpoints template) and power measures.'],
   ['Maurer2011', 'Maurer W, Glimm E, Bretz F (2011). Multiple and repeated testing of primary, coprimary, and secondary hypotheses. Statistics in Biopharmaceutical Research 3(2):336–352. doi:10.1198/sbr.2010.10010', 'Successive procedures (the two doses, two endpoints and successive templates).'],
   ['Glimm2010', 'Glimm E, Maurer W, Bretz F (2010). Hierarchical testing of multiple endpoints in group-sequential trials. Statistics in Medicine 29(2):219–228. doi:10.1002/sim.3748', 'Why a secondary hypothesis must not be tested at the full α once its primary is rejected at an interim analysis (cited in the SAP interim analyses placeholder).'],
-  ['MaurerBretz2013a', 'Maurer W, Bretz F (2013). Memory and other properties of multiple test procedures generated by entangled graphs. Statistics in Medicine 32(10):1739–1753. doi:10.1002/sim.5711', 'Entangled graphs (not covered here); the definition of an alpha-exhaustive weighting scheme (eq. 3).'],
+  ['MaurerBretz2013a', 'Maurer W, Bretz F (2013). Memory and other properties of multiple test procedures generated by entangled graphs. Statistics in Medicine 32(10):1739–1753. doi:10.1002/sim.5711', 'Entangled graphs: Algorithm 1 (p. 1743) for the step-through, Algorithm 2 (p. 1745) for the closed tests, the Fig. 2, Fig. 4(b) and Fig. 5 templates, truncated Holm and at least k of m (section 5.3), the default-graph view (section 5.1 and Appendix A); the definition of an alpha-exhaustive weighting scheme (eq. 3).'],
   ['MaurerBretz2013b', 'Maurer W, Bretz F (2013). Multiple testing in group sequential trials using graphical approaches. Statistics in Biopharmaceutical Research 5(4):311–320.', 'Group sequential use of a graph (not covered here): boundaries from the spending function at the local level, repeated p-values.'],
   ['Hommel2007', 'Hommel G, Bretz F, Maurer W (2007). Powerful short-cuts for multiple testing procedures with special reference to gatekeeping strategies. Statistics in Medicine 26(22):4063–4073. doi:10.1002/sim.2873', 'Why the step-by-step procedure equals the full closed test; improved parallel gatekeeping.'],
   ['Hommel2008', 'Hommel G, Bretz F (2008). Aesthetics and power considerations in multiple testing: a contradiction? Biometrical Journal 50(5):657–666. doi:10.1002/bimj.200710463', 'Shows the weakness of the fallback procedure that the improved fallback graphs address; the improved fallback II graph itself is Bretz et al. (2009), Fig. 11.'],
@@ -2617,6 +3017,8 @@ const REFERENCES = [
   ['Strassburger2008', 'Strassburger K, Bretz F (2008). Compatible simultaneous lower confidence bounds for the Holm procedure and other Bonferroni-based closed tests. Statistics in Medicine 27(24):4914–4927. doi:10.1002/sim.3338', 'Simultaneous confidence intervals compatible with Bonferroni-based closed tests (not computed here).'],
   ['Guilbaud2008', 'Guilbaud O (2008). Simultaneous confidence regions corresponding to Holm’s step-down procedure and other closed-testing procedures. Biometrical Journal 50(5):678–692. doi:10.1002/bimj.200710449', 'Simultaneous confidence regions for Holm, fixed sequence, gatekeeping and fallback procedures (not computed here).'],
   ['Guilbaud2018', 'Guilbaud O (2018). Simultaneous confidence intervals compatible with sequentially rejective graphical procedures. Statistics in Biopharmaceutical Research 10(3):220–232. doi:10.1080/19466315.2018.1497532', 'Simultaneous confidence intervals for graphical procedures (not computed here); truncated Holm as a graph for two primary hypotheses only.'],
+  ['XiBretz2019', 'Xi D, Bretz F (2019). Symmetric graphs for equally weighted tests, with application to the Hochberg procedure. Statistics in Medicine 38(27):5268–5282. doi:10.1002/sim.8375', 'Section 5.1 and Fig. 5: parallel gatekeeping with truncated Holm as an entangled graph (template), tested with Hochberg, that is, the Simes closure.'],
+  ['Burman2009', 'Burman C-F, Sonesson C, Guilbaud O (2009). A recycling framework for the construction of Bonferroni-based multiple tests. Statistics in Medicine 28(5):739–761. doi:10.1002/sim.3513', 'Default graphs: the fixed sequences with weights of the Matrix tab\'s default-graph view and import.'],
   ['HungWang2010', 'Hung HMJ, Wang SJ (2010). Challenges to multiple testing in clinical trials. Biometrical Journal 52(6):747–756.', 'Fig. 1: the non-inferiority then superiority template with ν, τ and ω.'],
   ['GuilbaudKarlsson2011', 'Guilbaud O, Karlsson P (2011). Confidence regions for Bonferroni-based closed tests extended to more general closed tests. Journal of Biopharmaceutical Statistics 21(4):682–707.', 'Example 2: Bretz et al. (2009) Fig. 14 left as the default graph of two sequences (the right graph is only close to its six-sequence default graph).'],
   ['LiZhou2021', 'Li H, Zhou H (2021). A new approach to address multiplicity in hypothesis testing with constraints. Communications in Statistics, Theory and Methods 50(1):35–60. doi:10.1080/03610926.2019.1628989', 'Fig. 7: p-value scenarios worked through the two Bretz et al. (2009) Fig. 14 graphs (self-tests).'],
@@ -2647,7 +3049,8 @@ function aboutHTML() {
     <li>The Bonferroni procedure controls the familywise error rate in the strong sense for any dependence between the test statistics. The Simes options need positively dependent (PRDS or MTP2) one-sided statistics; the parametric option needs one-sided p-values whose statistics are multivariate normal with the correlations you enter. The SAP text states the condition for the test you chose.</li>
     <li>Parametric adjusted p-values are Monte Carlo estimates (512-point lattice, 12 random shifts); the standard error is shown with the result. For a regulatory submission, confirm them in R with graphicalMCP or gMCP using the exported code.</li>
     <li>Closed tests are available for up to 12 hypotheses; the step-by-step view, adjusted p-values and power simulation for the Bonferroni graph have no such limit (power up to 10 for closed tests).</li>
-    <li>Not covered: trimmed Simes tests, entangled graphs (memory; Maurer and Bretz, 2013, Statistics in Medicine), group sequential designs (Maurer and Bretz, 2013, Statistics in Biopharmaceutical Research), adaptive designs (Klinglmueller, Posch and Koenig, 2014), simultaneous confidence intervals (Strassburger and Bretz, 2008; Guilbaud, 2008; Guilbaud, 2018), sample size. The R packages above cover some of these.</li>
+    <li>Entangled graphs (Maurer and Bretz, 2013, Statistics in Medicine): gMCP tests them with Bonferroni only and rejects when p is strictly below the level, so a p-value equal to its level is the one case where the two differ. The Simes and parametric closed tests on an entangled graph follow p. 1746 of the paper (the full closure on the Algorithm 2 weights); gMCP does not run them, so confirm those by hand from the intersection weights in the exported code.</li>
+    <li>Not covered: trimmed Simes tests, group sequential designs (Maurer and Bretz, 2013, Statistics in Biopharmaceutical Research), adaptive designs (Klinglmueller, Posch and Koenig, 2014), simultaneous confidence intervals (Strassburger and Bretz, 2008; Guilbaud, 2008; Guilbaud, 2018), sample size. The R packages above cover some of these.</li>
     <li>Two-sided p-values can be entered for the Bonferroni and Simes tests; the parametric test refuses them. For the Bonferroni graph, two-sided p-values with a check of the direction of the effect amount to one-sided testing at &alpha;/2. For the closed Simes test they do not: an effect in the harmful direction can help other hypotheses to be rejected, so use one-sided p-values for claims of benefit.</li>
     <li>With the Simes or parametric tests, a graph that is not alpha-exhaustive does not guarantee its order of testing: a hypothesis can be rejected while the hypotheses that pass weight to it are not.</li>
     <li>The hypotheses are assumed to satisfy the free combination condition (Holm, 1979). If some combinations of true and false hypotheses are impossible (restricted hypotheses), the procedures still control the familywise error rate but may be conservative (Bretz et al., 2011, p. 895; Brannath and Bretz, 2010); the tool does not exploit such restrictions.</li>

@@ -110,7 +110,7 @@ function bvnLower(h, k, rho) {
 console.log('Stress testing', process.argv[2]);
 
 check('Built-in suites pass', () => {
-  const r = C.runAllSelfTests().concat(C.runClosureSelfTests(), C.runLiteratureSelfTests());
+  const r = C.runAllSelfTests().concat(C.runClosureSelfTests(), C.runLiteratureSelfTests(), C.runEntangledSelfTests());
   const bad = r.filter(x => !x.pass);
   return bad.length ? bad.map(x => x.name + ': ' + x.detail).join('; ') : true;
 });

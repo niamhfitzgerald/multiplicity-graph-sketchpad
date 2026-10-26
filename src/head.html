@@ -84,10 +84,17 @@ select.sel { min-height: 36px; padding: 0 8px; border: 1px solid var(--line-stro
 
 /* ---- workspace ---- */
 .work { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 12px; min-height: 0; }
-.canvas-wrap { position: relative; min-height: 0; min-width: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--canvas); overflow: hidden; display: grid; grid-template-rows: minmax(0, 1fr) auto; }
+.canvas-wrap { position: relative; min-height: 0; min-width: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--canvas); overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+.canvas-wrap > #canvas { grid-row: 2; }
+.canvas-wrap > .status { grid-row: 3; }
+.comp-bar { grid-row: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--surface); font-size: 13px; }
+.comp-bar .seg button { min-height: 30px; padding: 0 12px; font-size: 13px; }
+.comp-bar .cw { color: var(--muted); font-size: 12px; margin-left: 4px; font-weight: 400; }
+.comp-bar .seg button[aria-pressed="true"] .cw { color: inherit; opacity: .85; }
+body.present .comp-bar, .comp-bar[hidden] { display: none; }
 #canvas { width: 100%; height: 100%; display: block; touch-action: none; user-select: none; -webkit-user-select: none; cursor: default; }
 #canvas.panning { cursor: grabbing; }
-.zoom { position: absolute; right: 10px; top: 10px; display: flex; gap: 6px; z-index: 2; }
+.zoom { position: absolute; right: 10px; top: calc(10px + var(--comp-h, 0px)); display: flex; gap: 6px; z-index: 2; }
 .zoom .btn { background: var(--surface); }
 .mode-banner { position: absolute; left: 10px; top: 10px; background: var(--accent-soft); color: var(--ink); border: 1px solid var(--accent); padding: 6px 10px; border-radius: 8px; font-size: 14px; max-width: calc(100% - 200px); }
 .empty-hint { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; color: var(--muted); text-align: center; padding: 20px; }
@@ -112,6 +119,15 @@ select.sel { min-height: 36px; padding: 0 8px; border: 1px solid var(--line-stro
 .edge-hit { fill: none; stroke: transparent; stroke-width: 16; cursor: pointer; }
 .edge.sel .edge-line { stroke: var(--accent); stroke-width: 2.8; }
 .edge.err .edge-line { stroke: var(--err); stroke-dasharray: 7 4; }
+/* entangled graphs, All view: one line style per component (solid, dashed, dotted, dash-dot) */
+.edge.comp-1 .edge-line { stroke-dasharray: 9 5; }
+.edge.comp-2 .edge-line { stroke-dasharray: 2.5 4; stroke-linecap: round; }
+.edge.comp-3 .edge-line { stroke-dasharray: 10 4 2.5 4; }
+.elabel.comp-1 rect { stroke-dasharray: 4 3; }
+.elabel.comp-2 rect { stroke-dasharray: 1.5 3; }
+.elabel.comp-3 rect { stroke-dasharray: 5 3 1.5 3; }
+.comp-bar .key { display: inline-flex; gap: 10px; align-items: center; }
+.comp-bar .key svg { vertical-align: middle; }
 .edge.flash .edge-line { animation: edgeflash 1.2s ease-out; }
 @keyframes edgeflash { 0% { stroke: var(--flow); stroke-width: 3.5; } 100% { } }
 .elabel { cursor: grab; }
@@ -268,7 +284,7 @@ footer .lock { display: inline-flex; gap: 6px; align-items: center; }
 .menu-confirm .row { display: flex; gap: 8px; justify-content: flex-end; }
 
 /* ---- canvas hint and starter ---- */
-.canvas-hint { position: absolute; left: 10px; top: 10px; max-width: min(560px, calc(100% - 330px)); display: flex; align-items: flex-start; gap: 8px; background: var(--surface); border: 1px solid var(--line-strong); padding: 6px 6px 6px 10px; border-radius: 8px; font-size: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+.canvas-hint { position: absolute; left: 10px; top: calc(10px + var(--comp-h, 0px)); max-width: min(560px, calc(100% - 330px)); display: flex; align-items: flex-start; gap: 8px; background: var(--surface); border: 1px solid var(--line-strong); padding: 6px 6px 6px 10px; border-radius: 8px; font-size: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
 .canvas-hint.test { background: var(--accent-soft); border-color: var(--accent); }
 .hint-ic { flex: none; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 700; display: inline-grid; place-items: center; font-style: italic; font-family: Georgia, serif; margin-top: 1px; }
 .hint-x { flex: none; border: 0; background: none; cursor: pointer; font-size: 18px; line-height: 1; padding: 0 6px; color: var(--muted); border-radius: 4px; min-height: 24px; }
@@ -334,7 +350,7 @@ table.t td.num, table.t th.num { text-align: right; }
 body.present .topbar, body.present .panel, body.present .status, body.present footer, body.present .canvas-hint, body.present .zoom { display: none; }
 body.present .app { grid-template-rows: minmax(0, 1fr); padding: 8px; }
 body.present .work { grid-template-columns: minmax(0, 1fr); }
-body.present .canvas-wrap { border-radius: 8px; grid-template-rows: minmax(0, 1fr); }
+body.present .canvas-wrap { border-radius: 8px; grid-template-rows: 0 minmax(0, 1fr); }
 body.present .nlabel { font-size: 24px; }
 body.present .nlabel tspan { font-size: 17px; }
 body.present .nweight { font-size: 19px; }
@@ -353,7 +369,7 @@ body.present .node-body { stroke-width: 3; }
 .band text { font-size: 12px; letter-spacing: 1px; fill: var(--muted); text-transform: uppercase; }
 
 @media (max-width: 1500px) { .brand .sub { display: none; } }
-@media (max-width: 640px) { .canvas-hint { right: 10px; top: 52px; max-width: none; } }
+@media (max-width: 640px) { .canvas-hint { right: 10px; top: calc(52px + var(--comp-h, 0px)); max-width: none; } }
 table.t td:first-child { white-space: nowrap; }
 @media (max-width: 900px) {
   html, body { height: auto; }
@@ -413,6 +429,14 @@ table.t td:first-child { white-space: nowrap; }
           <option value="efficacySafety" data-adv="1">Efficacy and safety for three treatments (Bretz et al., 2009, Fig. 8)</option>
           <option value="hungWang" data-adv="1">Hung and Wang (2010): non-inferiority then superiority (ν, τ, ω)</option>
         </optgroup>
+        <optgroup label="Entangled graphs (Maurer and Bretz, 2013)">
+          <option value="ent:maurerFig2">Two doses with memory (Fig. 2, ε edges)</option>
+          <option value="ent:maurerFig4">The same as two fixed sequences (Fig. 4)</option>
+          <option value="ent:maurerFig5">Two doses with memory and recycling between the doses (Fig. 5; γ1, γ2)</option>
+          <option value="ent:truncatedHolmGate">Parallel gatekeeping with truncated Holm (section 5.3.1; γ)</option>
+          <option value="entTruncatedHolmAny" data-adv="1">Truncated Holm for any m as an entangled graph (γ)</option>
+          <option value="entKOfM" data-adv="1">At least k of m primaries, then a secondary (type k and m)</option>
+        </optgroup>
       </select>
     </div>
     <div class="group">
@@ -452,6 +476,7 @@ table.t td:first-child { white-space: nowrap; }
 
   <main class="work">
     <section class="canvas-wrap" aria-label="Graph canvas">
+      <div class="comp-bar" id="compBar" hidden></div>
       <svg id="canvas" class="design" role="application" aria-label="Graph drawing area. Double-click to add a hypothesis.">
         <defs>
           <pattern id="gridPat" width="20" height="20" patternUnits="userSpaceOnUse"><circle class="grid-dot" cx="10" cy="10" r="1.1"/></pattern>

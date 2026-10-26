@@ -1,6 +1,6 @@
 # Multiplicity Graph Sketchpad User Guide
 
-Niamh Fitzgerald · version 1.1.5
+Niamh Fitzgerald · version 1.2.0
 
 The Sketchpad draws, tests and explains graphical multiple testing procedures (Bretz et al., 2009) in the browser. Nothing you enter leaves your computer. This guide covers how to use it, not the method.
 
@@ -35,6 +35,19 @@ Type a letter in any weight, such as `ε`, `1-ε` or `(1-γ)/2` (eps, gamma, del
 ### More templates, join and extract
 
 The template list has a "More templates" group: improved parallel gatekeeping (ε edges), simple successive I, general successive (γ, δ), Bretz, Maurer and Hommel (2011) with three doses and two endpoints, truncated Holm (γ), improved fallback I and II, and the cycle graph (its size follows the counter on the start panel). With advanced features on, the group also has efficacy and safety for three treatments (Bretz et al., 2009, Fig. 8) and Hung and Wang (2010), non-inferiority then superiority on two endpoints, whose shares ν, τ and ω are set in the Variables box of the Graph tab. Under "Join or extract" in the Graph tab you can add a template below the current graph (weights are rescaled if they then exceed 1) or keep only the ticked hypotheses. Any other gMCP graph can be brought in with `sketchpad_json()` from `R/multigrain-to-sketchpad.R`, which also accepts graphMCP objects.
+
+## Entangled graphs
+
+An entangled graph is several graphs on the same hypotheses, each with a weight c (Maurer and Bretz, 2013). Every hypothesis is tested at the sum of its levels across the graphs. The template picker has an "Entangled graphs" group: two doses with memory (Fig. 2), the same as two chains (Fig. 4(b)), the version with recycling between the doses (Fig. 5, with γ1 and γ2), and parallel gatekeeping with truncated Holm (Xi and Bretz, 2019, Fig. 5). With advanced features on it also has "Truncated Holm for any m" (type γ and the number of hypotheses) and "At least k of m" (type `3 of 4`), and the Graph tab's "Entangled graph" section can turn any graph into an entangled one.
+
+- **Component bar:** above the canvas, "Graph 1 (c = 1/2)", "Graph 2 (c = 1/2)", ..., "All". Click a graph to see and edit it. Names, positions, colours, groups and p-values are shared; weights and transitions belong to the graph shown. The Graph tab's hypothesis table shows the weight in the graph shown and the level over all graphs.
+- **All:** every graph drawn at once, one line style each (the key is in the bar), with the vector of weights at each hypothesis, such as (1, 0). This view is read only: pick a graph to edit.
+- **Advanced features:** "+ Graph" adds a copy of the graph shown with c = 0; "Remove Graph k" takes one away. The "Entangled graph" section of the Graph tab edits the weights c (fractions, decimals or expressions), keeps one graph as an ordinary graph, or reduces the whole thing to one graph when every graph has the same transitions. Join and extract are not available for entangled graphs.
+- **Matrix tab:** a row of component weights c, then the weights and transition matrix of every graph, all editable, including the graphs not on the canvas.
+- **Test mode** opens on the All view and follows the test there; Design returns to the graph you were editing. The step log says what each open hypothesis received from each graph. Run test, Step, the order section, What would it take, adjusted p-values, the closed tests and the Power tab all work on the whole entangled graph. The Compare tab draws both graphs in the All view and compares the combined weights (with each graph's weight in brackets) and the transitions graph by graph; an ordinary graph counts as Graph 1.
+- **Default graph (Matrix tab, advanced):** "Default graph: the procedure as fixed sequences with weights" shows any graph of up to 6 hypotheses as columns of fixed sequences with their weights, in the style of Maurer and Bretz (2013), Fig. 4(a). A box hides the sequences with weight below 1/100, which for a graph with ε edges gives the ε-free picture. "Copy as text" copies the sequences; "Make this an entangled graph of these sequences" builds the equivalent entangled graph, one graph per sequence.
+- **Import (Matrix tab, advanced):** "Entangled graph from gMCP code" reads the R lines that build the components and the final `new("entangledMCP", subgraphs = list(...), weights = c(...))`. "Default graph: fixed sequences with weights" takes one sequence per line, such as `H1 > H3 > H4 > H2 > H5 : 1/2`, and builds an entangled graph of chains.
+- **Exports:** pictures, TikZ and the beamer frames show the view on the canvas, with the line styles and a key in the All view. gMCP code builds an `entangledMCP` object and tests it with Bonferroni (gMCP has no Simes or parametric test for entangled graphs); it also prints the intersection weights. graphicalMCP has no entangled graph object, so that code builds each graph and gives the intersection weights with a Bonferroni closed test by hand. The Power tab's R code uses gMCP's `calcPower()`. Saved files keep every graph (version 2; an older version of the Sketchpad opens Graph 1), share links too. The SAP text describes each graph and the combined rule, with a table of weights per graph and one transition table per graph.
 
 ## Fix and tidy
 
@@ -99,7 +112,7 @@ All exports are in the Export tab. Pictures and TikZ show the graph as it is on 
 - **Picture:** PNG at twice screen resolution, or SVG under More formats. Both have a white background and include group bands and colours.
 - **LaTeX (TikZ):** the same positions and curves as the canvas, with the `\usetikzlibrary` line it needs in a comment at the top.
 - **Beamer, step by step:** one frame with one overlay per rejection, following the steps you took in Test mode (or the automatic run on the p-values). Each overlay shows the levels and a caption. It works with the Metropolis theme.
-- **R:** `graph_create()` for graphicalMCP, with `graph_test_shortcut()` when every p-value is entered; `matrix2graph()` for gMCP.
+- **R:** `graph_create()` for graphicalMCP, with `graph_test_shortcut()` when every p-value is entered; `matrix2graph()` for gMCP. For an entangled graph, see the Entangled graphs section.
 - **SAP / protocol text:** a multiplicity section in the usual SAP order: hypotheses, error rate and procedure, initial allocation, propagation, conclusions, interim analyses and reporting, plus technical details for the Simes and parametric tests. Below it are tables of the hypotheses and initial levels, the transition weights and, for the parametric test, the correlations, then a reference list. Fill in the [square-bracket placeholders] (for example the success criterion and the software), number the tables to match your document, and export the graph as a PNG or SVG for the figure. Copy tables pastes into Word as a table.
 - **Share link:** the whole graph is encoded in the link, so nothing is uploaded.
 - **Save as a file:** JSON that keeps weights, positions, colours, p-values and alpha.

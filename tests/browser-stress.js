@@ -45,7 +45,9 @@ async function step(name, fn) {
       const s = await status(); if (/Error/.test(s)) return `${v}: ${s}`;
       const sel = await page.locator('#templateSelect').inputValue(); if (sel !== '') return 'select did not reset';
     }
-    return opts.length === 17 || 'expected 17 options, got ' + opts.length;
+    /* the entangled templates come last; leave an ordinary graph for the steps that follow */
+    await page.selectOption('#templateSelect', 'holm'); await sleep(120);
+    return opts.length === 21 || 'expected 21 options, got ' + opts.length;
   });
 
   await step('Starter cards: clear graph, size buttons, each card, Import from R', async () => {
@@ -508,7 +510,7 @@ async function step(name, fn) {
     await page.keyboard.press('?'); await sleep(50); if (await page.locator('#modal').isHidden()) return '? shortcut';
     await page.click('#modal', { position: { x: 5, y: 5 } }); if (!(await page.locator('#modal').isHidden())) return 'backdrop close';
     await page.click('#moreMenu summary'); await page.click('#selftestBtn'); await sleep(3000);
-    const st = await page.locator('#modalBody p').first().innerText(); if (!/86 of 86 checks passed/.test(st)) return 'self-test: ' + st;
+    const st = await page.locator('#modalBody p').first().innerText(); const mm = /(\d+) of (\d+) checks passed/.exec(st); if (!mm || mm[1] !== mm[2] || +mm[2] < 86) return 'self-test: ' + st;
     await page.click('#modalClose');
   });
 
@@ -726,6 +728,257 @@ async function step(name, fn) {
     await page.setViewportSize({ width: 1400, height: 900 }); await sleep(300);
     if (Math.abs((await ev(() => view.k)) - k1) > 1e-9) return 'zoomed view was refitted on resize';
     await ev(s => { loadGraph(JSON.parse(s)); }, saved); await sleep(100);
+  });
+
+  await step('Entangled graphs (design): template from the picker, component bar switches the component, c edited in the panel, add and remove a component, undo, make entangled and reduce, simple mode hides the editing buttons', async () => {
+    await page.evaluate(() => { setMode('design', true); setAdvanced(true, true); setTab('graph'); });
+    await page.selectOption('#templateSelect', 'ent:maurerFig2'); await sleep(250);
+    let r = await ev(() => ({ ent: isEntangled(G), hidden: $('compBar').hidden, w: G.nodes.map(n => Q.exact(n.w)).join(), bar: $('compBar').innerText.replace(/\s+/g, ' ') }));
+    if (!r.ent || r.hidden || r.w !== '1,0,0,0,0' || !/Graph 1.*Graph 2.*\+ Graph.*Remove Graph 1/.test(r.bar)) return 'template: ' + JSON.stringify(r);
+    await page.click('#compBar [data-comp="1"]'); await sleep(150);
+    r = await ev(() => ({ a: G.ent.active, w: G.nodes.map(n => Q.exact(n.w)).join(), e: G.edges.map(e => nodeById(e.from).label + '>' + nodeById(e.to).label + '=' + (e.expr || Q.exact(e.g))).sort().join(' '), panel: $('tab-graph').innerText }));
+    if (r.a !== 1 || r.w !== '0,1,0,0,0' || r.e !== 'H1>H3=1 H2>H3=1 H3>H4=ε H3>H5=1-ε H5>H1=1' || !/Weight in Graph 2/.test(r.panel)) return 'switch: ' + JSON.stringify(r);
+    await page.evaluate(() => { $('det-ent').open = true; });
+    await page.fill('#cw-1', '1/4'); await page.press('#cw-1', 'Tab'); await sleep(120);
+    r = await ev(() => ({ c: G.ent.c.map(Q.exact).join(), st: $('statusBar').innerText }));
+    if (r.c !== '1/2,1/4' || !/add up to 3\/4/.test(r.st)) return 'c edit: ' + JSON.stringify(r);
+    await page.click('#compBar [data-action="comp-add"]'); await sleep(120);
+    r = await ev(() => ({ n: G.ent.comps.length, a: G.ent.active, c: G.ent.c.map(Q.exact).join(), w: G.nodes.map(n => Q.exact(n.w)).join() }));
+    if (r.n !== 3 || r.a !== 2 || r.c !== '1/2,1/4,0' || r.w !== '0,1,0,0,0') return 'add: ' + JSON.stringify(r);
+    await page.click('#compBar [data-action="comp-remove"]'); await sleep(120);
+    r = await ev(() => ({ n: G.ent.comps.length, a: G.ent.active }));
+    if (r.n !== 2 || r.a !== 1) return 'remove: ' + JSON.stringify(r);
+    await page.click('#undoBtn'); await sleep(80); await page.click('#undoBtn'); await sleep(80); await page.click('#undoBtn'); await sleep(120);
+    r = await ev(() => ({ n: G.ent.comps.length, c: G.ent.c.map(Q.exact).join() }));
+    if (r.n !== 2 || r.c !== '1/2,1/2') return 'undo: ' + JSON.stringify(r);
+    /* All view: every component overlaid with its own line style, weight vectors at the nodes, read only */
+    await page.click('#compBar [data-comp="all"]'); await sleep(200);
+    r = await ev(() => ({ all: allView, edges: document.querySelectorAll('#canvas .edge').length, c1: document.querySelectorAll('#canvas .edge.comp-1').length, hit: document.querySelectorAll('#canvas [data-edge]').length, wt: [...document.querySelectorAll('#canvas .nweight')].map(t => t.textContent).join('|'), key: /Graph 1.*Graph 2.*Read only/.test($('compBar').innerText.replace(/\s+/g, ' ')) }));
+    if (!r.all || r.edges !== 10 || r.c1 !== 5 || r.hit !== 0 || r.wt !== '(1, 0)|(0, 1)|(0, 0)|(0, 0)|(0, 0)' || !r.key) return 'all view: ' + JSON.stringify(r);
+    await page.click('[data-node]'); await sleep(150);
+    r = await ev(() => ({ panel: $('tab-graph').innerText.replace(/\s+/g, ' '), inputs: document.querySelectorAll('#tab-graph input').length }));
+    if (!/All components shown/.test(r.panel) || !/Graph 1 1 H3 \(1\) Graph 2 0 H3 \(1\)/.test(r.panel) || r.inputs !== 1) return 'all node panel: ' + JSON.stringify(r);
+    await page.click('#compBar [data-comp="0"]'); await sleep(150);
+    r = await ev(() => ({ all: allView, a: G.ent.active, edges: document.querySelectorAll('#canvas .edge').length, hit: document.querySelectorAll('#canvas [data-edge]').length }));
+    if (r.all || r.a !== 0 || r.edges !== 5 || r.hit !== 5) return 'back to graph 1: ' + JSON.stringify(r);
+    /* the procedure on the paper's p-values: all five rejected, H1 first (section 4, p. 1747); the All view follows the test */
+    await page.evaluate(() => { const p = [0.01, 0.022, 0.005, 0.012, 0.001]; G.nodes.forEach((n, i) => { n.p = String(p[i]); }); setMode('test'); });
+    /* Test mode opens on the All view (plan decision 9); the flow animation runs along the component edges */
+    await sleep(150);
+    r = await ev(() => ({ all: allView, pressed: $('compBar').querySelector('[data-comp="all"]').getAttribute('aria-pressed') }));
+    if (!r.all || r.pressed !== 'true') return 'test should open on All: ' + JSON.stringify(r);
+    const stepP = page.evaluate(() => stepOnce(false)); await sleep(250);
+    r = await ev(() => ({ dots: document.querySelectorAll('#overlay .flow-dot').length, txt: [...document.querySelectorAll('#overlay .flow-text')].map(t => t.textContent).join('|') }));
+    if (r.dots !== 1 || r.txt !== '+1/2') return 'flow animation: ' + JSON.stringify(r);
+    await stepP; await page.evaluate(() => stepOnce(true)); await sleep(700);
+    r = await ev(() => ({ order: T.order.map(id => nodeById(id).label).join(','), wt: [...document.querySelectorAll('#canvas .nweight')].map(t => t.textContent).join('|') }));
+    if (r.order !== 'H1,H3' || r.wt !== '(1, 0)|(0, 1)|(1, 0)|(0.999, 0)|(0.001, 0)') return 'test all view (Fig. 3(c)): ' + JSON.stringify(r);
+    await page.evaluate(() => runAllSteps()); await sleep(2600);
+    r = await ev(() => ({ order: T.order.map(id => nodeById(id).label).join(','), done: T.done, log: T.log.filter(l => !l.stop).map(l => l.gave).join(' / '), orderTxt: ($('det-order') || { innerText: '' }).innerText.replace(/\s+/g, ' ') }));
+    if (r.order !== 'H1,H3,H4,H2,H5') return 'test: ' + JSON.stringify(r);
+    /* the step log gives the amounts passed on by component (Maurer and Bretz, 2013, Fig. 3): H2's level goes to H5 from both graphs */
+    if (!/\+1\/2 to H3 \(Graph 1\)/.test(r.log) || !/\+0\.999 to H5 \(Graph 1 \+0\.4995, Graph 2 \+0\.4995\)/.test(r.log)) return 'step log: ' + r.log;
+    if (!/with the same result/.test(r.orderTxt)) return 'order table: ' + r.orderTxt.slice(0, 160);
+    await page.click('#compBar [data-comp="0"]'); await sleep(100);
+    r = await ev(() => ({ all: allView, edges: document.querySelectorAll('#canvas .edge').length }));
+    if (r.all || r.edges !== 0) return 'test, graph 1 after all rejected: ' + JSON.stringify(r);
+    /* plain language describes every component; Design returns to the component view */
+    await page.evaluate(() => { plain = true; renderAll(); }); await sleep(100);
+    r = await ev(() => $('tab-test').innerText.replace(/\s+/g, ' '));
+    if (!/split between 2 linked graphs/.test(r) || !/Graph 2: at the start, H2 holds 1\.25%/.test(r)) return 'plain text: ' + r.slice(0, 200);
+    await page.evaluate(() => { plain = false; });
+    await page.evaluate(() => { setMode('design', true); setTab('graph'); }); await sleep(50);
+    r = await ev(() => ({ all: allView, a: G.ent.active }));
+    if (r.all || r.a !== 0) return 'design after test: ' + JSON.stringify(r);
+    await page.evaluate(() => { loadGraph(templateJSON('bretz')); $('det-ent').open = true; }); await sleep(120);
+    await page.click('#tab-graph [data-action="make-ent"]'); await sleep(120);
+    r = await ev(() => ({ ent: isEntangled(G), n: G.ent.comps.length, c: G.ent.c.map(Q.exact).join(), col: !!entCollapse(G), build: !!document.getElementById('det-build') }));
+    if (!r.ent || r.n !== 2 || r.c !== '1/2,1/2' || !r.col || r.build) return 'make: ' + JSON.stringify(r);
+    await page.evaluate(() => { $('det-ent').open = true; }); await page.click('#tab-graph [data-action="comp-collapse"]'); await sleep(120);
+    r = await ev(() => ({ ent: isEntangled(G), w: G.nodes.map(n => Q.exact(n.w)).join(), hidden: $('compBar').hidden }));
+    if (r.ent || r.w !== '1/2,1/2,0,0' || !r.hidden) return 'reduce: ' + JSON.stringify(r);
+    await page.evaluate(() => { loadGraph(entangledTemplateJSON('maurerFig4')); setAdvanced(false); }); await sleep(120);
+    r = await ev(() => ({ hidden: $('compBar').hidden, add: !!document.querySelector('#compBar [data-action="comp-add"]'), opt: !!document.querySelector('#templateSelect option[value="ent:maurerFig4"]'), ro: $('cw-0') ? $('cw-0').readOnly : null }));
+    if (r.hidden || r.add || !r.opt || r.ro !== true) return 'simple: ' + JSON.stringify(r);
+    /* Matrix view: c row, then w and G per component; a hidden component is editable there too; test mode shows each component's current state */
+    await page.evaluate(() => { setAdvanced(true, true); loadGraph(entangledTemplateJSON('maurerFig2')); setTab('matrix'); }); await sleep(150);
+    r = await ev(() => ({ mc: document.querySelectorAll('[data-mc]').length, mw: document.querySelectorAll('[data-mwk]').length, mg: document.querySelectorAll('[data-mgk]').length, txt: $('mx-dyn').innerText.replace(/\s+/g, ' ') }));
+    if (r.mc !== 2 || r.mw !== 10 || r.mg !== 40 || !/COMPONENT WEIGHTS C/i.test(r.txt) || !/GRAPH 2/i.test(r.txt)) return 'matrix: ' + JSON.stringify(r);
+    const ids = await ev(() => G.nodes.map(n => n.id));
+    await page.fill('#mw-1-' + ids[1], '1/2'); await page.press('#mw-1-' + ids[1], 'Tab'); await sleep(120);
+    await page.fill('#mg-1-' + ids[4] + '-' + ids[0], '1/2'); await page.press('#mg-1-' + ids[4] + '-' + ids[0], 'Tab'); await sleep(120);
+    await page.fill('#mc-0', '1/3'); await page.press('#mc-0', 'Tab'); await sleep(120);
+    r = await ev(() => { const v = entViewGraph(G, 1); return { w2: Q.exact(v.nodes[1].w), g51: Q.exact(v.edges.find(e => e.from === G.nodes[4].id && e.to === G.nodes[0].id).g), live: Q.exact(G.nodes[1].w), c: G.ent.c.map(Q.exact).join(), st: $('statusBar').innerText.replace(/\s+/g, ' ') }; });
+    if (r.w2 !== '1/2' || r.g51 !== '1/2' || r.live !== '0' || r.c !== '1/3,1/2' || !/Graph 2: Initial weights add up to 1\/2/.test(r.st)) return 'matrix edits: ' + JSON.stringify(r);
+    await page.click('#undoBtn'); await page.click('#undoBtn'); await page.click('#undoBtn'); await sleep(120);
+    r = await ev(() => ({ c: G.ent.c.map(Q.exact).join(), w2: Q.exact(entViewGraph(G, 1).nodes[1].w) }));
+    if (r.c !== '1/2,1/2' || r.w2 !== '1') return 'matrix undo: ' + JSON.stringify(r);
+    await page.evaluate(() => { const p = [0.01, 0.022, 0.005, 0.012, 0.001]; G.nodes.forEach((n, i) => { n.p = String(p[i]); }); setMode('test'); setTab('matrix'); }); await sleep(150);
+    await page.evaluate(() => stepOnce(true)); await sleep(500); await page.evaluate(() => stepOnce(true)); await sleep(500);
+    r = await ev(() => $('mx-dyn').innerText.replace(/\s+/g, ' '));
+    if (!/After 2 rejections/.test(r) || !/w – 0 – 0\.999 0\.001 1/.test(r)) return 'matrix in test: ' + r.slice(0, 300);
+    await page.evaluate(() => { setMode('design', true); setTab('matrix'); });
+    /* gMCP code import: the source of Entangled1Maurer2012() */
+    await openDet('det-import');
+    await page.fill('#imp-ent', ['m <- rbind(H1=c(0, 0, 1, 0, 0), H2=c(0, 0, 1, 0, 0), H3=c(0, 0, 0, "1-\\\\epsilon", "\\\\epsilon"), H4=c(0, 1, 0, 0, 0), H5=c(0, 0, 0, 0, 0))', 'weights <- c(1, 0, 0, 0, 0)', 'graph1 <- new("graphMCP", m=m, weights=weights)', 'm <- rbind(H1=c(0, 0, 1, 0, 0), H2=c(0, 0, 1, 0, 0), H3=c(0, 0, 0, "\\\\epsilon", "1-\\\\epsilon"), H4=c(0, 0, 0, 0, 0), H5=c(1, 0, 0, 0, 0))', 'weights <- c(0, 1, 0, 0, 0)', 'graph2 <- new("graphMCP", m=m, weights=weights)', 'graph <- new("entangledMCP", subgraphs=list(graph1,graph2), weights=c(0.5,0.5))'].join('\n'));
+    await page.click('[data-action="import-ent"]'); await sleep(200);
+    r = await ev(() => ({ msg: $('imp-ent-msg').innerText, ent: isEntangled(G), n: G.ent ? G.ent.comps.length : 0, c: G.ent ? G.ent.c.map(Q.exact).join() : '', eps: !!(G.vars || {})['ε'], e: entViewGraph(G, 0).edges.map(e => nodeById(e.from).label + '>' + nodeById(e.to).label + '=' + (e.expr || Q.exact(e.g))).sort().join(' ') }));
+    if (!/Built an entangled graph with 5 hypotheses and 2 components/.test(r.msg) || !r.ent || r.n !== 2 || r.c !== '1/2,1/2' || !r.eps || r.e !== 'H1>H3=1 H2>H3=1 H3>H4=1-ε H3>H5=ε H4>H2=1') return 'gMCP import: ' + JSON.stringify(r);
+    await page.fill('#imp-ent', 'x <- c(1, 2)'); await page.click('[data-action="import-ent"]'); await sleep(100);
+    if (!/entangledMCP/.test(await page.locator('#imp-ent-msg').innerText())) return 'gMCP import refusal message';
+    /* the other entangled templates and the k-of-m box */
+    await page.evaluate(() => { setAdvanced(true, true); setTab('graph'); });
+    await page.selectOption('#templateSelect', 'ent:maurerFig5'); await sleep(200);
+    r = await ev(() => ({ n: G.ent.comps.length, vars: Object.keys(G.vars).sort().join(','), bar: !$('compBar').hidden }));
+    if (r.n !== 2 || r.vars !== 'γ1,γ2,ε' || !r.bar) return 'Fig. 5 template: ' + JSON.stringify(r);
+    await page.selectOption('#templateSelect', 'ent:truncatedHolmGate'); await sleep(200);
+    r = await ev(() => ({ n: G.ent.comps.length, c: G.ent.cexpr.join(','), groups: G.nodes.map(n => n.group).join(',') }));
+    if (r.n !== 2 || r.c !== 'γ,1-γ' || r.groups !== 'primary,primary,secondary,secondary') return 'truncated Holm gatekeeping template: ' + JSON.stringify(r);
+    await page.selectOption('#templateSelect', 'entTruncatedHolmAny'); await sleep(200);
+    r = await ev(() => ({ n: G.ent.comps.length, m: G.nodes.length, e2: entViewGraph(G, 1).edges.length }));
+    if (r.n !== 2 || r.m < 2 || r.e2 !== 0) return 'truncated Holm any m: ' + JSON.stringify(r);
+    await page.selectOption('#templateSelect', 'entKOfM'); await sleep(200);
+    if (!(await page.locator('#tplW').count())) return 'k of m box did not open';
+    await page.fill('#tplW', '2 of 3'); await page.click('#tab-graph [data-action="tpl-w-create"]'); await sleep(200);
+    r = await ev(() => ({ n: G.ent ? G.ent.comps.length : 0, m: G.nodes.length, c: G.ent ? Q.exact(G.ent.c[0]) : '', note: G.note.slice(0, 40) }));
+    if (r.n !== 3 || r.m !== 4 || r.c !== '1/3') return 'k of m: ' + JSON.stringify(r);
+    await page.selectOption('#templateSelect', 'entKOfM'); await sleep(100); await page.fill('#tplW', '7 of 9'); await page.click('#tab-graph [data-action="tpl-w-create"]'); await sleep(100);
+    if (!/2 to 6 primaries/.test(await page.locator('#tplWMsg').innerText())) return 'k of m refusal';
+    await page.click('#tab-graph [data-action="tpl-w-cancel"]');
+    await page.evaluate(() => { setAdvanced(true, true); loadGraph(templateJSON('holm')); });
+  });
+
+  await step('Entangled graphs (exports): gMCP entangledMCP code with generateWeights and the weight table, graphicalMCP per component with the closed test by hand, Power tab calcPower code, SVG, PNG and TikZ of the All view with a key, beamer overlays with weight vectors, exports of one component view', async () => {
+    await page.evaluate(() => { loadGraph(entangledTemplateJSON('maurerFig2')); G.nodes.forEach((n, i) => { n.p = ['0.01', '0.022', '0.005', '0.012', '0.001'][i]; }); renderAll(); });
+    await page.click('#tabbtn-export'); await sleep(100);
+    await page.click('[data-export="gmcp"]'); await sleep(150);
+    let out = await page.locator('#exportCode').innerText();
+    if (!/new\("entangledMCP", subgraphs = list\(graph_1, graph_2\),\n  weights = c\(1\/2, 1\/2\)\)/.test(out)) return 'gmcp entangledMCP';
+    if (!/matrix2graph\(m_2, weights_2\)/.test(out) || !/generateWeights\(graph\)/.test(out) || !/sketchpad_weights <- matrix/.test(out)) return 'gmcp parts';
+    if (!/gMCP\(graph, pvalues = c\(0\.01, 0\.022, 0\.005, 0\.012, 0\.001\), alpha = 0\.025\)/.test(out)) return 'gmcp test call';
+    if (!/0, 1, 0, 0, 0,  0, 0\.9995, 0, 0, 0,/.test(out)) return 'gmcp weight {H2} = 0.9995';
+    if (!/Builds each component/.test(await page.locator('#exportOut p').first().innerText())) return 'gmcp desc';
+    await page.click('[data-export="graphicalmcp"]'); await sleep(150);
+    out = await page.locator('#exportCode').innerText();
+    if (!/graph_1 <- graph_create\(/.test(out) || !/graph_2 <- graph_create\(/.test(out) || /graph_test_shortcut|graph_test_closure/.test(out)) return 'graphicalmcp parts';
+    if (!/c_weights <- c\(1\/2, 1\/2\)/.test(out) || !/rej_int <- apply/.test(out) || !/names\(rejected\) <- hyp_names/.test(out)) return 'graphicalmcp by hand';
+    if (/\$|@/.test(out)) return 'graphicalmcp guesses a field name';
+    await page.click('[data-export="sap"]'); await sleep(150);
+    out = await page.locator('#sapText').innerText();
+    if (!/in its entangled form \(Maurer and Bretz, 2013\)/.test(out) || !/component weights c1 = 1\/2 and c2 = 1\/2/.test(out) || !/Algorithm 1, p\. 1743/.test(out)) return 'sap procedure';
+    if (!/In component graph 1 \(c1 = 1\/2\), H1 has initial weight 1/.test(out) || !/Taken together/.test(out) || !/H1 and H2 will each initially be tested at one-sided level 0\.0125 \(weight 1\/2\)/.test(out)) return 'sap allocation';
+    if (!/Initially, in component graph 2 \(c2 = 1\/2\), H1 passes all of its level to H3/.test(out) || !/removed from every component graph/.test(out)) return 'sap propagation';
+    if (!/Memory and other properties/.test(await page.locator('#sapRefs').innerText())) return 'sap reference';
+    if ((await page.locator('.sap-table').count()) !== 3) return 'sap tables ' + (await page.locator('.sap-table').count());
+    if (!/Initial weight in component graph 2 \(c2 = 1\/2\)/.test(await page.locator('#sapTable0').innerText()) || !/Table \[X\.2b\]\. Transition weights of component graph 2/.test(await page.locator('#sapTable2').innerText())) return 'sap table headers';
+    await page.click('#tabbtn-power'); await sleep(100); await openDet('det-simr');
+    out = await page.locator('#simRCode').innerText();
+    if (!/calcPower\(weights = getWeights\(graph\), alpha = 0\.025 \* graph@weights, G = getMatrices\(graph\),/.test(out) || !/n\.sim = 1e5/.test(out) || /graph_calculate_power/.test(out)) return 'power R code';
+    if (!/Check it in R with gMCP/.test(await page.locator('#tab-power').innerText())) return 'power det title';
+    /* All view pictures with the test two steps in */
+    await page.evaluate(() => setMode('test')); await sleep(100);
+    const s1 = page.evaluate(() => stepOnce(false)); await sleep(1300); await s1; const s2 = page.evaluate(() => stepOnce(false)); await sleep(1300); await s2;
+    if (!(await ev(() => inAllView()))) return 'test not in All view';
+    await page.click('#tabbtn-export'); await sleep(100);
+    await page.click('[data-export="svg"]'); await sleep(150);
+    out = await page.locator('#exportCode').innerText();
+    if (!/\(0\.999, 0\)/.test(out) || !/\(0\.001, 0\)/.test(out) || !/stroke-dasharray="9 5"/.test(out) || !/Graph 2 \(c = 1\/2\)/.test(out)) return 'svg all view';
+    if ((out.match(/marker-end/g) || []).length !== 6) return 'svg edges ' + (out.match(/marker-end/g) || []).length;
+    await page.click('[data-export="png"]'); await sleep(900); if (!(await page.locator('#pngPreview').count())) return 'png all view';
+    await page.click('[data-export="tikz"]'); await sleep(150);
+    out = await page.locator('#exportCode').innerText();
+    if (!/comp1\/\.style=\{dashed\}/.test(out) || !/\\draw\[trans, comp1\]/.test(out) || !/\{\\scriptsize \$\(\\frac\{999\}\{1000\}, 0\)\$\}/.test(out) || !/Graph 1 \(\$c = \\frac\{1\}\{2\}\$\)/.test(out)) return 'tikz all view';
+    if (!/All view: one line style per component/.test(await page.locator('#exportOut p').first().innerText())) return 'tikz desc';
+    await page.click('[data-export="beamer"]'); await sleep(200);
+    out = await page.locator('#exportCode').innerText();
+    if ((out.match(/\\only<\d>\{%/g) || []).length !== 3) return 'beamer overlays';
+    if (!/\$\(1, 0\)\$/.test(out) || !/\$\(\\frac\{999\}\{1000\}, 0\)\$/.test(out) || !/comp1/.test(out)) return 'beamer vectors';
+    if (!/Passed on: \+1\/2 to H3/.test(out) || !/\+0\.4995 to H4, \+0\.0005 to H5/.test(out)) return 'beamer captions';
+    /* one component on the canvas: ordinary pictures of that component, with the current weights of the test */
+    await page.click('#compBar .seg button[data-comp="0"]'); await sleep(150);
+    await page.click('[data-export="svg"]'); await sleep(150);
+    out = await page.locator('#exportCode').innerText();
+    if (/stroke-dasharray="9 5"|Graph 2/.test(out) || (out.match(/marker-end/g) || []).length !== 3) return 'svg component view';
+    /* design mode again: beamer runs the procedure on the p-values through all five rejections */
+    await ev(() => setMode('design')); await sleep(200); await page.click('#tabbtn-export'); await sleep(100);
+    await page.click('[data-export="beamer"]'); await sleep(200);
+    out = await page.locator('#exportCode').innerText();
+    if ((out.match(/\\only<\d>\{%/g) || []).length !== 6) return 'beamer design overlays ' + (out.match(/\\only<\d>\{%/g) || []).length;
+    if (!/\+0\.999 to H5/.test(out) || !/all hypotheses rejected/.test(out)) return 'beamer design captions';
+    await page.evaluate(() => { setAdvanced(true, true); loadGraph(templateJSON('holm')); });
+  });
+
+  await step('Entangled graphs (Compare tab): All-view pictures, combined weights with the component vectors, transitions compared graph by graph against a kept copy with different c and against an ordinary graph, test both, paired power, entangled templates offered', async () => {
+    await page.evaluate(() => { loadGraph(entangledTemplateJSON('maurerFig2')); G.nodes.forEach((n, i) => { n.p = ['0.01', '0.022', '0.005', '0.012', '0.001'][i]; }); renderAll(); });
+    await page.click('#tabbtn-compare'); await sleep(100);
+    await page.fill('#cmpKeepName', 'Fig 2'); await page.click('[data-action="cmp-keep"]'); await sleep(150);
+    if ((await ev(() => KEPT.length)) !== 1 || !(await ev(() => !!KEPT[0].graph.ent))) return 'keep entangled';
+    await page.click('#tabbtn-graph'); await page.fill('#cw-0', '1/4'); await page.press('#cw-0', 'Tab'); await page.fill('#cw-1', '3/4'); await page.press('#cw-1', 'Tab'); await sleep(150);
+    await page.click('#tabbtn-compare'); await page.selectOption('#cmpWith', 'kept:0'); await sleep(250);
+    if ((await page.locator('.cmp-pic').count()) !== 2) return 'pictures';
+    const pics = await page.locator('.cmp-pic').evaluateAll(els => els.map(e => e.outerHTML));
+    if (!pics.every(p => /\(1, 0\)/.test(p) && /Graph 2 \(c = /.test(p) && /stroke-dasharray="9 5"/.test(p))) return 'All-view pictures';
+    const structText = () => page.evaluate(() => { const d = $('det-cmp-structure'); d.open = true; return d.innerText; });
+    let st = await structText();
+    if (!/A is an entangled graph with 2 component graphs \(c = 1\/4, 3\/4\); B is an entangled graph with 2 component graphs \(c = 1\/2, 1\/2\)/.test(st)) return 'entangled note: ' + st.slice(0, 300);
+    if (!/H1\s+1\/4 \(1, 0\)\s+1\/2 \(1, 0\)\s+\+1\/4/.test(st) || !/H2\s+3\/4 \(0, 1\)\s+1\/2 \(0, 1\)\s+-1\/4/.test(st)) return 'combined weights: ' + st.slice(0, 500);
+    if (!/same transitions/.test(await page.locator('#det-cmp-structure summary').innerText())) return 'same transitions';
+    await openDet('det-cmp-test'); await page.click('[data-action="cmp-test"]'); await page.waitForFunction(() => CMP.test && !CMP.running, null, { timeout: 10000 }); await sleep(100);
+    const tt = await page.locator('#det-cmp-test').innerText(); if (!/A rejects 0, B rejects 5\./.test(tt)) return 'test both (H1 at α\/4 = 0.00625 and H2 at 3α\/4 = 0.01875 fail in A): ' + tt.slice(0, 300);
+    await openDet('det-cmp-power'); await page.click('#tabbtn-power'); await page.selectOption('#sim-n', '2000'); await page.click('#tabbtn-compare');
+    await page.click('[data-action="cmp-power"]'); await page.waitForFunction(() => CMP.power && !CMP.running, null, { timeout: 30000 }); await sleep(100);
+    const pt = await page.locator('#det-cmp-power').innerText(); if (!/B − A \(points\) ± SE/.test(pt) || !/2,?000 simulated trials/.test(pt)) return 'power table: ' + pt.slice(0, 200);
+    /* against an ordinary graph with the same labels: Graph 1 of the entangled graph is compared with it, Graph 2 has no counterpart */
+    await page.selectOption('#cmpWith', 'tpl:bretz'); await sleep(200);
+    if (!/do not list the same hypotheses/.test(await page.locator('#tab-compare').innerText())) return 'bretz has 4 hypotheses';
+    const ord = await ev(() => { const o = entangledTemplateJSON('maurerFig2'); delete o.ent; o.version = 1; return encodeShare(deserializeGraph(o, false, 1).G); });
+    await page.selectOption('#cmpWith', 'paste'); await sleep(100); await page.fill('#cmpPaste', ord); await page.click('[data-action="cmp-use-paste"]'); await sleep(250);
+    st = await structText();
+    if (!/B is an ordinary graph/.test(st) || !/an ordinary graph counting as Graph 1/.test(st)) return 'ordinary B note: ' + st.slice(0, 300);
+    if (!/no such graph/.test(st) || !/Graph 2/.test(st)) return 'graph 2 rows: ' + st.slice(0, 600);
+    const ent5 = await ev(() => { const o = Object.keys(ENTANGLED_TEMPLATES); return o.length; });
+    if ((await page.locator('#cmpWith option[value^="tpl:ent:"]').count()) !== ent5) return 'entangled templates in the list';
+    await page.selectOption('#cmpWith', 'tpl:ent:maurerFig5'); await sleep(250);
+    if (!/B: Entangled/.test(await page.locator('#tab-compare').innerText()) || (await page.locator('.cmp-pic').count()) !== 2) return 'entangled template as B';
+    await page.click('[data-action="cmp-remove"]'); await sleep(100);
+    await page.click('#tabbtn-power'); await page.selectOption('#sim-n', '10000');
+    await page.evaluate(() => { setAdvanced(true, true); loadGraph(templateJSON('holm')); });
+  });
+
+  await step('Default-graph view (Matrix tab): Fig. 2 decomposes into the Fig. 4(a) chains plus ε-order sequences, hiding the small ones, copy as text, make an entangled graph of the sequences, the import box builds Fig. 4(a), Holm on 4 gives 24 sequences, 7 hypotheses refused', async () => {
+    await page.evaluate(() => { setAdvanced(true, true); loadGraph(entangledTemplateJSON('maurerFig2')); setTab('matrix'); $('det-default').open = true; }); await sleep(250);
+    let t = await page.locator('#dg-body').innerText();
+    if (!/default graph of 4 fixed sequences/.test(t) || !/H1 > H3 > H4 > H2 > H5\s+0\.4995/.test(t) || !/H1 > H3 > H5 \*\s+0\.0005/.test(t) || !/Appendix A, pp\. 1752-1753/.test(t)) return 'fig 2 sequences: ' + t.slice(0, 600);
+    if ((await page.locator('#dg-body svg circle').count()) !== 16) return 'picture circles ' + (await page.locator('#dg-body svg circle').count());
+    await page.click('#dg-hide'); await sleep(200); t = await page.locator('#dg-body').innerText();
+    if (!/2 sequences hidden \(total weight 0\.001\)/.test(t) || /H1 > H3 > H5/.test(t) || (await page.locator('#dg-body svg circle').count()) !== 10) return 'hide small: ' + t.slice(0, 400);
+    await page.click('[data-action="dg-copy"]'); await sleep(100);
+    const txt = await ev(() => defaultGraphText(defaultGraphOf(G).seqs.filter(s => Q.cmp(s.c, Q.parse('1/100')) >= 0)));
+    if (txt !== 'H1 > H3 > H4 > H2 > H5 : 0.4995\nH2 > H3 > H5 > H1 > H4 : 0.4995') return 'copied text: ' + txt;
+    await page.click('[data-action="dg-make"]'); await sleep(300);
+    let r = await ev(() => ({ n: G.ent ? G.ent.comps.length : 0, c: G.ent ? G.ent.c.map(q => Q.exact(q)).join(',') : '', w: G.nodes.map(n => Q.exact(n.w)).join(','), e: G.edges.length, note: G.note }));
+    if (r.n !== 2 || r.c !== '999/2000,999/2000' || r.w !== '1,0,0,0,0' || r.e !== 4 || !/Default graph: 2 fixed sequences/.test(r.note)) return 'make entangled: ' + JSON.stringify(r);
+    t = await page.locator('#dg-body').innerText();
+    if (!/default graph of 2 fixed sequences/.test(t) || !/add up to 0\.999/.test(t)) return 'view of the made graph: ' + t.slice(0, 300);
+    /* import box */
+    await page.evaluate(() => { $('det-import').open = true; });
+    await page.fill('#imp-dg', '# Fig. 4(a)\nH1 > H3 > H4 > H2 > H5 : 1/2\nH2 → H3 → H5 → H1 → H4 : 1/2'); await page.click('[data-action="import-dg"]'); await sleep(300);
+    if (!/✓ Built an entangled graph with 5 hypotheses and 2 component graphs/.test(await page.locator('#imp-dg-msg').innerText())) return 'import message: ' + await page.locator('#imp-dg-msg').innerText();
+    r = await ev(() => ({ labels: G.nodes.map(n => n.label).join(','), n: G.ent.comps.length, ex: isAlphaExhaustive(G), c: G.ent.c.map(q => Q.exact(q)).join(',') }));
+    if (r.labels !== 'H1,H3,H4,H2,H5' || r.n !== 2 || r.ex !== true || r.c !== '1/2,1/2') return 'imported graph: ' + JSON.stringify(r);
+    await page.fill('#imp-dg', 'H1 > H1 : 1'); await page.click('[data-action="import-dg"]'); await sleep(100);
+    if (!/appears twice/.test(await page.locator('#imp-dg-msg').innerText())) return 'import refusal';
+    /* Holm on 4 and a graph with 7 hypotheses */
+    await page.evaluate(() => { loadGraph(cycleTemplate(4)); }); await sleep(250);
+    t = await page.locator('#dg-body').innerText();
+    if (!/default graph of 4 fixed sequences/.test(t) || !/H1 > H2 > H3 > H4\s+1\/4/.test(t)) return 'cycle 4: ' + t.slice(0, 300);
+    await page.evaluate(() => { const o = cycleTemplate(4); o.edges = []; for (const a of o.nodes) for (const b of o.nodes) if (a !== b) o.edges.push({ from: a.id, to: b.id, weight: '1/3', bend: null }); loadGraph(o); }); await sleep(300);
+    t = await page.locator('#dg-body').innerText();
+    if (!/default graph of 24 fixed sequences/.test(t) || !/1\/24/.test(t)) return 'holm 4: ' + t.slice(0, 300);
+    if (!(await page.locator('[data-action="dg-make"]').count()) || (await page.locator('[data-action="dg-make"]').isDisabled())) return 'make button for 24';
+    await page.evaluate(() => { loadGraph(cycleTemplate(7)); }); await sleep(250);
+    if (!/up to 6 hypotheses \(this graph has 7\)/.test(await page.locator('#dg-body').innerText())) return 'm = 7 message';
+    await page.evaluate(() => { $('det-default').open = false; loadGraph(templateJSON('holm')); setTab('graph'); });
   });
 
   await step('Artifact build (iframe-like, non-top) hides the download buttons until the capability resolves and shows the share code', async () => {

@@ -1,6 +1,6 @@
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.1.7';
+const APP_VERSION = '1.2.0';
 const APP_DATE = '2026-10-26';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
@@ -159,6 +159,15 @@ function evaluateGraph(G) {
   G.vars = G.vars || {};
   const problems = [];
   const items = [...G.nodes.filter(n => n.wexpr).map(n => ({ obj: n, key: 'w', src: n.wexpr })), ...G.edges.filter(e => e.expr).map(e => ({ obj: e, key: 'g', src: e.expr }))];
+  /* Entangled graphs: the stored copies of the other components and the component weights c_h are symbolic too */
+  if (G.ent) {
+    G.ent.comps.forEach((cs, k) => {
+      if (k === G.ent.active) return;
+      for (const id of Object.keys(cs.wexpr || {})) if (cs.wexpr[id]) items.push({ obj: cs.w, key: id, src: cs.wexpr[id] });
+      for (const e of cs.edges) if (e.expr) items.push({ obj: e, key: 'g', src: e.expr });
+    });
+    (G.ent.cexpr || []).forEach((src, k) => { if (src) items.push({ obj: G.ent.c, key: k, src }); });
+  }
   for (const it of items) for (const v of exprVars(it.src)) if (!G.vars[v]) G.vars[v] = defaultVarValue(v);
   for (const it of items) {
     try { it.obj[it.key] = evalExpr(it.src, G.vars); }
@@ -207,6 +216,7 @@ const gKey = (a, b) => `${a}>${b}`;
 function getg(st, a, b) { return st.g.get(gKey(a, b)) || Q.ZERO; }
 
 function rejectNode(st, j) {
+  if (st.ent) return rejectNodeEntangled(st, j);
   const rem = st.ids.filter(x => x !== j);
   const wj = st.w.get(j) || Q.ZERO;
   const w = new Map();
@@ -329,6 +339,7 @@ function runProcedure(st, pOf, alpha, pick = findCandidate) {
 }
 
 function stateFromGraph(G) {
+  if (G.ent) return stateFromEntangled(G);
   return {
     ids: G.nodes.map(n => n.id),
     w: new Map(G.nodes.map(n => [n.id, n.w])),
@@ -336,12 +347,239 @@ function stateFromGraph(G) {
   };
 }
 
+/* ---------- Entangled graphs (Maurer and Bretz, 2013, Statistics in Medicine 32:1739-1753) ----------
+   An entangled graph is n component graphs G_h = (w_h, G_h) on the same m hypotheses, each meeting the usual
+   rules (section 3.2, p. 1743, eq. 1), with component weights c_h >= 0 summing to at most 1 (section 3.3,
+   p. 1744; gMCP: the weights slot of entangledMCP). H_i is tested at alpha * sum_h c_h w_hi. After a rejection
+   every component is updated separately with the Bretz et al. (2009) step (Algorithm 1, p. 1743). The closed
+   test uses the convex combination of the components' closure weights (Algorithm 2, p. 1745).
+
+   Model: G.ent = { c: [Q], cexpr: [string | undefined], active: k, comps: [component] } with
+   component = { w: { id: Q }, wexpr: { id: string | undefined }, edges: [{ from, to, g, bend, expr }] }.
+   The active component is the live copy in G.nodes[].w / wexpr and G.edges, so every existing editor path keeps
+   working; entSync(G) writes it back into G.ent.comps[active] and is called before any computation. */
+function isEntangled(G) { return !!(G && G.ent && Array.isArray(G.ent.comps) && G.ent.comps.length > 0); }
+function entCloneEdges(edges) { return edges.map(e => ({ from: e.from, to: e.to, g: e.g, bend: e.bend == null ? null : e.bend, expr: e.expr || undefined })); }
+/* Writes the live copy (G.nodes, G.edges) back into the active component */
+function entSync(G) {
+  if (!isEntangled(G)) return G;
+  const cs = G.ent.comps[G.ent.active];
+  cs.w = {}; cs.wexpr = {};
+  for (const n of G.nodes) { cs.w[n.id] = n.w; if (n.wexpr) cs.wexpr[n.id] = n.wexpr; }
+  cs.edges = entCloneEdges(G.edges);
+  return G;
+}
+/* Loads component k into the live copy. Hypotheses the component has not seen get weight 0. */
+function entLoad(G, k, noSync) {
+  if (!isEntangled(G)) return G;
+  if (!noSync) entSync(G);
+  k = Math.max(0, Math.min(G.ent.comps.length - 1, k | 0));
+  const cs = G.ent.comps[k], ids = new Set(G.nodes.map(n => n.id));
+  for (const n of G.nodes) { n.w = cs.w[n.id] || Q.ZERO; n.wexpr = (cs.wexpr || {})[n.id] || undefined; }
+  G.edges = entCloneEdges(cs.edges.filter(e => ids.has(e.from) && ids.has(e.to) && e.from !== e.to));
+  G.ent.active = k;
+  return G;
+}
+/* Component k as an ordinary graph object sharing the node records' labels, positions and colours (a view for
+   validation, exhaustiveness and float arrays). Not for editing. */
+function entViewGraph(G, k) {
+  entSync(G);
+  const cs = G.ent.comps[k], ids = new Set(G.nodes.map(n => n.id));
+  return {
+    nodes: G.nodes.map(n => Object.assign({}, n, { w: cs.w[n.id] || Q.ZERO, wexpr: (cs.wexpr || {})[n.id] || undefined })),
+    edges: cs.edges.filter(e => ids.has(e.from) && ids.has(e.to) && e.from !== e.to && (e.expr || !Q.isZero(e.g))),
+    diag: {}, alpha: G.alpha, sided: G.sided, vars: G.vars, test: G.test, note: G.note
+  };
+}
+/* Exact state for the step-through: per-component states plus the combined levels. st.g shows the active
+   component's transitions (the picture), st.w the combined weights sum_h c_h w_h (the test). */
+function stateFromEntangled(G) {
+  entSync(G);
+  const ids = G.nodes.map(n => n.id);
+  const comps = G.ent.comps.map((cs, k) => {
+    const v = entViewGraph(G, k);
+    return { w: new Map(v.nodes.map(n => [n.id, n.w])), g: new Map(v.edges.filter(e => !Q.isZero(e.g)).map(e => [gKey(e.from, e.to), e.g])) };
+  });
+  return entCombine({ ids, ent: { c: G.ent.c.slice(), comps, active: G.ent.active } });
+}
+function entCombine(st) {
+  const w = new Map();
+  for (const id of st.ids) {
+    let s = Q.ZERO;
+    st.ent.comps.forEach((cs, h) => { s = Q.add(s, Q.mul(st.ent.c[h], cs.w.get(id) || Q.ZERO)); });
+    w.set(id, s);
+  }
+  st.w = w;
+  st.g = st.ent.comps[st.ent.active].g;
+  return st;
+}
+/* Algorithm 1, step 3 (p. 1743): remove H_j from every component with the Bretz et al. (2009) update */
+function rejectNodeEntangled(st, j) {
+  const rem = st.ids.filter(x => x !== j);
+  const comps = st.ent.comps.map(cs => { const r = rejectNode({ ids: st.ids, w: cs.w, g: cs.g }, j); return { w: r.w, g: r.g }; });
+  return entCombine({ ids: rem, ent: { c: st.ent.c, comps, active: st.ent.active } });
+}
+/* Appendix A, p. 1752: components with one and the same transition matrix are a single graph with weights
+   sum_h c_h w_h. Returns that graph as a saved-file object, or null when the matrices differ. */
+function entCollapse(G) {
+  if (!isEntangled(G)) return null;
+  entSync(G);
+  const key = cs => cs.edges.filter(e => !Q.isZero(e.g)).map(e => `${e.from}>${e.to}=${Q.exact(e.g)}`).sort().join(';');
+  const k0 = key(G.ent.comps[0]);
+  if (!G.ent.comps.every(cs => key(cs) === k0)) return null;
+  const o = serializeGraph(G);
+  const nodes = o.nodes.map((n, i) => {
+    let s = Q.ZERO; G.ent.comps.forEach((cs, h) => { s = Q.add(s, Q.mul(G.ent.c[h], cs.w[G.nodes[i].id] || Q.ZERO)); });
+    return Object.assign({}, n, { weight: Q.exact(s), wexpr: undefined });
+  });
+  const edges = G.ent.comps[0].edges.filter(e => e.expr || !Q.isZero(e.g)).map(e => ({ from: e.from, to: e.to, weight: Q.exact(e.g), bend: e.bend, expr: e.expr }));
+  return Object.assign({}, o, { version: 1, nodes, edges, ent: undefined, note: (o.note ? o.note + ' ' : '') + 'Reduced from an entangled graph whose components shared one transition matrix (Maurer and Bretz, 2013, Appendix A).' });
+}
+/* Entangled templates. Each returns a version 2 saved-file object. Node positions follow the papers' figures. */
+const ENTANGLED_TEMPLATES = {
+  maurerFig2: {
+    name: 'Entangled: two doses with memory (Maurer and Bretz, 2013, Fig. 2)',
+    build() {
+      const nodes = [['H1', 0, 0], ['H2', 300, 0], ['H3', 150, 190], ['H4', 0, 380], ['H5', 300, 380]];
+      return entangledJSON({
+        note: 'Maurer and Bretz (2013, Statistics in Medicine 32:1739-1753), Figure 2, p. 1747, and section 4. H1, H2: primary hypotheses for the low and high dose (alpha/2 each). H3: a later primary hypothesis, tested once H1 or H2 is rejected. H4, H5: secondary hypotheses paired with H1 and H2. Graph 1 carries the level of H1 and sends it through H3 to H4 (the pair {H1, H4}); graph 2 does the same for H2 and H5. Each component weight c is 1/2. A single graph (Fig. 1, the "two primary then secondary" shape) forgets where the level of H3 came from and can reject H5 without H2; the entangled graph remembers (requirement (III), p. 1741). gMCP: Entangled1Maurer2012.',
+        nodes,
+        c: ['1/2', '1/2'],
+        comps: [
+          { w: ['1', '0', '0', '0', '0'], edges: [[0, 2, '1'], [1, 2, '1'], [2, 3, '1-ε'], [2, 4, 'ε'], [3, 1, '1', -140]] },
+          { w: ['0', '1', '0', '0', '0'], edges: [[0, 2, '1'], [1, 2, '1'], [2, 4, '1-ε'], [2, 3, 'ε'], [4, 0, '1', 140]] }
+        ]
+      });
+    }
+  },
+  maurerFig4: {
+    name: 'Entangled: the same procedure as two fixed sequences (Maurer and Bretz, 2013, Fig. 4)',
+    build() {
+      const nodes = [['H1', 0, 0], ['H2', 300, 0], ['H3', 150, 190], ['H4', 0, 380], ['H5', 300, 380]];
+      return entangledJSON({
+        note: 'Maurer and Bretz (2013, Statistics in Medicine 32:1739-1753), Figure 4, p. 1748, and section 5.1. The Fig. 2 procedure written without ε edges: graph 1 is the fixed sequence H1, H3, H4, H2, H5 and graph 2 the fixed sequence H2, H3, H5, H1, H4, each with component weight c = 1/2. This is also the Burman, Sonesson and Guilbaud (2009) default graph with those two sequences (Fig. 4(a)). It gives the same rejections as the Fig. 2 entangled graph; the levels equal the Fig. 2 levels with ε set to 0. gMCP: Entangled2Maurer2012.',
+        nodes,
+        c: ['1/2', '1/2'],
+        comps: [
+          { w: ['1', '0', '0', '0', '0'], edges: [[0, 2, '1'], [2, 3, '1'], [3, 1, '1', -140], [1, 4, '1']] },
+          { w: ['0', '1', '0', '0', '0'], edges: [[1, 2, '1'], [2, 4, '1'], [4, 0, '1', 140], [0, 3, '1']] }
+        ]
+      });
+    }
+  },
+  maurerFig5: {
+    name: 'Entangled: two doses with memory and recycling between the doses (Maurer and Bretz, 2013, Fig. 5; γ1, γ2)',
+    build() {
+      const nodes = [['H1', 0, 0], ['H2', 300, 0], ['H3', 150, 190], ['H4', 0, 380], ['H5', 300, 380]];
+      return entangledJSON({
+        note: 'Maurer and Bretz (2013, Statistics in Medicine 32:1739-1753), Figure 5, p. 1749. As Fig. 2, but after a primary hypothesis is rejected its level is split: in graph 1 a share γ1 goes to H3 and 1 − γ1 to the other primary H2; in graph 2 a share γ2 goes to H3 and 1 − γ2 to H1. With γ1 = γ2 = 1 this is the Fig. 2 graph. The paper excludes γ = 0, which would make both primaries a fixed sequence before H3. Guilbaud (2018, Fig. 4(b), p. 230) draws the same graph with one γ. The defaults here are γ1 = γ2 = 1/2.',
+        nodes,
+        c: ['1/2', '1/2'],
+        comps: [
+          { w: ['1', '0', '0', '0', '0'], edges: [[0, 1, '1-γ1'], [0, 2, 'γ1'], [1, 2, '1'], [2, 3, '1-ε'], [2, 4, 'ε'], [3, 1, '1', -140]] },
+          { w: ['0', '1', '0', '0', '0'], edges: [[1, 0, '1-γ2'], [1, 2, 'γ2'], [0, 2, '1'], [2, 4, '1-ε'], [2, 3, 'ε'], [4, 0, '1', 140]] }
+        ]
+      });
+    }
+  },
+  truncatedHolmGate: {
+    name: 'Entangled: parallel gatekeeping with truncated Holm on two primaries (Maurer and Bretz, 2013, section 5.3.1; γ)',
+    build() {
+      return entangledJSON({
+        note: 'Parallel gatekeeping with a truncated Holm procedure for the primary family (Maurer and Bretz, 2013, section 5.3.1, p. 1750; drawn as in Xi and Bretz, 2019, Fig. 5, pp. 5275-5276). Graph 1 (weight γ) is serial gatekeeping: Holm on H1 and H2, and the secondary pair H3, H4 is reached only once both primaries are rejected (the ε edges). Graph 2 (weight 1 − γ) is a single-step Bonferroni test on the primaries that passes a rejected primary\'s level to the secondaries at once. The entangled graph tests the primaries with truncated Holm (share γ kept in the pair, 1 − γ passed on) and the secondaries with Holm. γ = 1 is serial gatekeeping; γ = 0 is Bonferroni on the primaries with parallel gatekeeping. The single-graph truncated Holm template in the picker is the same procedure for two primaries (Bretz et al., 2011, section 4.1); more primaries need this entangled form.',
+        nodes: [['H1', 0, 0], ['H2', 300, 0], ['H3', 0, 220], ['H4', 300, 220]],
+        groups: ['primary', 'primary', 'secondary', 'secondary'],
+        c: ['γ', '1-γ'],
+        comps: [
+          { w: ['1/2', '1/2', '0', '0'], edges: [[0, 1, '1-ε'], [0, 2, 'ε/2'], [0, 3, 'ε/2'], [1, 0, '1-ε'], [1, 2, 'ε/2'], [1, 3, 'ε/2'], [2, 3, '1'], [3, 2, '1']] },
+          { w: ['1/2', '1/2', '0', '0'], edges: [[0, 2, '1/2'], [0, 3, '1/2'], [1, 2, '1/2'], [1, 3, '1/2'], [2, 3, '1'], [3, 2, '1']] }
+        ]
+      });
+    }
+  }
+};
+/* Truncated Holm for m hypotheses as an entangled graph (Maurer and Bretz, 2013, section 5.3.1, p. 1750): Holm with
+   weight γ and single-step Bonferroni with weight 1 − γ. For m = 2 the single-graph template does the same. */
+function entangledTruncatedHolm(m) {
+  const pos = circlePositions(m);
+  const holm = []; for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) if (i !== j) holm.push([i, j, m === 2 ? '1' : `1/${m - 1}`]);
+  return entangledJSON({
+    note: `Truncated Holm on ${m} hypotheses as an entangled graph (Maurer and Bretz, 2013, section 5.3.1, p. 1750; the procedure is from Dmitrienko, Tamhane and Wiens, 2008): graph 1 is Bonferroni-Holm with weight γ, graph 2 the single-step Bonferroni test (equal weights, no transitions) with weight 1 − γ. A rejected hypothesis passes on a share γ of its level and keeps 1 − γ unspent, so the procedure stops short of full Holm and the unspent part can be given to a later family. γ = 1 is Holm; γ = 0 is Bonferroni. The paper notes that for two hypotheses a single graph suffices (Bretz et al., 2011).`,
+    nodes: pos.map((p, i) => [`H${i + 1}`, p.x, p.y]),
+    c: ['γ', '1-γ'],
+    comps: [
+      { w: Array.from({ length: m }, () => `1/${m}`), edges: holm },
+      { w: Array.from({ length: m }, () => `1/${m}`), edges: [] }
+    ]
+  });
+}
+/* At least k of m primaries before one secondary (Maurer and Bretz, 2013, section 5.3.2, pp. 1750-1751, and Fig. 6,
+   p. 1751; Guilbaud, 2018, Fig. 5(b), p. 230, for 2 of 3): one component per k-subset of the primaries, c = 1/C(m,k).
+   In each component the subset is tested with Holm; its highest-index member sends ε to the secondary and the rest of
+   that share to the lowest-index member, so the secondary is reached only once the whole subset is rejected; the other
+   primaries are isolated with weight 0. Taken together (p. 1751, m = 4, k = 3): Holm on the primaries until three are
+   rejected, the fourth at 3α/4, the secondary at α/4 if the fourth is retained and at α if it is rejected. */
+function entangledKOfM(m, k, alpha) {
+  if (!(m >= 2 && m <= 6 && k >= 1 && k < m)) throw new Error('At least k of m needs 2 to 6 primaries and k between 1 and m − 1.');
+  const subsets = []; const rec = (start, cur) => { if (cur.length === k) { subsets.push(cur.slice()); return; } for (let i = start; i < m; i++) { cur.push(i); rec(i + 1, cur); cur.pop(); } }; rec(0, []);
+  const nodes = Array.from({ length: m }, (_, i) => [`H${i + 1}`, i * 200, 0]).concat([[`H${m + 1}`, (m - 1) * 100, 230]]);
+  const share = k > 1 ? `1/${k - 1}` : '1';
+  const comps = subsets.map(J => {
+    const w = Array(m + 1).fill('0'); J.forEach(i => { w[i] = `1/${k}`; });
+    const edges = [], top = J[J.length - 1], low = J[0];
+    for (const a of J) for (const b of J) { if (a === b) continue; edges.push(a === top && b === low && k > 1 ? [a, b, `${share}-ε`] : [a, b, share]); }
+    edges.push(k > 1 ? [top, m, 'ε'] : [top, m, '1']);
+    return { w, edges };
+  });
+  return entangledJSON({
+    alpha, nodes, groups: Array.from({ length: m }, () => 'primary').concat(['secondary']),
+    note: `At least ${k} of ${m} primary hypotheses (H1 to H${m}) must be rejected before the secondary hypothesis H${m + 1} is tested (Maurer and Bretz, 2013, section 5.3.2, pp. 1750-1751, and Fig. 6; Guilbaud, 2018, Example 11 and Fig. 5(b), for 2 of 3). One component graph per set of ${k} primaries (${subsets.length} in all, c = 1/${subsets.length} each): Holm within the set, and only the last of the set to be rejected hands its level to H${m + 1} (the ε edge); the other primaries are isolated with weight 0. Taken together: Holm on the primaries until ${k} are rejected, each remaining primary then at (m − k)α/m = ${m - k}α/${m}, and H${m + 1} at ${k}α/${m} once ${k} primaries are rejected, rising to α when all are.`,
+    c: subsets.map(() => `1/${subsets.length}`),
+    comps
+  });
+}
+/* Builds a version 2 saved-file object from short lists: nodes [label, x, y], comps [{ w: [...], edges: [[from, to, weight, bend?]] }] */
+function entangledJSON(spec) {
+  const wt = v => (isExpr(v) ? { weight: '0', wexpr: v } : { weight: v });
+  const comps = spec.comps.map(cs => ({
+    nodes: spec.nodes.map((r, i) => Object.assign({ id: String(i) }, wt(cs.w[i]))),
+    edges: cs.edges.map(r => Object.assign({ from: String(r[0]), to: String(r[1]), bend: r[3] == null ? null : r[3] }, isExpr(r[2]) ? { weight: '0', expr: r[2] } : { weight: r[2] }))
+  }));
+  const cw = spec.c.map(v => (isExpr(v) ? { c: '0', cexpr: v } : { c: v }));
+  return {
+    format: 'multiplicity-graph', version: 2, alpha: spec.alpha || 0.025, note: spec.note || '',
+    nodes: spec.nodes.map((r, i) => Object.assign({ id: String(i), label: r[0], x: r[1], y: r[2], p: '', group: spec.groups ? spec.groups[i] : '' }, comps[0].nodes[i])),
+    edges: comps[0].edges,
+    ent: { c: cw.map(x => x.c), cexpr: cw.some(x => x.cexpr) ? cw.map(x => x.cexpr) : undefined, active: 0, comps }
+  };
+}
+function entangledTemplateJSON(key) { return ENTANGLED_TEMPLATES[key].build(); }
+
 /* ---------- Validation ---------- */
 function validateGraph(G, fmt) {
   const out = [];
   const name = id => (G.nodes.find(n => n.id === id) || {}).label || '?';
   const list = ids => ids.map(name).join(', ');
   if (!G.nodes.length) return out;
+  if (isEntangled(G)) {
+    /* Each component must be a valid graph on its own (eq. 1, p. 1743); the component weights c_h lie in [0, 1]
+       and sum to at most 1 (p. 1744). Messages are prefixed with the component; one-click fixes apply to the
+       active component only, since the others are not on the canvas. */
+    entSync(G);
+    G.ent.comps.forEach((cs, k) => {
+      for (const v of validateGraph(entViewGraph(G, k), fmt)) {
+        v.text = `Graph ${k + 1}: ${v.text}`;
+        if (k !== G.ent.active) v.fix = null;
+        out.push(v);
+      }
+    });
+    const c = G.ent.c;
+    let cs = Q.ZERO;
+    c.forEach((v, k) => { if (Q.cmp(v, Q.ZERO) < 0 || Q.cmp(v, Q.ONE) > 0) out.push({ level: 'error', text: `Component weight c${k + 1} is ${fmt(v)}. Component weights must be between 0 and 1.` }); cs = Q.add(cs, v); });
+    if (Q.cmp(cs, Q.ONE) > 0) out.push({ level: 'error', text: `The component weights add up to ${fmt(cs)}, which is more than 1.` });
+    else if (Q.cmp(cs, Q.ONE) < 0) out.push({ level: 'warn', text: `The component weights add up to ${fmt(cs)}, so the procedure does not use all of alpha. Valid, but not alpha-exhaustive.` });
+    return out;
+  }
 
   const badW = G.nodes.filter(n => Q.cmp(n.w, Q.ZERO) < 0 || Q.cmp(n.w, Q.ONE) > 0);
   for (const n of badW) out.push({ level: 'error', nodes: [n.id], fix: { act: 'clampW', id: n.id, label: 'Clamp to [0, 1]' }, text: `${n.label} has initial weight ${fmt(n.w)}. Weights must be between 0 and 1.` });
@@ -381,6 +619,20 @@ function validateGraph(G, fmt) {
 function isAlphaExhaustive(G) {
   const m = G.nodes.length;
   if (!m) return null;
+  if (isEntangled(G)) {
+    /* The convex combination is exhaustive exactly when the component weights sum to 1 and every component
+       with positive weight is exhaustive (Maurer and Bretz, 2013, p. 1745). */
+    let cs = Q.ZERO; for (const v of G.ent.c) cs = Q.add(cs, v);
+    if (!Q.eq(cs, Q.ONE)) return false;
+    let unknown = false;
+    for (let k = 0; k < G.ent.comps.length; k++) {
+      if (Q.isZero(G.ent.c[k])) continue;
+      const r = isAlphaExhaustive(entViewGraph(G, k));
+      if (r === false) return false;
+      if (r === null) unknown = true;
+    }
+    return unknown ? null : true;
+  }
   let sum = Q.ZERO; for (const n of G.nodes) sum = Q.add(sum, n.w);
   if (!Q.eq(sum, Q.ONE)) return false;
   if (m > 12) {
@@ -492,6 +744,99 @@ function parseMatrix(src, m) {
   if (rows.some(r => r.length !== rows.length)) throw new Error('The transition matrix must be square, with one row and one column per hypothesis.');
   if (rows.length !== m) throw new Error(`The weights describe ${m} hypotheses but the matrix is ${rows.length} \u00d7 ${rows.length}.`);
   return { rows, notes };
+}
+
+/* ---------- gMCP code for entangled graphs ----------
+   Reads a script such as
+     m1 <- rbind(H1 = c(0, 0, 1, 0, 0), H2 = c(0, 0, 1, 0, 0), H3 = c(0, 0, 0, "1-\\epsilon", "\\epsilon"), ...)
+     graph1 <- new("graphMCP", m = m1, weights = c(1, 0, 0, 0, 0))
+     ...
+     graph <- new("entangledMCP", subgraphs = list(graph1, graph2), weights = c(0.5, 0.5))
+   Values may be numbers, fractions or gMCP's quoted expressions ("1-\\epsilon"). Variables are resolved from
+   earlier assignments. Returns { m, names, c: [string], comps: [{ w: [string], rows: [[string]] }] } or throws. */
+function parseEntangledR(text) {
+  const src = String(text).replace(/\r/g, '').split('\n').map(l => l.replace(/#.*$/, '')).join('\n');
+  /* statements: top-level, split at newlines or semicolons when brackets are balanced */
+  const stmts = []; let cur = '', depth = 0, quote = null;
+  for (const ch of src) {
+    if (quote) { cur += ch; if (ch === quote) quote = null; continue; }
+    if (ch === '"' || ch === "'") { quote = ch; cur += ch; continue; }
+    if (ch === '(' || ch === '[' || ch === '{') depth++;
+    if (ch === ')' || ch === ']' || ch === '}') depth--;
+    if ((ch === '\n' || ch === ';') && depth <= 0) { if (cur.trim()) stmts.push(cur.trim()); cur = ''; depth = 0; continue; }
+    cur += ch;
+  }
+  if (cur.trim()) stmts.push(cur.trim());
+  const vars = new Map();
+  let result = null;
+  const value = tok => {
+    const t = tok.trim();
+    const q = Q.parse(unquote(t));
+    if (q) return Q.exact(q);
+    if (/^["']/.test(t)) return normaliseExpr(unquote(t).replace(/\\\\/g, '').replace(/\\/g, ''));
+    throw new Error(`Could not read "${t}" as a weight. Numbers, fractions and quoted expressions such as "1-\\\\epsilon" are understood.`);
+  };
+  const resolve = expr => {
+    const e = expr.trim();
+    if (/^[A-Za-z_.][\w.]*$/.test(e)) { if (!vars.has(e)) throw new Error(`"${e}" is used before it is defined.`); return vars.get(e); }
+    return evalR(e);
+  };
+  const vecOf = call => { const toks = splitArgs(call.inner); const names = [], values = []; for (const t of toks) { const m = /^("[^"]*"|'[^']*'|[A-Za-z_.][\w.]*)\s*=\s*([\s\S]+)$/.exec(t); names.push(m ? unquote(m[1]) : null); values.push(value(m ? m[2] : t)); } return { kind: 'vec', values, names: names.some(Boolean) ? names : null }; };
+  const evalR = e => {
+    let call;
+    if ((call = callInner(e, ['c']))) return vecOf(call);
+    if ((call = callInner(e, ['rbind']))) {
+      const rows = [], names = [];
+      for (const a of splitArgs(call.inner)) { const m = /^("[^"]*"|'[^']*'|[A-Za-z_.][\w.]*)\s*=\s*([\s\S]+)$/.exec(a); names.push(m ? unquote(m[1]) : null); const v = resolve(m ? m[2] : a); if (v.kind !== 'vec') throw new Error('rbind() needs vectors.'); rows.push(v.values); }
+      return { kind: 'mat', rows, names: names.some(Boolean) ? names : null };
+    }
+    if ((call = callInner(e, ['matrix']))) {
+      const args = splitArgs(call.inner); let data = null, nrow = null, ncol = null, byrow = false, pos = 0;
+      for (const a of args) { const nm = /^(\w+)\s*=\s*([\s\S]+)$/.exec(a); const key = nm ? nm[1].toLowerCase() : ['data', 'nrow', 'ncol', 'byrow'][pos++]; const val = nm ? nm[2] : a; if (key === 'data') data = resolve(val).values; else if (key === 'nrow') nrow = parseInt(val, 10); else if (key === 'ncol') ncol = parseInt(val, 10); else if (key === 'byrow') byrow = /^(T|TRUE)$/i.test(val.trim()); }
+      if (!data) throw new Error('matrix() needs its values.');
+      if (!nrow && !ncol) nrow = ncol = Math.round(Math.sqrt(data.length)); else if (!nrow) nrow = Math.round(data.length / ncol); else if (!ncol) ncol = Math.round(data.length / nrow);
+      if (data.length !== nrow * ncol) throw new Error(`matrix() has ${data.length} values, which does not fill ${nrow} × ${ncol}.`);
+      const rows = []; for (let i = 0; i < nrow; i++) { rows.push([]); for (let j = 0; j < ncol; j++) rows[i].push(byrow ? data[i * ncol + j] : data[j * nrow + i]); }
+      return { kind: 'mat', rows, names: null };
+    }
+    if ((call = callInner(e, ['list']))) return { kind: 'list', items: splitArgs(call.inner).map(resolve) };
+    if ((call = callInner(e, ['new']))) {
+      const args = splitArgs(call.inner); const cls = unquote(args[0] || ''); const named = {}; let pos = 0;
+      const order = cls === 'graphMCP' ? ['m', 'weights'] : ['subgraphs', 'weights'];
+      for (const a of args.slice(1)) { const nm = /^(\w+)\s*=\s*([\s\S]+)$/.exec(a); named[nm ? nm[1] : order[pos++]] = nm ? nm[2] : a; }
+      if (cls === 'graphMCP') {
+        if (named.m == null || named.weights == null) throw new Error('new("graphMCP") needs m (the transition matrix) and weights.');
+        const m = resolve(named.m), w = resolve(named.weights);
+        if (m.kind !== 'mat' || w.kind !== 'vec') throw new Error('In new("graphMCP"), m must be a matrix and weights a vector.');
+        return { kind: 'graph', rows: m.rows, w: w.values, names: m.names || w.names };
+      }
+      if (cls === 'entangledMCP') {
+        if (named.subgraphs == null) throw new Error('new("entangledMCP") needs subgraphs = list(...).');
+        const l = resolve(named.subgraphs); if (l.kind !== 'list' || !l.items.length || l.items.some(x => x.kind !== 'graph')) throw new Error('subgraphs must be a list of graphMCP objects.');
+        const c = named.weights != null ? resolve(named.weights) : { kind: 'vec', values: l.items.map(() => Q.exact(Q.make(1n, BigInt(l.items.length)))) };
+        if (c.kind !== 'vec' || c.values.length !== l.items.length) throw new Error('weights of the entangledMCP must give one number per subgraph.');
+        return { kind: 'ent', comps: l.items, c: c.values };
+      }
+      throw new Error(`new("${cls}") is not understood; only graphMCP and entangledMCP are.`);
+    }
+    throw new Error(`Could not read "${e.slice(0, 40)}${e.length > 40 ? '…' : ''}".`);
+  };
+  for (const st of stmts) {
+    const m = /^([A-Za-z_.][\w.]*)\s*(<-|=)\s*([\s\S]+)$/.exec(st);
+    if (m) { const v = evalR(m[3]); vars.set(m[1], v); if (v.kind === 'ent') result = v; }
+    else if (/^(library|require|print|plot|gMCP|graphGUI)\b/.test(st) || /^[A-Za-z_.][\w.]*$/.test(st)) continue;
+    else { const v = evalR(st); if (v.kind === 'ent') result = v; }
+  }
+  if (!result) { const ents = [...vars.values()].filter(v => v.kind === 'ent'); if (ents.length) result = ents[ents.length - 1]; }
+  if (!result) throw new Error('No new("entangledMCP", subgraphs = list(...), weights = c(...)) found in the code.');
+  const m = result.comps[0].w.length;
+  for (const g of result.comps) {
+    if (g.w.length !== m) throw new Error('Every component must have the same number of hypotheses.');
+    if (g.rows.length !== m || g.rows.some(r => r.length !== m)) throw new Error(`Each transition matrix must be ${m} × ${m}.`);
+  }
+  if (m > 40) throw new Error('That is more than 40 hypotheses. This tool is built for smaller graphs.');
+  const names = result.comps.map(g => g.names).find(Boolean) || Array.from({ length: m }, (_, i) => 'H' + (i + 1));
+  return { m, names, c: result.c, comps: result.comps.map(g => ({ w: g.w, rows: g.rows })) };
 }
 
 /* ---------- Node colours ---------- */
@@ -610,12 +955,17 @@ function layoutEdges(vm) {
   const obstacles = vm.nodes.map(n => (n.capH ? Object.assign({}, n, { y: n.y + n.capH / 2, ry: n.ry + n.capH / 2 }) : n));
   const keys = new Set(vm.edges.map(e => gKey(e.from, e.to)));
   const out = [];
+  /* the same transition in several components (an entangled graph's All view, e.comp set) is drawn as separate
+     curves spread apart, keyed by component */
+  const seen = new Map();
   for (const e of vm.edges) {
     const a = byId.get(e.from), b = byId.get(e.to);
     if (!a || !b || a === b) continue;
     const bidir = keys.has(gKey(e.to, e.from));
-    const bend = e.bend == null ? autoBend(a, b, bidir, obstacles) : e.bend;
-    out.push(Object.assign({}, e, { key: gKey(e.from, e.to), a, b, bend, auto: e.bend == null }, curveGeom(a, b, bend)));
+    const base = gKey(e.from, e.to), dup = seen.get(base) || 0; seen.set(base, dup + 1);
+    const spread = dup ? (dup % 2 ? 1 : -1) * Math.ceil(dup / 2) * 30 : 0;
+    const bend = (e.bend == null ? autoBend(a, b, bidir, obstacles) : e.bend) + spread;
+    out.push(Object.assign({}, e, { key: e.comp == null ? base : `${base}#${e.comp}`, a, b, bend, auto: e.bend == null }, curveGeom(a, b, bend)));
   }
   const placed = [];
   const ts = [0.5, 0.42, 0.58, 0.34, 0.66, 0.27, 0.73, 0.2, 0.8];
@@ -671,7 +1021,68 @@ function pVector(G) {
   return `c(${G.nodes.map(n => String(n.p).trim()).join(', ')})`;
 }
 function varsComment(G) { const v = Object.keys(G.vars || {}); return v.length ? `# Symbolic weights evaluated with ${v.map(k => `${k} = ${rNum(G.vars[k])}`).join(', ')}\n` : ''; }
+/* Entangled graphs (Maurer and Bretz, 2013). gMCP: one matrix2graph() per component joined as an entangledMCP
+   object; gMCP() tests it with Bonferroni only (gMCP 0.8-17 stops for Simes and for the parametric test).
+   graphicalMCP has no entangled graph object, so that export builds each component and gives the Sketchpad's
+   intersection weights v_i(J) = sum_h c_h w_hi(J) (Algorithm 2, p. 1745) for a closed test by hand. */
+function entCompR(G, k, indent) {
+  const v = entViewGraph(G, k);
+  return { rows: matrixRows(v, rNum).map(r => indent + r.join(', ')), weights: v.nodes.map(n => rNum(n.w)).join(', ') };
+}
+function entCompComment(G, k) { return `# Graph ${k + 1} (c = ${G.ent.cexpr && G.ent.cexpr[k] ? exprDisplay(G.ent.cexpr[k]) + ' = ' : ''}${rNum(G.ent.c[k])})`; }
+/* The intersection weights as R code in the layout of gMCP's generateWeights(): one row per non-empty
+   intersection, the first m columns say which hypotheses are in it (1 = in), the next m give the weights.
+   Rows run in gMCP's order (H1 the most significant bit). */
+function entWeightTableR(G) {
+  const m = G.nodes.length;
+  if (m > 8) return `# The intersection weight table is written for up to 8 hypotheses (this graph has ${m}).\n`;
+  const fg = floatGraph(G), W = closureWeights(fg);
+  const lines = [];
+  for (let r = 1; r < (1 << m); r++) {
+    let mask = 0; const mem = [];
+    for (let j = 0; j < m; j++) { const b = (r >> (m - 1 - j)) & 1; mem.push(b); if (b) mask |= 1 << j; }
+    const ws = []; for (let i = 0; i < m; i++) ws.push(mem[i] ? String(Number(W[mask * m + i].toPrecision(12))) : '0');
+    lines.push('  ' + mem.join(', ') + ',  ' + ws.join(', '));
+  }
+  return `# Intersection weights of the whole procedure (Maurer and Bretz, 2013, Algorithm 2, p. 1745):\n# one row per intersection hypothesis; columns 1 to ${m} say which hypotheses it contains (1 = in),\n# columns ${m + 1} to ${2 * m} give the weights. Same layout and row order as gMCP's generateWeights().\nsketchpad_weights <- matrix(c(\n${lines.join(',\n')}\n), ncol = ${2 * m}, byrow = TRUE)\n`;
+}
+function exportGMCPEntangled(G) {
+  const m = G.nodes.length, n = G.ent.comps.length, pv = pVector(G), t = G.test || defaultTest();
+  const names = `c(${G.nodes.map(x => rStr(x.label)).join(', ')})`;
+  let s = `# Written by Multiplicity Graph Sketchpad ${APP_VERSION}\nlibrary(gMCP)\n# Entangled graph (Maurer and Bretz, 2013): ${n} component graphs on the same hypotheses, joined with the\n# component weights c. Each hypothesis is tested at alpha * sum_h c_h w_hi (Algorithm 1, p. 1743).\n${varsComment(G)}`;
+  for (let k = 0; k < n; k++) {
+    const c = entCompR(G, k, '  ');
+    s += `\n${entCompComment(G, k)}\nm_${k + 1} <- matrix(c(\n${c.rows.join(',\n')}\n), nrow = ${m}, byrow = TRUE)\nweights_${k + 1} <- c(${c.weights})\nrownames(m_${k + 1}) <- colnames(m_${k + 1}) <- ${names}\ngraph_${k + 1} <- matrix2graph(m_${k + 1}, weights_${k + 1})\n`;
+  }
+  s += `\ngraph <- new("entangledMCP", subgraphs = list(${G.ent.comps.map((_, k) => `graph_${k + 1}`).join(', ')}),\n  weights = c(${G.ent.c.map(rNum).join(', ')}))\ngraph\n`;
+  s += `\n# Intersection weights of the whole procedure (Algorithm 2, p. 1745); the Sketchpad's table is below for comparison\ngenerateWeights(graph)\n${entWeightTableR(G)}max(abs(generateWeights(graph) - sketchpad_weights))\n`;
+  if (pv) {
+    if (t.type === 'bonferroni') s += `\n# NOTE: for an entangled graph gMCP rejects when p < level (strict), the Sketchpad when p <= level; they differ\n# only if a p-value equals its level exactly. gMCP gives no adjusted p-values for entangled graphs${t.upscale ? ',\n# and ignores upscale = TRUE for them' : ''}.\ngMCP(graph, pvalues = ${pv}, alpha = ${fmtNum(G.alpha, 12)})\n`;
+    else if (t.type === 'simes' || t.type === 'simes-groups') s += `\n# No test call: gMCP 0.8-17 stops with "Simes test is not yet supported for entangled graphs". The Sketchpad\n# runs the closed test on the intersection weights above (Maurer and Bretz, 2013, p. 1745); check it by hand\n# with sketchpad_weights, or test the Bonferroni version with gMCP(graph, pvalues = ${pv}, alpha = ${fmtNum(G.alpha, 12)}).\n`;
+    else s += `\n# No test call: gMCP's parametric test does not support entangled graphs ("parametric case does not support\n# multiple graphs yet"). Check the closed test by hand with sketchpad_weights, or test the Bonferroni version\n# with gMCP(graph, pvalues = ${pv}, alpha = ${fmtNum(G.alpha, 12)}).\n`;
+  }
+  return s;
+}
+function exportGraphicalMCPEntangled(G) {
+  const m = G.nodes.length, n = G.ent.comps.length, pv = pVector(G), t = G.test || defaultTest();
+  const names = `c(${G.nodes.map(x => rStr(x.label)).join(', ')})`;
+  let s = `# Written by Multiplicity Graph Sketchpad ${APP_VERSION}\nlibrary(graphicalMCP)\n# Entangled graph (Maurer and Bretz, 2013): ${n} component graphs on the same hypotheses, joined with the\n# component weights c. graphicalMCP has no object for an entangled graph, so this file builds each component\n# and gives the intersection weights of the whole procedure for a closed test by hand. To test the whole\n# procedure in R use the gMCP export instead.\n${varsComment(G)}`;
+  for (let k = 0; k < n; k++) {
+    const c = entCompR(G, k, '    ');
+    s += `\n${entCompComment(G, k)}\ngraph_${k + 1} <- graph_create(\n  hypotheses = c(${c.weights}),\n  transitions = matrix(c(\n${c.rows.join(',\n')}\n  ), nrow = ${m}, byrow = TRUE),\n  hyp_names = ${names}\n)\n`;
+  }
+  s += `\nc_weights <- c(${G.ent.c.map(rNum).join(', ')})\nhyp_names <- ${names}\n\n${entWeightTableR(G)}`;
+  if (m <= 8) s += `# The same weights follow from graph_generate_weights(graph_1), graph_generate_weights(graph_2), ... combined\n# with c_weights (see that function's help page for the layout of its result).\n`;
+  if (pv && m <= 8) {
+    s += `\np <- ${pv}\nalpha <- ${fmtNum(G.alpha, 12)}\nm <- ${m}\nin_set <- sketchpad_weights[, 1:m] == 1\nw <- sketchpad_weights[, m + (1:m)]\n`;
+    s += `# Bonferroni closed test: an intersection is rejected when some member has p <= weight * alpha; H_i is rejected\n# when every intersection containing it is rejected. This equals the step-by-step procedure (Maurer and Bretz,\n# 2013, p. 1745).\nrej_int <- apply(in_set & (matrix(p, nrow(w), m, byrow = TRUE) <= w * alpha), 1, any)\nrejected <- sapply(1:m, function(i) all(rej_int[in_set[, i]]))\nnames(rejected) <- hyp_names\nrejected\n`;
+    if (t.type !== 'bonferroni') s += `# The Sketchpad's test type here is ${t.type === 'parametric' ? 'parametric' : 'Simes'}: replace the Bonferroni test of each intersection with that test on the same weights.\n`;
+  } else if (pv) s += `\n# Enter up to 8 hypotheses to get the closed test by hand here.\n`;
+  else s += `\n# Enter a p-value for every hypothesis to add the closed test by hand here.\n`;
+  return s;
+}
 function exportGraphicalMCP(G) {
+  if (isEntangled(G)) return exportGraphicalMCPEntangled(G);
   const m = G.nodes.length;
   const rows = matrixRows(G, rNum).map(r => '    ' + r.join(', '));
   const pv = pVector(G);
@@ -721,6 +1132,7 @@ function corrRowsR(G) {
   }));
 }
 function exportGMCP(G) {
+  if (isEntangled(G)) return exportGMCPEntangled(G);
   const m = G.nodes.length;
   const rows = matrixRows(G, rNum).map(r => '  ' + r.join(', '));
   const pv = pVector(G);
@@ -747,6 +1159,8 @@ function texLabel(label) {
   const lp = labelParts(label);
   return lp ? `$${lp.base}_{${lp.sub}}$` : texEscape(label);
 }
+/* vector of component weights, e.g. $(1, 0)$, in the All view of an entangled graph */
+function texVec(v) { return `{\\scriptsize $(${v.map(q => texNum(q).slice(1, -1)).join(', ')})$}`; }
 function texNum(q) {
   if (q.d === 1n) return `$${q.n}$`;
   if (q.d <= 1000n) return `$${q.n < 0n ? '-' : ''}\\frac{${q.n < 0n ? -q.n : q.n}}{${q.d}}$`;
@@ -778,7 +1192,13 @@ function exportTikZ(vm, layout, opts = {}) {
   L.push('  hypwide/.style={ellipse, draw, thick, inner sep=1pt, outer sep=0pt, align=center, font=\\small},');
   L.push('  rejected/.style={draw=gray, dashed, text=gray},');
   L.push('  trans/.style={-{Stealth[length=2.2mm]}, semithick},');
-  L.push('  wt/.style={fill=white, draw, rounded corners=1pt, inner sep=1.5pt, font=\\scriptsize}');
+  L.push('  wt/.style={fill=white, draw, rounded corners=1pt, inner sep=1.5pt, font=\\scriptsize}' + (vm.all ? ',' : ''));
+  if (vm.all) {
+    /* entangled graph, All view: one line style per component (Maurer and Bretz, 2013, Fig. 3, p. 1747) */
+    L.push('  comp1/.style={dashed},');
+    L.push('  comp2/.style={dotted, line cap=round},');
+    L.push('  comp3/.style={dash pattern=on 5pt off 2pt on 1pt off 2pt}');
+  }
   L.push(']');
   const cols = [...new Set(vm.nodes.filter(n => n.color && !n.rejected).map(n => n.color.toUpperCase()))];
   cols.forEach((c, i) => L.push(`\\definecolor{hypfill${String.fromCharCode(65 + i)}}{HTML}{${c.slice(1)}}`));
@@ -796,16 +1216,25 @@ function exportTikZ(vm, layout, opts = {}) {
     let style = wide ? `hypwide, minimum width=${(2 * n.rx / S).toFixed(2)}cm, minimum height=${(2 * n.ry / S).toFixed(2)}cm` : 'hyp';
     if (n.rejected) style += ', rejected';
     else if (n.color) { const k = cols.indexOf(n.color.toUpperCase()); style += `, fill=hypfill${String.fromCharCode(65 + k)}${textOnColor(n.color) === '#ffffff' ? ', text=white' : ''}`; }
-    L.push(`\\node[${style}] (${id(n)}) at (${cx(n.x)}, ${cy(n.y)}) {${texLabel(n.label)}\\\\ ${n.wexpr && !n.rejected ? exprTeX(n.wexpr) : texNum(n.w)}};${n.rejected ? ' % rejected' : ''}`);
+    L.push(`\\node[${style}] (${id(n)}) at (${cx(n.x)}, ${cy(n.y)}) {${texLabel(n.label)}\\\\ ${n.wvec ? texVec(n.wvec) : n.wexpr && !n.rejected ? exprTeX(n.wexpr) : texNum(n.w)}};${n.rejected ? ' % rejected' : ''}`);
   }
   for (const e of layout) {
     const A = id(e.a), B = id(e.b);
     const lab = `node[wt, pos=${e.label.t.toFixed(2)}] {${e.expr ? exprTeX(e.expr) : texNum(e.g)}}`;
-    if (e.straight) L.push(`\\draw[trans] (${A}) -- ${lab} (${B});`);
+    const st = 'trans' + (vm.all && e.comp % 4 ? `, comp${e.comp % 4}` : '');
+    if (e.straight) L.push(`\\draw[${st}] (${A}) -- ${lab} (${B});`);
     else {
       const c1 = { x: e.s.x + 2 / 3 * (e.c.x - e.s.x), y: e.s.y + 2 / 3 * (e.c.y - e.s.y) };
       const c2 = { x: e.e.x + 2 / 3 * (e.c.x - e.e.x), y: e.e.y + 2 / 3 * (e.c.y - e.e.y) };
-      L.push(`\\draw[trans] (${A}.${e.s.ang.toFixed(1)}) .. controls (${cx(c1.x)}, ${cy(c1.y)}) and (${cx(c2.x)}, ${cy(c2.y)}) .. ${lab} (${B}.${e.e.ang.toFixed(1)});`);
+      L.push(`\\draw[${st}] (${A}.${e.s.ang.toFixed(1)}) .. controls (${cx(c1.x)}, ${cy(c1.y)}) and (${cx(c2.x)}, ${cy(c2.y)}) .. ${lab} (${B}.${e.e.ang.toFixed(1)});`);
+    }
+  }
+  if (vm.all) {
+    /* key: one short line per component below the picture */
+    const kx = Math.min(...vm.nodes.map(n => n.x - n.rx)), ky = Math.max(...vm.nodes.map(n => n.y + n.ry + (n.capH || 0))) + (opts.levels ? 60 : 36);
+    for (let k = 0; k < vm.n; k++) {
+      const st = 'semithick' + (k % 4 ? `, comp${k % 4}` : '');
+      L.push(`\\draw[${st}] (${cx(kx)}, ${cy(ky + 18 * k)}) -- ++(0.7, 0) node[right, font=\\scriptsize] {Graph ${k + 1}${vm.c ? ` ($c = ${texNum(vm.c[k]).slice(1, -1)}$)` : ''}};`);
     }
   }
   if (opts.levels && opts.alpha != null) {
@@ -850,6 +1279,8 @@ function exportSVG(vm, layout, fmt) {
     for (let t = 0; t <= 1; t += 0.1) { const p = pointAt(e, t); pts.push([p.x, p.y]); }
     pts.push([e.label.r.x, e.label.r.y], [e.label.r.x + e.label.r.w, e.label.r.y + e.label.r.h]);
   }
+  const key = vm.all ? { x: Math.min(...vm.nodes.map(n => n.x - n.rx)), y: Math.max(...vm.nodes.map(n => n.y + n.ry + (n.capH || 0))) + 30 } : null;
+  if (key) { pts.push([key.x, key.y - 8], [key.x + 160, key.y + 18 * vm.n]); }
   if (!pts.length) pts.push([0, 0], [100, 100]);
   const pad = 24;
   const minX = Math.min(...pts.map(p => p[0])) - pad, minY = Math.min(...pts.map(p => p[1])) - pad;
@@ -863,18 +1294,29 @@ function exportSVG(vm, layout, fmt) {
     o.push(`<rect x="${b.x.toFixed(1)}" y="${b.y.toFixed(1)}" width="${b.w.toFixed(1)}" height="${b.h.toFixed(1)}" rx="10" fill="${b.color || '#e9ebee'}" fill-opacity="${b.color ? 0.35 : 0.6}" stroke="${b.color || '#c4c9d0'}" stroke-opacity="0.7"/>`);
     o.push(`<text x="${(b.x + 10).toFixed(1)}" y="${(b.y + 16).toFixed(1)}" font-size="12" letter-spacing="1" fill="#5a6470">${xmlEsc(String(b.group).toUpperCase())}</text>`);
   }
-  for (const e of layout) o.push(`<path d="${e.d}" fill="none" stroke="${ink}" stroke-width="1.6" marker-end="url(#ah)"/>`);
+  const DASH = ['', ' stroke-dasharray="9 5"', ' stroke-dasharray="2.5 4" stroke-linecap="round"', ' stroke-dasharray="10 4 2.5 4"'];
+  const LDASH = ['', ' stroke-dasharray="4 3"', ' stroke-dasharray="1.5 3"', ' stroke-dasharray="5 3 1.5 3"'];
+  const dashOf = e => (vm.all && e.comp != null ? DASH[e.comp % 4] : '');
+  for (const e of layout) o.push(`<path d="${e.d}" fill="none" stroke="${ink}" stroke-width="1.6"${dashOf(e)} marker-end="url(#ah)"/>`);
   for (const e of layout) {
     const l = e.label;
-    o.push(`<rect x="${l.r.x.toFixed(1)}" y="${l.r.y.toFixed(1)}" width="${l.w.toFixed(1)}" height="${l.h}" rx="3" fill="#ffffff" stroke="${ink}" stroke-width="0.8"/>`);
+    o.push(`<rect x="${l.r.x.toFixed(1)}" y="${l.r.y.toFixed(1)}" width="${l.w.toFixed(1)}" height="${l.h}" rx="3" fill="#ffffff" stroke="${ink}" stroke-width="0.8"${vm.all && e.comp != null ? LDASH[e.comp % 4] : ''}/>`);
     o.push(`<text x="${l.x.toFixed(1)}" y="${(l.y + 4.3).toFixed(1)}" font-size="12.5" text-anchor="middle" fill="${ink}">${xmlEsc(e.text)}</text>`);
   }
   for (const n of vm.nodes) {
     const col = n.rejected ? grey : (n.color ? textOnColor(n.color) : ink);
     o.push(`<ellipse cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" rx="${n.rx.toFixed(1)}" ry="${n.ry.toFixed(1)}" fill="${n.rejected ? '#f1f2f3' : (n.color || '#ffffff')}" stroke="${col}" stroke-width="1.8"${n.rejected ? ' stroke-dasharray="4 3"' : ''}/>`);
     o.push(svgLabelText(n.label, n.x.toFixed(1), (n.y - 3).toFixed(1), 17, `text-anchor="middle" font-weight="700" fill="${col}"`));
-    o.push(`<text x="${n.x.toFixed(1)}" y="${(n.y + 16).toFixed(1)}" font-size="13" text-anchor="middle" fill="${col}">${xmlEsc(n.wexpr && !n.rejected ? exprDisplay(n.wexpr) : fmt(n.w))}</text>`);
+    const wt = n.wvec ? `(${n.wvec.map(q => fmt(q)).join(', ')})` : n.wexpr && !n.rejected ? exprDisplay(n.wexpr) : fmt(n.w);
+    o.push(`<text x="${n.x.toFixed(1)}" y="${(n.y + 16).toFixed(1)}" font-size="${n.wvec && wt.length > 7 ? 11 : 13}" text-anchor="middle" fill="${col}">${xmlEsc(wt)}</text>`);
     if (n.rejected) o.push(`<line x1="${(n.x - n.rx * 0.62).toFixed(1)}" y1="${(n.y - 8).toFixed(1)}" x2="${(n.x + n.rx * 0.62).toFixed(1)}" y2="${(n.y - 8).toFixed(1)}" stroke="${grey}" stroke-width="2"/>`);
+  }
+  if (key) {
+    for (let k = 0; k < vm.n; k++) {
+      const y = key.y + 18 * k;
+      o.push(`<line x1="${key.x.toFixed(1)}" y1="${y}" x2="${(key.x + 34).toFixed(1)}" y2="${y}" stroke="${ink}" stroke-width="1.6"${DASH[k % 4]}/>`);
+      o.push(`<text x="${(key.x + 42).toFixed(1)}" y="${y + 4}" font-size="12" fill="${ink}">Graph ${k + 1}${vm.c ? ` (c = ${fmt(vm.c[k])})` : ''}</text>`);
+    }
   }
   o.push('</svg>');
   return o.join('\n');
@@ -882,13 +1324,25 @@ function exportSVG(vm, layout, fmt) {
 
 /* ---------- Serialisation and share links ---------- */
 function serializeGraph(G) {
+  const ent = isEntangled(G);
+  if (ent) entSync(G);
+  /* Version 2 (entangled): the top-level hypotheses and transitions hold component 1, so an older version of the
+     app opens the file as that one graph; "ent" holds every component and the component weights. */
+  const v0 = ent ? entViewGraph(G, 0) : G;
+  const edgeOut = e => ({ from: e.from, to: e.to, weight: Q.exact(e.g), bend: e.bend == null ? null : Math.round(e.bend * 10) / 10, expr: e.expr || undefined });
   return {
-    format: 'multiplicity-graph', version: 1, generator: 'Multiplicity Graph Sketchpad ' + APP_VERSION, alpha: G.alpha, sided: G.sided === 'two' ? 'two' : 'one', note: G.note || '',
-    nodes: G.nodes.map(n => ({ id: n.id, label: n.label, weight: Q.exact(n.w), x: Math.round(n.x), y: Math.round(n.y), p: n.p || '', color: n.color || '', desc: n.desc || '', group: n.group || '', wexpr: n.wexpr || undefined })),
-    edges: G.edges.map(e => ({ from: e.from, to: e.to, weight: Q.exact(e.g), bend: e.bend == null ? null : Math.round(e.bend * 10) / 10, expr: e.expr || undefined })),
+    format: 'multiplicity-graph', version: ent ? 2 : 1, generator: 'Multiplicity Graph Sketchpad ' + APP_VERSION, alpha: G.alpha, sided: G.sided === 'two' ? 'two' : 'one', note: G.note || '',
+    nodes: v0.nodes.map(n => ({ id: n.id, label: n.label, weight: Q.exact(n.w), x: Math.round(n.x), y: Math.round(n.y), p: n.p || '', color: n.color || '', desc: n.desc || '', group: n.group || '', wexpr: n.wexpr || undefined })),
+    edges: v0.edges.map(edgeOut),
     vars: Object.keys(G.vars || {}).length ? Object.fromEntries(Object.entries(G.vars).map(([k, v]) => [k, Q.exact(v)])) : undefined,
-    diag: Object.keys(G.diag || {}).filter(k => G.diag[k] && !Q.isZero(G.diag[k])).map(k => ({ id: k, weight: Q.exact(G.diag[k]) })),
-    test: serializeTest(G.test)
+    diag: ent ? [] : Object.keys(G.diag || {}).filter(k => G.diag[k] && !Q.isZero(G.diag[k])).map(k => ({ id: k, weight: Q.exact(G.diag[k]) })),
+    test: serializeTest(G.test),
+    ent: ent ? {
+      c: G.ent.c.map(v => Q.exact(v)),
+      cexpr: (G.ent.cexpr || []).some(Boolean) ? G.ent.comps.map((_, k) => (G.ent.cexpr || [])[k] || undefined) : undefined,
+      active: G.ent.active,
+      comps: G.ent.comps.map((cs, k) => { const v = entViewGraph(G, k); return { nodes: v.nodes.map(n => ({ id: n.id, weight: Q.exact(n.w), wexpr: n.wexpr || undefined })), edges: v.edges.map(edgeOut) }; })
+    } : undefined
   };
 }
 function defaultTest() { return { type: 'bonferroni', upscale: false, corr: {} }; }
@@ -939,8 +1393,34 @@ function deserializeGraph(o, keepIds, startId) {
   const vars = {};
   for (const [k, v] of Object.entries(o.vars || {})) { const q = typeof v === 'number' ? Q.fromNumber(v) : Q.parse(v); if (q) vars[normaliseExpr(k)] = q; }
   const Gout = { nodes, edges, diag, alpha: alpha > 0 && alpha < 1 ? alpha : 0.025, sided: o.sided === 'two' ? 'two' : 'one', note: String(o.note || ''), test: deserializeTest(o.test, map), vars };
+  /* Version 2: entangled components. A file with a damaged "ent" block falls back to the top-level graph. */
+  if (o.ent && typeof o.ent === 'object' && Array.isArray(o.ent.comps) && o.ent.comps.length) {
+    const comps = o.ent.comps.map(cs => {
+      const w = {}, wexpr = {};
+      for (const n of (cs && Array.isArray(cs.nodes)) ? cs.nodes : []) {
+        const id = map.get(String(n.id)); if (!id) continue;
+        w[id] = num(n.weight != null ? n.weight : 0, 'a component weight');
+        if (n.wexpr) wexpr[id] = normaliseExpr(n.wexpr);
+      }
+      const ce = [];
+      for (const e of (cs && Array.isArray(cs.edges)) ? cs.edges : []) {
+        const a = map.get(String(e.from)), b = map.get(String(e.to));
+        if (!a || !b || a === b) continue;
+        const g = e.expr ? Q.ZERO : num(e.weight, 'a transition weight');
+        if (Q.isZero(g) && !e.expr) continue;
+        ce.push({ from: a, to: b, g, bend: e.bend == null ? null : +e.bend, expr: e.expr ? normaliseExpr(e.expr) : undefined });
+      }
+      return { w, wexpr, edges: ce };
+    });
+    const c = comps.map((_, k) => num(Array.isArray(o.ent.c) && o.ent.c[k] != null ? o.ent.c[k] : 0, 'a component weight c'));
+    const cexpr = Array.isArray(o.ent.cexpr) ? comps.map((_, k) => (o.ent.cexpr[k] ? normaliseExpr(o.ent.cexpr[k]) : undefined)) : [];
+    Gout.ent = { c, cexpr, active: 0, comps };
+    const active = Math.max(0, Math.min(comps.length - 1, (+o.ent.active) | 0));
+    entLoad(Gout, active, true);
+  }
   evaluateGraph(Gout);
   Gout.edges = Gout.edges.filter(e => e.expr || !Q.isZero(e.g));
+  if (Gout.ent) entSync(Gout);
   return { G: Gout, maxId: keepIds ? maxId : next - 1 };
 }
 function b64urlEncode(str) {
@@ -968,6 +1448,20 @@ function encodeShare(G) {
   const t = serializeTest(G.test);
   if (t) c.t = { type: t.type, upscale: t.upscale, corr: Object.fromEntries(Object.entries(t.corr).map(([k, v]) => [k.split('|').map(id => idx.get(id)).join('|'), v])) };
   if (G.sided === 'two') c.s = 2;
+  if (isEntangled(G)) {
+    /* Entangled components: c (component weights), a (active), k (per component: w, e and optional expressions) */
+    const o = serializeGraph(G);
+    c.E = {
+      c: o.ent.c, a: o.ent.active,
+      k: o.ent.comps.map(cs => {
+        const r = { w: cs.nodes.map(n => n.weight), e: cs.edges.map(e => [idx.get(e.from), idx.get(e.to), e.weight, e.bend == null ? null : Math.round(e.bend)]) };
+        if (cs.nodes.some(n => n.wexpr) || cs.edges.some(e => e.expr)) r.x = { n: cs.nodes.map(n => n.wexpr || ''), e: cs.edges.map(e => e.expr || '') };
+        return r;
+      })
+    };
+    if (o.ent.cexpr) c.E.cx = o.ent.cexpr.map(x => x || '');
+    if (!c.x && Object.keys(G.vars || {}).length) c.x = { n: G.nodes.map(() => ''), e: G.edges.map(() => ''), v: Object.fromEntries(Object.entries(G.vars).map(([k, v]) => [k, Q.exact(v)])) };
+  }
   return 'g1' + b64urlEncode(JSON.stringify(c));
 }
 function decodeShare(token) {
@@ -975,12 +1469,23 @@ function decodeShare(token) {
   let c;
   try { c = JSON.parse(b64urlDecode(token.slice(2))); } catch (e) { throw new Error('This link or share code is damaged: it does not decode to a graph.'); }
   if (!c || typeof c !== 'object' || !Array.isArray(c.n) || !Array.isArray(c.e) || c.n.some(r => !Array.isArray(r)) || c.e.some(r => !Array.isArray(r))) throw new Error('This link or share code is damaged: it does not decode to a graph.');
-  return {
+  const out = {
     format: 'multiplicity-graph', alpha: c.a, test: c.t, sided: c.s === 2 ? 'two' : 'one',
     nodes: c.n.map((r, i) => ({ id: String(i), label: r[0], weight: r[1], x: r[2], y: r[3], p: r[4], color: r[5] ? '#' + r[5] : '', desc: r[6] || '', group: r[7] || '', wexpr: c.x && c.x.n[i] ? c.x.n[i] : undefined })),
     edges: c.e.map((r, k) => ({ from: String(r[0]), to: String(r[1]), weight: r[2], bend: r[3], expr: c.x && c.x.e[k] ? c.x.e[k] : undefined })),
     vars: c.x ? c.x.v : undefined
   };
+  if (c.E && typeof c.E === 'object' && Array.isArray(c.E.k) && c.E.k.length) {
+    out.version = 2;
+    out.ent = {
+      c: Array.isArray(c.E.c) ? c.E.c : [], cexpr: Array.isArray(c.E.cx) ? c.E.cx.map(x => x || undefined) : undefined, active: c.E.a | 0,
+      comps: c.E.k.map(r => ({
+        nodes: (Array.isArray(r.w) ? r.w : []).map((w, i) => ({ id: String(i), weight: w, wexpr: r.x && r.x.n[i] ? r.x.n[i] : undefined })),
+        edges: (Array.isArray(r.e) ? r.e : []).map((e, k) => ({ from: String(e[0]), to: String(e[1]), weight: e[2], bend: e[3], expr: r.x && r.x.e[k] ? r.x.e[k] : undefined }))
+      }))
+    };
+  }
+  return out;
 }
 
 /* ---------- Templates ---------- */
@@ -1362,10 +1867,51 @@ function cholesky(R, m) {
 }
 function floatGraph(G) {
   const m = G.nodes.length, idx = new Map(G.nodes.map((n, i) => [n.id, i]));
-  const w = Float64Array.from(G.nodes.map(n => Q.toNum(n.w)));
-  const g = new Float64Array(m * m);
-  for (const e of G.edges) g[idx.get(e.from) * m + idx.get(e.to)] = Q.toNum(e.g);
-  return { m, w, g };
+  const arrays = H => {
+    const w = Float64Array.from(H.nodes.map(n => Q.toNum(n.w)));
+    const g = new Float64Array(m * m);
+    for (const e of H.edges) g[idx.get(e.from) * m + idx.get(e.to)] = Q.toNum(e.g);
+    return { w, g };
+  };
+  if (!isEntangled(G)) return Object.assign({ m }, arrays(G));
+  /* Entangled: one array pair per component, the component weights c, and the combined weights sum_h c_h w_h
+     (the active component's transitions in g, for display only) */
+  const comps = G.ent.comps.map((_, k) => arrays(entViewGraph(G, k))), c = G.ent.c.map(v => Q.toNum(v));
+  const w = new Float64Array(m);
+  comps.forEach((cs, h) => { for (let i = 0; i < m; i++) w[i] += c[h] * cs.w[i]; });
+  return { m, w, g: comps[G.ent.active].g, comps, c };
+}
+/* Shortcut on float arrays for either kind of graph; out[i] = 1 if H_i is rejected */
+function runShortcut(fg, p, alpha, out) {
+  if (fg.comps) shortcutFloatEntangled(fg.m, fg.comps, fg.c, p, alpha, out); else shortcutFloat(fg.m, fg.w, fg.g, p, alpha, out);
+}
+/* Algorithm 1 of Maurer and Bretz (2013, p. 1743) on float arrays: test at sum_h c_h w_hi alpha, then update every
+   component separately after each rejection */
+function shortcutFloatEntangled(m, comps, c, p, alpha, out) {
+  const n = comps.length;
+  const w = comps.map(cs => cs.w.slice()), g = comps.map(cs => cs.g.slice());
+  const act = new Uint8Array(m).fill(1), lv = new Float64Array(m);
+  out.fill(0);
+  for (;;) {
+    for (let i = 0; i < m; i++) { let s = 0; for (let h = 0; h < n; h++) s += c[h] * w[h][i]; lv[i] = s * alpha; }
+    let j = -1;
+    for (let i = 0; i < m; i++) if (act[i] && lv[i] > 0 && p[i] <= lv[i] * (1 + 1e-12)) { j = i; break; }
+    if (j < 0) return;
+    act[j] = 0; out[j] = 1;
+    for (let h = 0; h < n; h++) {
+      const wj = w[h][j], gh = g[h], gn = new Float64Array(m * m);
+      for (let l = 0; l < m; l++) if (act[l]) w[h][l] += wj * gh[j * m + l];
+      for (let l = 0; l < m; l++) {
+        if (!act[l]) continue;
+        const glj = gh[l * m + j], den = 1 - glj * gh[j * m + l];
+        for (let k = 0; k < m; k++) {
+          if (!act[k] || k === l) continue;
+          gn[l * m + k] = den > 1e-12 ? (gh[l * m + k] + glj * gh[j * m + k]) / den : 0;
+        }
+      }
+      g[h] = gn; w[h][j] = 0;
+    }
+  }
 }
 /* Fast floating-point version of the shortcut procedure; out[i] = 1 if H_i is rejected */
 function shortcutFloat(m, w0, g0, p, alpha, out) {
@@ -1400,7 +1946,7 @@ function simulateChunk(fg, mean, L, alpha, n, norm, tally, success, tester) {
       for (let k = 0; k <= i; k++) v += L[i * m + k] * e[k];
       z[i] = v; p[i] = pnormUpper(v);
     }
-    if (tester) tester(p, out); else shortcutFloat(m, fg.w, fg.g, p, alpha, out);
+    if (tester) tester(p, out); else runShortcut(fg, p, alpha, out);
     let cnt = 0;
     for (let i = 0; i < m; i++) { if (out[i]) { tally.rej[i]++; cnt++; } }
     if (cnt > 0) tally.any++;
@@ -1429,8 +1975,8 @@ function simulatePairedChunk(fgA, fgB, mapB, mean, L, alpha, n, norm, tally, suc
       p[i] = pnormUpper(v);
     }
     for (let i = 0; i < m; i++) pB[mapB[i]] = p[i];
-    if (testerA) testerA(p, outA); else shortcutFloat(m, fgA.w, fgA.g, p, alpha, outA);
-    if (testerB) testerB(pB, outB); else shortcutFloat(m, fgB.w, fgB.g, pB, alpha, outB);
+    if (testerA) testerA(p, outA); else runShortcut(fgA, p, alpha, outA);
+    if (testerB) testerB(pB, outB); else runShortcut(fgB, pB, alpha, outB);
     let cA = 0, cB = 0;
     for (let i = 0; i < m; i++) {
       const a = outA[i], b = outB[mapB[i]];
@@ -1490,6 +2036,130 @@ function transitionDiffs(A, B, pairs) {
     if (!Q.eq(a, b)) out.push({ from: pf.label, to: pt.label, a, b });
   }
   return out;
+}
+
+/* ---------- Default graphs: fixed sequences with weights (Burman, Sonesson and Guilbaud, 2009) ---------- */
+/* Decomposition of a graph into fixed sequences, Maurer and Bretz (2013), Appendix A, pp. 1752-1753: a single
+   graph G(w, G) equals the entangled graph E(c = w; G_h(e_h, G)), one quasi-hierarchical component per hypothesis
+   with weight 1 on H_h; after H_h is rejected that component has weights g_hk with the updated transition matrix,
+   and the decomposition repeats, so a sequence r = (r1, r2, ...) gets the weight w_r1 × g_r1r2 × g'_r2r3 × ...,
+   the transition weights being those of the graph as updated along the sequence. The hypotheses then are tested
+   at the sum of the weights of the sequences in which they come first among the unrejected ones (section 5.1,
+   p. 1748), which is the default graph of Burman et al. An entangled graph decomposes component by component,
+   each sequence weighted by c_h (section 5.2, pp. 1749-1750). A sequence stops early when the hypotheses after
+   it would all have weight 0; its weight is then lost at its last hypothesis (the graph is not alpha-exhaustive).
+   Returns { m, seqs: [{ order: [ids], c: Q, partial }], total } with the sequences sorted by weight, or null when
+   m > maxM (the number of sequences is at most m!). */
+function defaultGraphOf(G, maxM = 6) {
+  const m = G.nodes.length;
+  if (!m || m > maxM) return null;
+  const st0 = stateFromGraph(G);
+  const parts = st0.ent ? st0.ent.comps.map((cs, h) => ({ c: st0.ent.c[h], st: { ids: st0.ids, w: cs.w, g: cs.g } })) : [{ c: Q.ONE, st: st0 }];
+  const acc = new Map();
+  const emit = (order, c, partial) => {
+    if (Q.isZero(c)) return;
+    const key = order.join('>');
+    const cur = acc.get(key);
+    if (cur) cur.c = Q.add(cur.c, c); else acc.set(key, { order: order.slice(), c, partial });
+  };
+  const walk = (st, prefix, factor) => {
+    let sum = Q.ZERO;
+    for (const h of st.ids) {
+      const wh = st.w.get(h) || Q.ZERO;
+      if (Q.cmp(wh, Q.ZERO) <= 0) continue;
+      sum = Q.add(sum, wh);
+      const f = Q.mul(factor, wh), order = prefix.concat(h);
+      if (st.ids.length === 1) { emit(order, f, false); continue; }
+      const unit = new Map(st.ids.map(id => [id, id === h ? Q.ONE : Q.ZERO]));
+      walk(rejectNode({ ids: st.ids, w: unit, g: st.g }, h), order, f);
+    }
+    if (prefix.length && Q.cmp(sum, Q.ONE) < 0) emit(prefix, Q.mul(factor, Q.sub(Q.ONE, sum)), true);
+  };
+  for (const p of parts) { if (Q.cmp(p.c, Q.ZERO) > 0) walk(p.st, [], p.c); }
+  const idx = new Map(G.nodes.map((n, i) => [n.id, i]));
+  const seqs = [...acc.values()].sort((a, b) => {
+    const d = Q.cmp(b.c, a.c); if (d) return d;
+    for (let i = 0; i < Math.min(a.order.length, b.order.length); i++) { const e = idx.get(a.order[i]) - idx.get(b.order[i]); if (e) return e; }
+    return a.order.length - b.order.length;
+  });
+  let total = Q.ZERO; for (const s of seqs) total = Q.add(total, s.c);
+  return { m, seqs, total };
+}
+/* The default graph as an entangled graph of fixed sequences (one component per sequence, c = its weight), keeping
+   the labels, positions, colours, groups, descriptions, p-values and settings of G. Symbolic weights become numbers. */
+function defaultGraphToEntangled(G, dg) {
+  if (!dg || !dg.seqs.length) throw new Error('No sequence has a positive weight, so there is nothing to build.');
+  const o = serializeGraph(G);
+  const ids = G.nodes.map(n => n.id);
+  const comps = dg.seqs.map(s => ({
+    nodes: ids.map(id => ({ id, weight: id === s.order[0] ? '1' : '0' })),
+    edges: s.order.slice(0, -1).map((id, k) => ({ from: id, to: s.order[k + 1], weight: '1', bend: null }))
+  }));
+  o.version = 2;
+  o.nodes = o.nodes.map((n, i) => Object.assign({}, n, { weight: comps[0].nodes[i].weight, wexpr: undefined }));
+  o.edges = comps[0].edges;
+  o.vars = undefined; o.diag = [];
+  o.ent = { c: dg.seqs.map(s => Q.exact(s.c)), cexpr: undefined, active: 0, comps };
+  o.note = (o.note ? o.note + ' ' : '') + `Default graph: ${dg.seqs.length} fixed sequence${dg.seqs.length === 1 ? '' : 's'} with weights, from the decomposition of Maurer and Bretz (2013), Appendix A.`;
+  return o;
+}
+/* Parses a default graph typed as one sequence per line, e.g. "H1 > H3 > H4 > H2 > H5 : 1/2" (also → or -> between
+   the hypotheses, and = before the weight). Lines starting with # are ignored. Returns { names, seqs: [{ order:
+   [indices], c: string }] }; the weights may be fractions, decimals or expressions such as γ/2. */
+function parseDefaultGraph(text) {
+  const names = [], seqs = [];
+  const lines = String(text || '').split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+  if (!lines.length) throw new Error('Type one sequence per line, such as "H1 > H2 > H3 : 1/2".');
+  for (const line of lines) {
+    const m = /^(.*?)\s*[:=]\s*([^:=]+)$/.exec(line);
+    if (!m) throw new Error(`"${line}": write the weight after a colon, such as "H1 > H2 : 1/2".`);
+    const labels = m[1].split(/\s*(?:>|→|->|-->|,)\s*/).map(s => s.trim()).filter(Boolean);
+    if (labels.length < 1) throw new Error(`"${line}": no hypotheses before the colon.`);
+    const order = labels.map(l => { let i = names.indexOf(l); if (i < 0) { names.push(l); i = names.length - 1; } return i; });
+    if (new Set(order).size !== order.length) throw new Error(`"${line}": a hypothesis appears twice in one sequence.`);
+    const c = m[2].trim();
+    if (!(Q.parse(c) || isExpr(c))) throw new Error(`"${line}": the weight "${c}" is not a number, fraction or expression.`);
+    if (Q.parse(c) && (Q.cmp(Q.parse(c), Q.ZERO) < 0 || Q.cmp(Q.parse(c), Q.ONE) > 0)) throw new Error(`"${line}": the weight must be between 0 and 1.`);
+    seqs.push({ order, c });
+  }
+  if (names.length > 30) throw new Error('At most 30 hypotheses.');
+  return { names, seqs };
+}
+/* Builds the version 2 JSON of an entangled graph of fixed sequences from parseDefaultGraph's result */
+function defaultGraphJSON(parsed, positions, alpha) {
+  const m = parsed.names.length;
+  return entangledJSON({
+    alpha, note: `Default graph (Burman, Sonesson and Guilbaud, 2009): ${parsed.seqs.length} fixed sequence${parsed.seqs.length === 1 ? '' : 's'} with weights, as an entangled graph of hierarchical components (Maurer and Bretz, 2013, section 5.1, p. 1748).`,
+    nodes: parsed.names.map((nm, i) => [nm, positions[i].x, positions[i].y]),
+    c: parsed.seqs.map(s => s.c),
+    comps: parsed.seqs.map(s => ({ w: Array.from({ length: m }, (_, i) => (i === s.order[0] ? '1' : '0')), edges: s.order.slice(0, -1).map((i, k) => [i, s.order[k + 1], '1']) }))
+  });
+}
+/* Picture of a default graph in the style of Maurer and Bretz (2013), Fig. 4(a), p. 1748: one column per sequence,
+   its weight on top, the hypotheses from the most important (top) to the least important (bottom). */
+function defaultGraphSVG(G, dg, fmt, maxCols = 24) {
+  const ink = '#1b1f23', grey = '#9aa0a6', font = 'Helvetica, Arial, sans-serif';
+  const lab = id => (G.nodes.find(n => n.id === id) || {}).label || '?';
+  const seqs = dg.seqs.slice(0, maxCols), colW = 96, rowH = 62, r = 22, top = 34;
+  const rows = Math.max(...seqs.map(s => s.order.length), 1);
+  const W = Math.max(1, seqs.length) * colW, H = top + rows * rowH + 10;
+  const o = [`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${font}" role="img" aria-label="Default graph: ${seqs.length} fixed sequence${seqs.length === 1 ? '' : 's'}">`];
+  o.push(`<defs><marker id="dgah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="${ink}"/></marker></defs>`);
+  o.push(`<rect width="${W}" height="${H}" fill="#ffffff"/>`);
+  seqs.forEach((s, k) => {
+    const cx = k * colW + colW / 2;
+    o.push(`<text x="${cx}" y="18" font-size="13" text-anchor="middle" fill="${ink}">${xmlEsc(fmt(s.c))}${s.partial ? ' *' : ''}</text>`);
+    s.order.forEach((id, j) => {
+      const cy = top + j * rowH + r + 4;
+      const n = G.nodes.find(x => x.id === id);
+      o.push(`<circle cx="${cx}" cy="${cy}" r="${r}" fill="${n && n.color ? n.color : '#ffffff'}" stroke="${ink}" stroke-width="1.6"/>`);
+      o.push(svgLabelText(lab(id), cx, cy + 5, 15, `text-anchor="middle" font-weight="700" fill="${n && n.color ? textOnColor(n.color) : ink}"`));
+      if (j < s.order.length - 1) o.push(`<line x1="${cx}" y1="${cy + r}" x2="${cx}" y2="${cy + rowH - r}" stroke="${ink}" stroke-width="1.6" marker-end="url(#dgah)"/>`);
+      else if (s.partial) o.push(`<text x="${cx}" y="${cy + r + 14}" font-size="11" text-anchor="middle" fill="${grey}">* lost</text>`);
+    });
+  });
+  o.push('</svg>');
+  return o.join('\n');
 }
 
 /* ---------- Template generators (any number of hypotheses) ---------- */
@@ -1758,6 +2428,28 @@ function plainGraphText(G, nameOf) {
   if (!m) return out;
   const tt = (G.test || defaultTest()).type;
   const closed = tt !== 'bonferroni';
+  if (isEntangled(G)) {
+    /* Entangled graph (Maurer and Bretz, 2013): the allowance is split across linked graphs; a question's share is
+       the sum of its shares in all of them, and each graph hands its part on in its own way */
+    const n = G.ent.comps.length;
+    out.push(`The trial asks ${m} question${m > 1 ? 's' : ''} (${joinWords(G.nodes.map(nd => nameOf(nd.id, true)))}). It is allowed a ${pctWords(G.alpha)} chance of wrongly claiming at least one success across all of them. That allowance is split between ${n} linked graphs (${joinWords(G.ent.comps.map((_, k) => `graph ${k + 1} holds ${pctWords(Q.toNum(G.ent.c[k]) * G.alpha)}`))}). A question's share at any time is the sum of its shares in all the graphs${closed ? '.' : ', and it can only be claimed as a success if its p-value is no bigger than that sum.'} When a question succeeds, each graph hands its part of the share on in its own way, so a share remembers which graph it came from.`);
+    G.ent.comps.forEach((cs, k) => {
+      const v = entViewGraph(G, k), ck = Q.toNum(G.ent.c[k]) * G.alpha;
+      const withW = v.nodes.filter(nd => !Q.isZero(nd.w));
+      let t = `Graph ${k + 1}: at the start, ${joinWords(withW.map(nd => `${nameOf(nd.id)} holds ${pctWords(Q.toNum(nd.w) * ck)}`)) || 'no question holds anything'}.`;
+      const passes = v.nodes.map(nd => {
+        const outs = v.edges.filter(e => e.from === nd.id && !Q.isZero(e.g));
+        if (!outs.length) return null;
+        if (outs.length === 1) return Q.eq(outs[0].g, Q.ONE) ? `When ${nameOf(nd.id)} succeeds, its whole share in this graph passes to ${nameOf(outs[0].to)}.` : `When ${nameOf(nd.id)} succeeds, it hands ${shareWords(outs[0].g)} of its share in this graph to ${nameOf(outs[0].to)}.`;
+        return `When ${nameOf(nd.id)} succeeds, it hands ${joinWords(outs.map(e => `${shareWords(e.g)} of its share in this graph to ${nameOf(e.to)}`))}.`;
+      }).filter(Boolean);
+      out.push(t + (passes.length ? ' ' + passes.join(' ') : ''));
+    });
+    if (!closed) out.push('Handing allowance on is what lets a question with a very small p-value be claimed later, even though it started with no share. The order in which successes are found makes no difference to the final answer.');
+    else if (tt === 'parametric') out.push('These shares are not compared with the p-values one question at a time. Instead every combination of questions is checked together, using how strongly the test results are correlated to make the shares go further, and a question is confirmed only when every combination that includes it is rejected. This needs the stated correlations to be right and the p-values to be one-sided.');
+    else out.push('These shares are not compared with the p-values one question at a time. Instead every combination of questions is checked together with a Simes test, which can confirm a combination when all of its p-values are fairly small even if none is below its own share, and a question is confirmed only when every combination that includes it is rejected. This relies on the test results not being negatively related to one another.');
+    return out;
+  }
   out.push(`The trial asks ${m} question${m > 1 ? 's' : ''} (${joinWords(G.nodes.map(n => nameOf(n.id, true)))}). It is allowed a ${pctWords(G.alpha)} chance of wrongly claiming at least one success across all of them. That allowance is shared out${closed ? ' as described below.' : ', and a question can only be claimed as a success if its p-value is no bigger than its share at the time.'}`);
   const withW = G.nodes.filter(n => !Q.isZero(n.w)), noW = G.nodes.filter(n => Q.isZero(n.w));
   const starts = withW.map(n => `${nameOf(n.id)} starts with ${pctWords(Q.toNum(n.w) * G.alpha)}`);
@@ -1821,6 +2513,7 @@ function sapText(G, opts = {}) {
     genz2009: 'Genz A, Bretz F (2009). Computation of Multivariate Normal and t Probabilities. Lecture Notes in Statistics 195. Springer.',
     gmcp: 'Rohmeyer K, Klinglmueller F (2024). gMCP: Graph Based Multiple Comparison Procedures. R package version 0.8-17.',
     sarkar1998: 'Sarkar SK (1998). Some probability inequalities for ordered MTP2 random variables: a proof of the Simes conjecture. Annals of Statistics 26(2):494–504.',
+    maurerbretz2013a: 'Maurer W, Bretz F (2013). Memory and other properties of multiple test procedures generated by entangled graphs. Statistics in Medicine 32(10):1739–1753.',
     maurerbretz2013b: 'Maurer W, Bretz F (2013). Multiple testing in group sequential trials using graphical approaches. Statistics in Biopharmaceutical Research 5(4):311–320.',
     glimm2010: 'Glimm E, Maurer W, Bretz F (2010). Hierarchical testing of multiple endpoints in group-sequential trials. Statistics in Medicine 29(2):219–228. doi:10.1002/sim.3748',
     maurer2011: 'Maurer W, Glimm E, Bretz F (2011). Multiple and repeated testing of primary, coprimary, and secondary hypotheses. Statistics in Biopharmaceutical Research 3(2):336–352.'
@@ -1830,6 +2523,15 @@ function sapText(G, opts = {}) {
   const P = [], H = [];
   const add = (head, text) => { H.push(head); P.push(head + '. ' + text); };
   const lvl = x => fmtNum(x * aNum, 6);
+  /* Entangled graph (Maurer and Bretz, 2013): the text describes each component graph and the combined rule
+     level_i = α Σ_h c_h w_hi (Algorithm 1, p. 1743); closed tests use the Algorithm 2 weights (p. 1745). */
+  const ent = isEntangled(G);
+  const views = ent ? G.ent.comps.map((_, k) => entViewGraph(G, k)) : null;
+  const nComp = ent ? views.length : 1;
+  const cText = k => (G.ent.cexpr && G.ent.cexpr[k] ? `${exprDisplay(G.ent.cexpr[k])} = ${fmtW(G.ent.c[k])}` : fmtW(G.ent.c[k]));
+  const compW = (k, id) => views[k].nodes.find(n => n.id === id).w;
+  const combW = id => (ent ? views.reduce((s, v, k) => Q.add(s, Q.mul(G.ent.c[k], compW(k, id))), Q.ZERO) : G.nodes.find(n => n.id === id).w);
+  const compTitle = k => `component graph ${k + 1} (c${k + 1} = ${cText(k)})`;
 
   /* 1. Hypotheses */
   const anyDesc = G.nodes.some(n => n.desc);
@@ -1846,32 +2548,47 @@ function sapText(G, opts = {}) {
       : `The family-wise error rate for these hypotheses will be controlled in the strong sense at two-sided α = ${a}, that is, one-sided ${fmtNum(aNum / 2, 6)} in the direction of benefit`)
     : `The family-wise error rate for these hypotheses will be controlled in the strong sense at one-sided α = ${a}`;
   let proc;
-  if (!closed) {
+  const entIntro = ent ? ` The testing strategy is an entangled graph (Maurer and Bretz, 2013): ${count(nComp)} component graphs on the same hypotheses, shown in Figure [X], with component weights ${joinWords(views.map((_, k) => `c${k + 1} = ${cText(k)}`))}${Q.eq(views.reduce((s, _, k) => Q.add(s, G.ent.c[k]), Q.ZERO), Q.ONE) ? '' : ' (the component weights add up to less than 1, so the procedure does not use the full α)'}.` : '';
+  if (!closed && ent) {
+    proc = `${rate}, using the graphical approach of Bretz et al. (2009) in its entangled form (Maurer and Bretz, 2013).${entIntro} Each hypothesis H_i will be tested at the local significance level α × (c1 × w1i + c2 × w2i${nComp > 2 ? ' + …' : ''}), the sum over the component graphs of the component weight times the current weight of H_i in that component graph (Maurer and Bretz, 2013, Algorithm 1, p. 1743). The procedure is equivalent to a closed testing procedure with weighted Bonferroni tests whose weights are the same sums over the component graphs (Maurer and Bretz, 2013, Algorithm 2, p. 1745), and controls the family-wise error rate for any dependence between the test statistics.`;
+    cite('bretz2009', 'maurerbretz2013a');
+  } else if (!closed) {
     proc = `${rate}, using the graphical approach of Bretz et al. (2009). The testing strategy is shown in Figure [X]. The procedure is equivalent to a closed testing procedure with weighted Bonferroni tests, and controls the family-wise error rate for any dependence between the test statistics.`;
     cite('bretz2009');
   } else {
     const what = tt === 'parametric' ? 'weighted parametric tests (Xi et al., 2017)' : tt === 'simes' ? 'weighted Simes tests (Benjamini and Hochberg, 1997)' : 'weighted Simes tests within groups of hypotheses and weighted Bonferroni tests otherwise';
-    proc = `${rate}, using a closed testing procedure (Marcus et al., 1976) with ${what}, with weights defined by the graph (Bretz et al., 2009, 2011). The testing strategy is shown in Figure [X]. ${tt === 'parametric' ? 'The procedure assumes that the test statistics are multivariate normal within blocks of hypotheses with known correlations' : 'The procedure assumes positively dependent test statistics'}; the assumptions and the test of each intersection hypothesis are given under Technical details.`;
+    proc = `${rate}, using a closed testing procedure (Marcus et al., 1976) with ${what}, with weights defined by the ${ent ? 'entangled graph (Bretz et al., 2009, 2011; Maurer and Bretz, 2013, p. 1746)' : 'graph (Bretz et al., 2009, 2011)'}.${ent ? entIntro : ' The testing strategy is shown in Figure [X].'} ${tt === 'parametric' ? 'The procedure assumes that the test statistics are multivariate normal within blocks of hypotheses with known correlations' : 'The procedure assumes positively dependent test statistics'}; the assumptions and the test of each intersection hypothesis are given under Technical details.`;
     cite('bretz2009', 'bretz2011', 'marcus1976');
+    if (ent) cite('maurerbretz2013a');
     if (tt === 'parametric') cite('xi2017'); else cite('bh1997');
   }
   add('Error rate and procedure', proc);
 
   /* 3. Initial allocation */
-  const withW = G.nodes.filter(n => !Q.isZero(n.w)), noW = G.nodes.filter(n => Q.isZero(n.w));
+  const nodesW = ent ? G.nodes.map(n => Object.assign({}, n, { w: combW(n.id), wexpr: undefined })) : G.nodes;
+  const withW = nodesW.filter(n => !Q.isZero(n.w)), noW = nodesW.filter(n => Q.isZero(n.w));
   const byW = [];
   for (const n of withW) { const k = byW.find(x => Q.eq(x.w, n.w)); if (k) k.ns.push(n); else byW.push({ w: n.w, ns: [n] }); }
   let alloc = byW.map(x => {
-    const wtxt = G.nodes.find(n => n === x.ns[0]).wexpr ? exprDisplay(x.ns[0].wexpr) + ' = ' + fmtW(x.w) : fmtW(x.w);
+    const wtxt = x.ns[0].wexpr ? exprDisplay(x.ns[0].wexpr) + ' = ' + fmtW(x.w) : fmtW(x.w);
     return closed
       ? `${joinWords(x.ns.map(n => n.label))} ${x.ns.length > 1 ? 'each have' : 'has'} initial weight ${wtxt}`
       : `${joinWords(x.ns.map(n => n.label))} will ${x.ns.length > 1 ? 'each ' : ''}initially be tested at ${sided} level ${lvl(Q.toNum(x.w))} (weight ${wtxt})`;
   });
   alloc = alloc.length ? alloc.join('; ') + '.' : '';
-  let wsum = Q.ZERO; for (const n of G.nodes) wsum = Q.add(wsum, n.w);
-  if (!Q.eq(wsum, Q.ONE)) alloc += ` The initial weights add up to ${fmtW(wsum)}, so the procedure does not use the full α.`;
+  if (ent) {
+    /* the weights in each component graph first, then the combined weights */
+    const perComp = views.map((v, k) => {
+      const wn = v.nodes.filter(n => !Q.isZero(n.w));
+      return `In ${compTitle(k)}, ${wn.length ? joinWords(wn.map(n => `${n.label} has initial weight ${n.wexpr ? exprDisplay(n.wexpr) + ' = ' + fmtW(n.w) : fmtW(n.w)}`)) : 'every hypothesis has initial weight 0'}${wn.length < v.nodes.length ? ` and ${joinWords(v.nodes.filter(n => Q.isZero(n.w)).map(n => n.label))} ${v.nodes.length - wn.length > 1 ? 'have' : 'has'} weight 0` : ''}.`;
+    }).join(' ');
+    alloc = `${perComp} Taken together (combined weight c1 × w1i + c2 × w2i${nComp > 2 ? ' + …' : ''}, Table [X.1]): ${alloc}`;
+  }
+  let wsum = Q.ZERO; for (const n of nodesW) wsum = Q.add(wsum, n.w);
+  if (!Q.eq(wsum, Q.ONE)) alloc += ` The initial ${ent ? 'combined ' : ''}weights add up to ${fmtW(wsum)}, so the procedure does not use the full α.`;
   if (noW.length) {
-    const reach = noW.filter(n => G.edges.some(e => e.to === n.id && !Q.isZero(e.g)));
+    const anyEdgeTo = id => (ent ? views.some(v => v.edges.some(e => e.to === id && !Q.isZero(e.g))) : G.edges.some(e => e.to === id && !Q.isZero(e.g)));
+    const reach = noW.filter(n => anyEdgeTo(n.id));
     const never = noW.filter(n => !reach.includes(n));
     if (reach.length && !closed) alloc += ` ${joinWords(reach.map(n => n.label))} ${reach.length > 1 ? 'receive' : 'receives'} no initial significance level (weight 0): ${reach.length > 1 ? 'each' : 'it'} can be tested only after significance level has been passed to it from a rejected hypothesis.`;
     if (reach.length && closed) alloc += ` ${joinWords(reach.map(n => n.label))} ${reach.length > 1 ? 'have' : 'has'} weight 0 in the global intersection hypothesis and ${reach.length > 1 ? 'receive' : 'receives'} weight only in intersection hypotheses that leave out the hypotheses passing weight to ${reach.length > 1 ? 'them' : 'it'}.`;
@@ -1881,19 +2598,24 @@ function sapText(G, opts = {}) {
 
   /* 4. Propagation */
   const unit = closed ? 'weight' : 'level';
-  const passes = G.nodes.map(n => {
-    const outs = G.edges.filter(e => e.from === n.id && !Q.isZero(e.g));
+  const passesOf = (nodes, edges) => nodes.map(n => {
+    const outs = edges.filter(e => e.from === n.id && !Q.isZero(e.g));
     if (!outs.length) return `${n.label} passes nothing on`;
     if (outs.length === 1 && !outs[0].expr && Q.eq(outs[0].g, Q.ONE)) return `${n.label} passes all of its ${unit} to ${lab(outs[0].to)}`;
     return `${n.label} passes ${joinWords(outs.map((e, k) => `${e.expr ? exprDisplay(e.expr) : fmtW(e.g)}${k === 0 ? ` of its ${unit}` : ''} to ${lab(e.to)}`))}`;
   });
-  const initial = `In the initial graph, ${passes.length > 1 ? passes.slice(0, -1).join('; ') + '; and ' + passes[passes.length - 1] : passes[0]}.`;
+  const listPasses = p => (p.length > 1 ? p.slice(0, -1).join('; ') + '; and ' + p[p.length - 1] : p[0]);
+  const initial = ent
+    ? views.map((v, k) => `Initially, in ${compTitle(k)}, ${listPasses(passesOf(v.nodes, v.edges))}.`).join(' ')
+    : `In the initial graph, ${listPasses(passesOf(G.nodes, G.edges))}.`;
   const dir = two ? ' and the estimated effect favours [the experimental treatment]' : '';
   let prop;
-  if (!closed) {
+  if (!closed && ent) {
+    prop = `A hypothesis will be rejected if its ${sided} p-value is at most its current local significance level${dir}. When a hypothesis is rejected, it will be removed from every component graph with the update of Bretz et al. (2009), its weight in each component graph being passed on according to that component graph's transition weights (Table [X.2]), and the local level of each remaining hypothesis will be recomputed as α times the sum over the component graphs of the component weight times its current weight (Maurer and Bretz, 2013, Algorithm 1, p. 1743). ${initial} After each rejection the weights and transition weights are updated, so later proportions can differ from these. Testing will continue until no further hypothesis can be rejected. The final set of rejected hypotheses does not depend on the order in which hypotheses are tested.`;
+  } else if (!closed) {
     prop = `A hypothesis will be rejected if its ${sided} p-value is at most its current local significance level${dir}. When a hypothesis is rejected, its local level will be passed on according to the transition weights in Table [X.2], and the graph will be updated with Algorithm 1 of Bretz et al. (2009). ${initial} After each rejection the weights and transition weights are updated, so later proportions can differ from these. Testing will continue until no further hypothesis can be rejected. The final set of rejected hypotheses does not depend on the order in which hypotheses are tested.`;
   } else {
-    prop = `The weights of each intersection hypothesis will be derived from the initial weights (Table [X.1]) and the transition weights (Table [X.2]) by removing the hypotheses not in the intersection one at a time with Algorithm 1 of Bretz et al. (2011); the result does not depend on the order of removal. ${initial} After each removal the weights and transition weights are updated, so later proportions can differ from these. An elementary hypothesis will be rejected if and only if every intersection hypothesis containing it is rejected (closure principle). With ${tt === 'parametric' ? 'parametric' : 'Simes'} tests the graph defines the weights of the intersection hypotheses; it is not a sequence of tests, and the closed test is not consonant in general, so it is not carried out step by step (Bretz et al., 2011, ${tt === 'parametric' ? 'eq. 4, p. 901' : 'section 3.3, p. 906'}).${two ? ' A hypothesis rejected with an estimated effect that does not favour [the experimental treatment] will not be claimed as a benefit.' : ''}`;
+    prop = `The weights of each intersection hypothesis will be derived from the initial weights (Table [X.1]) and the transition weights (Table [X.2]) by removing the hypotheses not in the intersection one at a time with Algorithm 1 of Bretz et al. (2011)${ent ? ', in every component graph, the weight of a hypothesis in the intersection being the sum over the component graphs of the component weight times its weight there (Maurer and Bretz, 2013, Algorithm 2, p. 1745)' : ''}; the result does not depend on the order of removal. ${initial} After each removal the weights and transition weights are updated, so later proportions can differ from these. An elementary hypothesis will be rejected if and only if every intersection hypothesis containing it is rejected (closure principle). With ${tt === 'parametric' ? 'parametric' : 'Simes'} tests the graph defines the weights of the intersection hypotheses; it is not a sequence of tests, and the closed test is not consonant in general, so it is not carried out step by step (Bretz et al., 2011, ${tt === 'parametric' ? 'eq. 4, p. 901' : 'section 3.3, p. 906'}).${two ? ' A hypothesis rejected with an estimated effect that does not favour [the experimental treatment] will not be claimed as a benefit.' : ''}`;
   }
   /* Not alpha-exhaustive: say so, with an example from the closure */
   const exh = isAlphaExhaustive(G);
@@ -1954,15 +2676,24 @@ function sapText(G, opts = {}) {
 
   /* Tables */
   const labels = G.nodes.map(n => n.label);
-  const rows = G.nodes.map(x => G.nodes.map(y => {
-    if (x.id === y.id) return fmtW((G.diag && G.diag[x.id]) || Q.ZERO);
-    const e = G.edges.find(z => z.from === x.id && z.to === y.id);
+  const transRows = (nodes, edges, diag) => nodes.map(x => nodes.map(y => {
+    if (x.id === y.id) return fmtW((diag && diag[x.id]) || Q.ZERO);
+    const e = edges.find(z => z.from === x.id && z.to === y.id);
     return e ? (e.expr ? `${exprDisplay(e.expr)} = ${fmtW(e.g)}` : fmtW(e.g)) : '0';
   }));
-  const h1 = ['Hypothesis', 'Description', 'Initial weight', closed ? `Initial weight × α (α = ${a})` : `Initial ${sided} level (α = ${a})`];
-  if (groups.length) h1.push('Group');
-  tables.push({ title: 'Table [X.1]. Hypotheses, initial weights and levels', header: h1, rows: G.nodes.map(n => { const r = [n.label, n.desc || '[description]', n.wexpr ? `${exprDisplay(n.wexpr)} = ${fmtW(n.w)}` : fmtW(n.w), fmtNum(Q.toNum(n.w) * aNum, 6)]; if (groups.length) r.push(n.group || ''); return r; }) });
-  tables.push({ title: 'Table [X.2]. Transition weights (row: from, column: to)', header: ['From \\ To', ...labels], rows: labels.map((l, i) => [l, ...rows[i]]) });
+  const wCell = n => (n.wexpr ? `${exprDisplay(n.wexpr)} = ${fmtW(n.w)}` : fmtW(n.w));
+  if (ent) {
+    const h1 = ['Hypothesis', 'Description', ...views.map((_, k) => `Initial weight in component graph ${k + 1} (c${k + 1} = ${cText(k)})`), 'Combined initial weight', closed ? `Combined weight × α (α = ${a})` : `Initial ${sided} level (α = ${a})`];
+    if (groups.length) h1.push('Group');
+    tables.push({ title: 'Table [X.1]. Hypotheses, initial weights in each component graph, combined weights and levels', header: h1, rows: G.nodes.map(n => { const cw = combW(n.id); const r = [n.label, n.desc || '[description]', ...views.map(v => wCell(v.nodes.find(x => x.id === n.id))), fmtW(cw), fmtNum(Q.toNum(cw) * aNum, 6)]; if (groups.length) r.push(n.group || ''); return r; }) });
+    views.forEach((v, k) => { const rows = transRows(v.nodes, v.edges, null); tables.push({ title: `Table [X.2${nComp > 1 ? String.fromCharCode(97 + k) : ''}]. Transition weights of component graph ${k + 1} (c${k + 1} = ${cText(k)}; row: from, column: to)`, header: ['From \\ To', ...labels], rows: labels.map((l, i) => [l, ...rows[i]]) }); });
+  } else {
+    const rows = transRows(G.nodes, G.edges, G.diag);
+    const h1 = ['Hypothesis', 'Description', 'Initial weight', closed ? `Initial weight × α (α = ${a})` : `Initial ${sided} level (α = ${a})`];
+    if (groups.length) h1.push('Group');
+    tables.push({ title: 'Table [X.1]. Hypotheses, initial weights and levels', header: h1, rows: G.nodes.map(n => { const r = [n.label, n.desc || '[description]', wCell(n), fmtNum(Q.toNum(n.w) * aNum, 6)]; if (groups.length) r.push(n.group || ''); return r; }) });
+    tables.push({ title: 'Table [X.2]. Transition weights (row: from, column: to)', header: ['From \\ To', ...labels], rows: labels.map((l, i) => [l, ...rows[i]]) });
+  }
   if (tt === 'parametric') {
     const corr = (G.test && G.test.corr) || {};
     const at = (i, j) => { if (i === j) return 1; const p = G.nodes[i].id, q = G.nodes[j].id; const v = corr[p < q ? p + '|' + q : q + '|' + p]; return v == null ? null : v; };
@@ -2005,6 +2736,13 @@ function updateFloat(m, w, g, j) {
 }
 /* Weights of every intersection hypothesis: W[mask * m + i] (generateWeights). m <= 12. */
 function closureWeights(fg) {
+  if (fg.comps) {
+    /* Algorithm 2 of Maurer and Bretz (2013, p. 1745): v_i(J) = sum_h c_h w_hi(J), each component's closure
+       weights from the ordinary generateWeights step */
+    const m = fg.m, W = new Float64Array((1 << m) * m);
+    fg.comps.forEach((cs, h) => { const Wh = closureWeights({ m, w: cs.w, g: cs.g }); for (let i = 0; i < W.length; i++) W[i] += fg.c[h] * Wh[i]; });
+    return W;
+  }
   const m = fg.m, full = (1 << m) - 1;
   const W = new Float64Array((1 << m) * m);
   const gs = new Map();
@@ -2871,6 +3609,323 @@ function runLiteratureSelfTests() {
 }
 
 /* Closed test in chunks so the page stays responsive; onProgress(done, total) */
+/* Self-tests for entangled graphs (Maurer and Bretz, 2013, Statistics in Medicine 32:1739-1753), with the worked
+   examples of the paper, Xi and Bretz (2019) and Guilbaud (2018). Levels are exact rationals; ε = 1/1000 throughout,
+   so where the paper writes the ε → 0 limit (α/2 at step 3 of Fig. 3) the app shows (1 − ε)α/2. */
+function runEntangledSelfTests() {
+  const res = [];
+  const check = (name, fn) => { try { const r = fn(); res.push({ name, pass: r === true, detail: r === true ? '' : String(r) }); } catch (err) { res.push({ name, pass: false, detail: 'Threw: ' + err.message }); } };
+  const load = o => deserializeGraph(o, false, 1).G;
+  const byLabel = (G, l) => G.nodes.find(n => n.label === l).id;
+  const pOfG = (G, p) => id => p[G.nodes.findIndex(n => n.id === id)];
+  const lab = (G, ids) => ids.map(id => G.nodes.find(n => n.id === id).label).join(',');
+  const lv = (G, st, l) => Q.toNum(st.w.get(byLabel(G, l)) || Q.ZERO) * G.alpha;
+  const near = (a, b, tol = 1e-12) => Math.abs(a - b) <= tol;
+  /* Runs the procedure and records the combined levels before each rejection */
+  const trace = (G, p) => {
+    let st = stateFromGraph(G); const steps = [];
+    for (;;) { const c = findCandidate(st, pOfG(G, p), G.alpha); const levels = Object.fromEntries(G.nodes.filter(n => st.ids.includes(n.id)).map(n => [n.label, lv(G, st, n.label)])); steps.push({ levels, reject: c ? G.nodes.find(n => n.id === c.id).label : null }); if (!c) break; st = rejectNode(st, c.id); }
+    return steps;
+  };
+  const levelsAre = (got, want) => Object.keys(want).every(k => near(got[k], want[k], 1e-12)) || `levels ${JSON.stringify(got)}`;
+  const F = () => load(entangledTemplateJSON('maurerFig2'));
+  const pSec3 = [0.01, 0.022, 0.005, 0.012, 0.001];
+
+  check('Maurer and Bretz (2013) Fig. 2 template loads as two components with c = (1/2, 1/2); G1 is their matrix on p. 1746', () => {
+    const G = F(); if (!isEntangled(G) || G.ent.comps.length !== 2) return 'not two components';
+    if (G.ent.c.map(Q.exact).join() !== '1/2,1/2') return 'c = ' + G.ent.c.map(Q.exact).join();
+    const st = stateFromGraph(G), g1 = st.ent.comps[0].g, id = l => byLabel(G, l);
+    const g = (a, b) => Q.exact(g1.get(gKey(id(a), id(b))) || Q.ZERO);
+    const want = [['H1', 'H3', '1'], ['H2', 'H3', '1'], ['H3', 'H4', '999/1000'], ['H3', 'H5', '1/1000'], ['H4', 'H2', '1'], ['H5', 'H1', '0']];
+    for (const [a, b, v] of want) if (g(a, b) !== v) return `${a} to ${b} is ${g(a, b)}`;
+    const w1 = st.ent.comps[0].w, w2 = st.ent.comps[1].w;
+    return (Q.exact(w1.get(id('H1'))) === '1' && Q.exact(w2.get(id('H2'))) === '1' && Q.exact(st.w.get(id('H1'))) === '1/2' && Q.exact(st.w.get(id('H3'))) === '0') || 'weights wrong';
+  });
+  check('Self-test B. Maurer and Bretz (2013) Fig. 3, p. 1747: the section 3.1 p-values on the entangled graph reject H1, H3, H4, H2, H5 in that order, all five, at levels 0.0125, 0.0125, (1−ε)0.0125, 0.0249875, 0.0249875', () => {
+    const G = F(), t = trace(G, pSec3);
+    if (t.map(x => x.reject).join(',') !== 'H1,H3,H4,H2,H5,') return 'order ' + t.map(x => x.reject).join(',');
+    let r;
+    if ((r = levelsAre(t[0].levels, { H1: 0.0125, H2: 0.0125, H3: 0, H4: 0, H5: 0 })) !== true) return 'step 0 ' + r;
+    if ((r = levelsAre(t[1].levels, { H2: 0.0125, H3: 0.0125, H4: 0, H5: 0 })) !== true) return 'step 1 ' + r;
+    if ((r = levelsAre(t[2].levels, { H2: 0.0125, H4: 0.0124875, H5: 0.0000125 })) !== true) return 'step 2 ' + r;
+    if ((r = levelsAre(t[3].levels, { H2: 0.0249875, H5: 0.0000125 })) !== true) return 'step 3 ' + r;
+    if ((r = levelsAre(t[4].levels, { H5: 0.0249875 })) !== true) return 'step 4 ' + r;
+    const oa = orderAnalysis(stateFromGraph(G), pOfG(G, pSec3), 0.025);
+    return (oa.finals.length === 1 && oa.finals[0].length === 5) || 'final set depends on the order';
+  });
+  check('Self-test B (contrast). The Fig. 1(a) single graph on the same p-values rejects only H1, H3, H5: the memory of the pairing {H1, H4} is what the entangled graph adds', () => {
+    const o = { format: 'multiplicity-graph', alpha: 0.025, nodes: ['H1', 'H2', 'H3', 'H4', 'H5'].map((l, i) => ({ id: String(i), label: l, weight: i < 2 ? '1/2' : '0', x: 0, y: 0 })), edges: [[0, 2, '1'], [1, 2, '1'], [2, 3, '1/2'], [2, 4, '1/2']].map(r => ({ from: String(r[0]), to: String(r[1]), weight: r[2] })) };
+    const G = load(o), r = runProcedure(stateFromGraph(G), pOfG(G, pSec3), 0.025);
+    return lab(G, r.order) === 'H1,H3,H5' || 'rejected ' + lab(G, r.order);
+  });
+  check('Self-test C. Maurer and Bretz (2013) Fig. 4(b), p. 1748: the two fixed sequences (H1 H3 H4 H2 H5 and H2 H3 H5 H1 H4, c = 1/2 each) reject the same five in the same order at levels 1/80, 1/80, 1/80, 1/40, 1/40 (the Fig. 2 levels with ε = 0)', () => {
+    const G = load(entangledTemplateJSON('maurerFig4')), t = trace(G, pSec3);
+    if (t.map(x => x.reject).join(',') !== 'H1,H3,H4,H2,H5,') return 'order ' + t.map(x => x.reject).join(',');
+    const got = t.slice(0, 5).map(x => x.levels[x.reject]);
+    return got.every((v, k) => near(v, [1 / 80, 1 / 80, 1 / 80, 1 / 40, 1 / 40][k])) || 'levels ' + got.join(' ');
+  });
+  check('Self-test D. Maurer and Bretz (2013) Fig. 5, p. 1749, with γ1 = γ2 = 1/2: rejects H1 at 1/80, then H3 at 0.00625; H2 stays at 0.01875 and H4 at (1−ε)0.00625, so only H1 and H3 are rejected. With γ1 = γ2 = 1 it is the Fig. 2 graph again', () => {
+    /* γ is a symbolic weight; a new variable defaults to 1/2 */
+    const fig5 = () => entangledJSON({ nodes: [['H1', 0, 0], ['H2', 300, 0], ['H3', 150, 190], ['H4', 0, 380], ['H5', 300, 380]], c: ['1/2', '1/2'], comps: [
+      { w: ['1', '0', '0', '0', '0'], edges: [[0, 1, '1-γ'], [0, 2, 'γ'], [1, 2, '1'], [2, 3, '1-ε'], [2, 4, 'ε'], [3, 1, '1']] },
+      { w: ['0', '1', '0', '0', '0'], edges: [[1, 0, '1-γ'], [1, 2, 'γ'], [0, 2, '1'], [2, 4, '1-ε'], [2, 3, 'ε'], [4, 0, '1']] }] });
+    const G = load(fig5()); if (Q.exact(G.vars['γ']) !== '1/2') return 'γ default ' + Q.exact(G.vars['γ']);
+    const t = trace(G, pSec3);
+    if (t.map(x => x.reject).join(',') !== 'H1,H3,') return 'order ' + t.map(x => x.reject).join(',');
+    let r;
+    if ((r = levelsAre(t[1].levels, { H2: 0.01875, H3: 0.00625, H4: 0, H5: 0 })) !== true) return 'step 1 ' + r;
+    if ((r = levelsAre(t[2].levels, { H2: 0.01875, H4: 0.00624375, H5: 0.00000625 })) !== true) return 'step 2 ' + r;
+    const G1 = load(fig5()); G1.vars['γ'] = Q.ONE; evaluateGraph(G1);
+    const t1 = trace(G1, pSec3);
+    return t1.map(x => x.reject).join(',') === 'H1,H3,H4,H2,H5,' || 'gamma = 1 order ' + t1.map(x => x.reject).join(',');
+  });
+  const kOfM = entangledKOfM;
+  check('Self-test E. Maurer and Bretz (2013) section 5.3.2 and Fig. 6, p. 1751, at least 3 of 4 primaries, α 0.05: Holm on the primaries until three are rejected, the fourth at 3α/4, H5 at α/4 if the fourth is retained and at α if rejected', () => {
+    const G = load(kOfM(4, 3, 0.05));
+    if (G.ent.comps.length !== 4) return 'components ' + G.ent.comps.length;
+    let t = trace(G, [0.01, 0.01, 0.01, 0.04, 0.01]), r;
+    if (t.map(x => x.reject).join(',') !== 'H1,H2,H3,H5,') return 'case 1 order ' + t.map(x => x.reject).join(',');
+    if ((r = levelsAre(t[0].levels, { H1: 0.0125, H2: 0.0125, H3: 0.0125, H4: 0.0125, H5: 0 })) !== true) return 'case 1 step 0 ' + r;
+    if ((r = levelsAre(t[1].levels, { H2: 0.05 / 3, H3: 0.05 / 3, H4: 0.05 / 3, H5: 0 })) !== true) return 'case 1 step 1 ' + r;
+    if ((r = levelsAre(t[2].levels, { H3: 0.025, H4: 0.025, H5: 0 })) !== true) return 'case 1 step 2 ' + r;
+    if ((r = levelsAre(t[3].levels, { H4: 0.0375, H5: 0.0125 })) !== true) return 'case 1 step 3 ' + r;
+    t = trace(G, [0.01, 0.01, 0.01, 0.03, 0.04]);
+    if (t.map(x => x.reject).join(',') !== 'H1,H2,H3,H4,H5,') return 'case 2 order ' + t.map(x => x.reject).join(',');
+    if ((r = levelsAre(t[4].levels, { H5: 0.05 })) !== true) return 'case 2 step 4 ' + r;
+    t = trace(G, [0.01, 0.01, 0.03, 0.03, 0.001]);
+    if (t.map(x => x.reject).join(',') !== 'H1,H2,') return 'case 3 order ' + t.map(x => x.reject).join(',');
+    return levelsAre(t[2].levels, { H3: 0.025, H4: 0.025, H5: 0 });
+  });
+  check('Self-test F. Maurer and Bretz (2013) Appendix A, p. 1752: Holm on three hypotheses as the six fixed sequences with c = 1/6 matches the Holm graph step for step; two components with one transition matrix reduce to the single graph with weights sum of c_h w_h', () => {
+    const perms = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+    const six = entangledJSON({ alpha: 0.05, nodes: [['H1', 0, 0], ['H2', 200, 0], ['H3', 400, 0]], c: perms.map(() => '1/6'), comps: perms.map(pm => { const w = ['0', '0', '0']; w[pm[0]] = '1'; return { w, edges: [[pm[0], pm[1], '1'], [pm[1], pm[2], '1']] }; }) });
+    const G = load(six), H = load(generatedTemplate('holm', 3)); H.alpha = 0.05;
+    const p = [0.01, 0.02, 0.03], a = trace(G, p), b = trace(H, p);
+    if (a.map(x => x.reject).join() !== b.map(x => x.reject).join()) return 'orders differ';
+    for (let k = 0; k < a.length; k++) for (const l of Object.keys(a[k].levels)) if (!near(a[k].levels[l], b[k].levels[l])) return `step ${k} level of ${l}: ${a[k].levels[l]} vs ${b[k].levels[l]}`;
+    if (isAlphaExhaustive(G) !== true) return 'six sequences not exhaustive';
+    const W1 = closureWeights(floatGraph(G)), W2 = closureWeights(floatGraph(H));
+    for (let i = 0; i < W1.length; i++) if (!near(W1[i], W2[i], 1e-12)) return 'closure weights differ at ' + i;
+    const same = load(entangledJSON({ nodes: [['H1', 0, 0], ['H2', 200, 0], ['H3', 400, 0]], c: ['1/2', '1/2'], comps: [{ w: ['1', '0', '0'], edges: [[0, 1, '1/2'], [0, 2, '1/2'], [1, 2, '1'], [2, 1, '1']] }, { w: ['0', '1', '0'], edges: [[0, 1, '1/2'], [0, 2, '1/2'], [1, 2, '1'], [2, 1, '1']] }] }));
+    const col = entCollapse(same); if (!col) return 'collapse refused';
+    if (col.nodes.map(n => n.weight).join() !== '1/2,1/2,0' || col.ent) return 'collapsed weights ' + col.nodes.map(n => n.weight).join();
+    const Gc = load(col), q = [0.011, 0.012, 0.001];
+    if (lab(same, runProcedure(stateFromGraph(same), pOfG(same, q), 0.025).order) !== lab(Gc, runProcedure(stateFromGraph(Gc), pOfG(Gc, q), 0.025).order)) return 'collapsed graph rejects differently';
+    const different = F();
+    return entCollapse(different) === null || 'Fig. 2 should not collapse';
+  });
+  check('Self-test G. Guilbaud (2018) Example 11 and Fig. 5(b), p. 230, at least 2 of 3 primaries, α 0.05: p = (0.01, 0.02, 0.04, 0.015) rejects H1, H2 and H4 with H3 retained at 1/30; (0.01, 0.01, 0.01, 0.04) rejects all four, H4 at 1/20; (0.01, 0.03, 0.04, 0.001) rejects H1 only', () => {
+    const G = load(kOfM(3, 2, 0.05));
+    if (G.ent.comps.length !== 3) return 'components ' + G.ent.comps.length;
+    let t = trace(G, [0.01, 0.02, 0.04, 0.015]), r;
+    if (t.map(x => x.reject).join(',') !== 'H1,H2,H4,') return 'case 1 order ' + t.map(x => x.reject).join(',');
+    if ((r = levelsAre(t[0].levels, { H1: 1 / 60, H2: 1 / 60, H3: 1 / 60, H4: 0 })) !== true) return 'case 1 step 0 ' + r;
+    if ((r = levelsAre(t[1].levels, { H2: 1 / 40, H3: 1 / 40, H4: 0 })) !== true) return 'case 1 step 1 ' + r;
+    if ((r = levelsAre(t[2].levels, { H3: 1 / 30, H4: 1 / 60 })) !== true) return 'case 1 step 2 ' + r;
+    t = trace(G, [0.01, 0.01, 0.01, 0.04]);
+    if (t.map(x => x.reject).join(',') !== 'H1,H2,H3,H4,') return 'case 2 order ' + t.map(x => x.reject).join(',');
+    if ((r = levelsAre(t[3].levels, { H4: 1 / 20 })) !== true) return 'case 2 step 3 ' + r;
+    t = trace(G, [0.01, 0.03, 0.04, 0.001]);
+    return t.map(x => x.reject).join(',') === 'H1,' || 'case 3 order ' + t.map(x => x.reject).join(',');
+  });
+  check('Self-test H. Xi and Bretz (2019) section 5.1 and Fig. 5, pp. 5275-5276: closed weighted Simes on the entangled parallel gatekeeping graph (γ = 1/2) with p = (0.01, 0.015, 0.011, 0.03) at α 0.025 rejects H1, H2, H3 but not H4; the intersection weights are those of their Table 3 shape, {H2, H3, H4} = (3/4, 1/8, 1/8)', () => {
+    const o = entangledJSON({ nodes: [['H1', 0, 0], ['H2', 300, 0], ['H3', 0, 220], ['H4', 300, 220]], c: ['1/2', '1/2'], comps: [
+      { w: ['1/2', '1/2', '0', '0'], edges: [[0, 1, '1'], [1, 0, '1-ε'], [1, 2, 'ε/2'], [1, 3, 'ε/2'], [2, 3, '1'], [3, 2, '1']] },
+      { w: ['1/2', '1/2', '0', '0'], edges: [[0, 2, '1/2'], [0, 3, '1/2'], [1, 2, '1/2'], [1, 3, '1/2'], [2, 3, '1'], [3, 2, '1']] }] });
+    const G = load(o), p = [0.01, 0.015, 0.011, 0.03];
+    const r = closedTest(floatGraph(G), p, 0.025, 'simes', { upscale: false });
+    if (r.rejected.join() !== 'true,true,true,false') return 'rejected ' + r.rejected.join();
+    const W = r.W, m = 4, wOf = (mask, i) => W[mask * m + i];
+    const full = 15, m234 = 14, m134 = 13, m34 = 12;
+    if (!near(wOf(full, 0), 0.5) || !near(wOf(full, 1), 0.5) || !near(wOf(full, 2), 0) || !near(wOf(full, 3), 0)) return 'full set weights';
+    if (!near(wOf(m234, 1), 0.75) || !near(wOf(m234, 2), 0.125) || !near(wOf(m234, 3), 0.125)) return '{H2,H3,H4} weights ' + [1, 2, 3].map(i => wOf(m234, i)).join();
+    if (!near(wOf(m134, 0), 0.74975) || !near(wOf(m134, 2), 0.125125)) return '{H1,H3,H4} weights ' + [0, 2, 3].map(i => wOf(m134, i)).join();
+    if (!near(wOf(m34, 2), 0.5) || !near(wOf(m34, 3), 0.5)) return '{H3,H4} weights';
+    const b = runProcedure(stateFromGraph(G), pOfG(G, p), 0.025);
+    return lab(G, b.order.slice().sort()) === 'H1,H2,H3' || 'Bonferroni rejected ' + lab(G, b.order);
+  });
+  check('Entangled JSON (version 2) and the share link round-trip every component, c, ε expressions and the active component; the top-level graph is component 1', () => {
+    const G = F(); entLoad(G, 1);
+    const o = serializeGraph(G);
+    if (o.version !== 2 || !o.ent || o.ent.active !== 1 || o.ent.comps.length !== 2) return 'serialise';
+    if (o.nodes[0].weight !== '1' || o.nodes[1].weight !== '0') return 'top level is not component 1';
+    const back = load(o);
+    if (!isEntangled(back) || back.ent.active !== 1) return 'active lost';
+    if (JSON.stringify(serializeGraph(back).ent) !== JSON.stringify(o.ent)) return 'JSON round trip changed the components';
+    const link = load(decodeShare(encodeShare(G)));
+    if (JSON.stringify(serializeGraph(link).ent) !== JSON.stringify(o.ent)) return 'share link changed the components';
+    if (JSON.stringify(serializeGraph(link).edges) !== JSON.stringify(o.edges)) return 'share link changed the edges';
+    const r1 = lab(G, runProcedure(stateFromGraph(G), pOfG(G, pSec3), 0.025).order), r2 = lab(link, runProcedure(stateFromGraph(link), pOfG(link, pSec3), 0.025).order);
+    if (r1 !== r2) return 'link rejects differently';
+    const v1 = load(Object.assign({}, o, { ent: undefined }));
+    return (!isEntangled(v1) && v1.nodes.map(n => Q.exact(n.w)).join() === '1,0,0,0,0') || 'older reader would not get component 1';
+  });
+  check('Entangled validation and exhaustiveness: Fig. 2 gets only the two leaf warnings (H5 in graph 1, H4 in graph 2). With ε = 1/1000 it is not exactly alpha-exhaustive (the intersection {H2} of graph 1 has weight 1 − ε, the ε share lost at the leaf H5); the ε-free Fig. 4(b) form is. c summing to more than 1 is an error; a component with weights summing to less than 1 is reported with its number', () => {
+    const G = F();
+    const v0 = validateGraph(G, q => Q.fmt(q));
+    if (v0.length !== 2 || !v0.every(x => x.level === 'warn') || !/^Graph 1: H5 has no outgoing/.test(v0[0].text) || !/^Graph 2: H4 has no outgoing/.test(v0[1].text)) return 'Fig. 2 validation: ' + v0.map(v => v.text).join('; ');
+    if (isAlphaExhaustive(G) !== false) return 'Fig. 2 with a real ε should not be exhaustive';
+    const W1 = closureWeights(floatGraph(entViewGraph(G, 0))), i2 = G.nodes.findIndex(n => n.label === 'H2');
+    if (!near(W1[(1 << i2) * 5 + i2], 0.999, 1e-12)) return '{H2} weight in graph 1 is ' + W1[(1 << i2) * 5 + i2];
+    const G4 = load(entangledTemplateJSON('maurerFig4'));
+    if (isAlphaExhaustive(G4) !== true) return 'Fig. 4(b) not exhaustive';
+    const v4 = validateGraph(G4, q => Q.fmt(q));
+    if (v4.length !== 2 || !v4.every(x => x.level === 'warn' && /no outgoing/.test(x.text))) return 'Fig. 4(b) validation: ' + v4.map(v => v.text).join('; ');
+    G.ent.c = [Q.parse('3/4'), Q.parse('1/2')];
+    const v = validateGraph(G, q => Q.fmt(q)); if (!v.some(x => x.level === 'error' && /add up to 5\/4/.test(x.text))) return 'c sum not reported';
+    if (isAlphaExhaustive(G) !== false) return 'c sum 5/4 called exhaustive';
+    const H = F(); H.ent.comps[1].w[H.nodes[1].id] = Q.parse('1/2');
+    const vh = validateGraph(H, q => Q.fmt(q));
+    if (!vh.some(x => /^Graph 2: Initial weights add up to 1\/2/.test(x.text))) return 'component 2 shortfall not reported: ' + vh.map(x => x.text).join('; ');
+    return isAlphaExhaustive(H) === false || 'shortfall called exhaustive';
+  });
+  check('Float shortcut, exact step-through and closed Bonferroni agree on 200 random entangled graphs (m 2 to 5, 2 or 3 components); the final set does not depend on the rejection order', () => {
+    let seed = 2013; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    const ri = (a, b) => a + Math.floor(rnd() * (b - a + 1));
+    for (let t = 0; t < 200; t++) {
+      const m = ri(2, 5), n = ri(2, 3), alpha = 0.05;
+      const comps = Array.from({ length: n }, () => {
+        const raw = Array.from({ length: m }, () => (rnd() < 0.3 ? 0 : ri(1, 5))); if (raw.every(v => !v)) raw[ri(0, m - 1)] = 1;
+        const tot = raw.reduce((a, b) => a + b, 0);
+        const edges = [];
+        for (let i = 0; i < m; i++) { const row = Array.from({ length: m }, (_, j) => (i === j || rnd() < 0.3 ? 0 : ri(1, 4))); const rs = row.reduce((a, b) => a + b, 0) || 1; row.forEach((v, j) => { if (v) edges.push([i, j, `${v}/${rs}`]); }); }
+        return { w: raw.map(v => `${v}/${tot}`), edges };
+      });
+      const cr = Array.from({ length: n }, () => ri(1, 4)), ct = cr.reduce((a, b) => a + b, 0);
+      const G = load(entangledJSON({ alpha, nodes: Array.from({ length: m }, (_, i) => [`H${i + 1}`, i * 100, 0]), c: cr.map(v => `${v}/${ct}`), comps }));
+      const p = Array.from({ length: m }, () => rnd() * 0.08), pOf = pOfG(G, p);
+      const exact = new Set(runProcedure(stateFromGraph(G), pOf, alpha).order.map(id => G.nodes.findIndex(x => x.id === id)));
+      const out = new Uint8Array(m); runShortcut(floatGraph(G), Float64Array.from(p), alpha, out);
+      for (let i = 0; i < m; i++) if (!!out[i] !== exact.has(i)) return `float vs exact at graph ${t}`;
+      const ct2 = closedTest(floatGraph(G), p, alpha, 'bonferroni', { upscale: false });
+      for (let i = 0; i < m; i++) if (ct2.rejected[i] !== exact.has(i)) return `closed test vs exact at graph ${t}`;
+      const oa = orderAnalysis(stateFromGraph(G), pOf, alpha);
+      if (oa.finals.length !== 1) return `order-dependent final set at graph ${t}`;
+      const adj = adjustedPValues(stateFromGraph(G), pOf);
+      for (let i = 0; i < m; i++) if ((adj.get(G.nodes[i].id) <= alpha * (1 + 1e-9)) !== exact.has(i)) return `adjusted p vs exact at graph ${t}`;
+    }
+    return true;
+  });
+  check('gMCP code import: the source of Entangled1Maurer2012() (rbind with "1-\\epsilon", reused variables m and weights, new("graphMCP"), new("entangledMCP")) parses to the Fig. 2 template; an inline new("entangledMCP") works; code without one is refused', () => {
+    const code = ['library(gMCP)', 'm <- rbind(H1=c(0, 0, 1, 0, 0), H2=c(0, 0, 1, 0, 0), H3=c(0, 0, 0, "1-\\epsilon", "\\epsilon"), H4=c(0, 1, 0, 0, 0), H5=c(0, 0, 0, 0, 0))', 'weights <- c(1, 0, 0, 0, 0)', 'graph1 <- new("graphMCP", m=m, weights=weights)',
+      'm <- rbind(H1=c(0, 0, 1, 0, 0), H2=c(0, 0, 1, 0, 0), H3=c(0, 0, 0, "\\epsilon", "1-\\epsilon"), H4=c(0, 0, 0, 0, 0), H5=c(1, 0, 0, 0, 0))', 'weights <- c(0, 1, 0, 0, 0)', 'graph2 <- new("graphMCP", m=m, weights=weights)',
+      'graph <- new("entangledMCP", subgraphs=list(graph1,graph2), weights=c(0.5,0.5))'].join('\n');
+    const r = parseEntangledR(code);
+    if (r.m !== 5 || r.names.join() !== 'H1,H2,H3,H4,H5' || r.c.join() !== '1/2,1/2' || r.comps.length !== 2) return 'shape ' + JSON.stringify([r.m, r.names, r.c]);
+    if (r.comps[0].rows[2].join() !== '0,0,0,1-ε,ε' || r.comps[1].rows[4].join() !== '1,0,0,0,0' || r.comps[1].w.join() !== '0,1,0,0,0') return 'values ' + JSON.stringify(r.comps);
+    const o = entangledJSON({ nodes: r.names.map((nm, i) => [nm, i * 100, 0]), c: r.c, comps: r.comps.map(cs => ({ w: cs.w, edges: cs.rows.flatMap((row, i) => row.map((v, j) => (i !== j && v !== '0' ? [i, j, v] : null)).filter(Boolean)) })) });
+    const G = load(o), t = trace(G, pSec3);
+    if (t.map(x => x.reject).join(',') !== 'H1,H3,H4,H2,H5,') return 'imported graph rejects ' + t.map(x => x.reject).join(',');
+    const r2 = parseEntangledR('new("entangledMCP", subgraphs = list(new("graphMCP", m = matrix(c(0, 1, 1, 0), nrow = 2), weights = c(1, 0)), new("graphMCP", m = matrix(c(0, 1, 1, 0), nrow = 2), weights = c(0, 1))), weights = c(1/2, 1/2))');
+    if (r2.m !== 2 || r2.comps[1].w.join() !== '0,1') return 'inline form';
+    try { parseEntangledR('x <- c(1, 2)'); return 'no entangledMCP should be refused'; } catch (e) { if (!/entangledMCP/.test(e.message)) return 'wrong message: ' + e.message; }
+    return true;
+  });
+  check('Templates: Fig. 5 (γ1 = γ2 = 1/2 by default) matches self-test D and equals Fig. 2 at γ1 = γ2 = 1; the truncated Holm gatekeeping template is the Xi and Bretz (2019) Fig. 5 graph (closed Simes rejects H1, H2, H3); entangled truncated Holm on 3 hypotheses at γ = 1/2 tests at α/3, then (γ/2 + (1 − γ)/3)α, then (γ + (1 − γ)/3)α (Dmitrienko, Tamhane and Wiens, 2008)', () => {
+    const G5 = load(entangledTemplateJSON('maurerFig5'));
+    if (Q.exact(G5.vars['γ1']) !== '1/2' || Q.exact(G5.vars['γ2']) !== '1/2') return 'γ defaults';
+    if (trace(G5, pSec3).map(x => x.reject).join(',') !== 'H1,H3,') return 'Fig. 5 default rejects ' + trace(G5, pSec3).map(x => x.reject).join(',');
+    G5.vars['γ1'] = Q.ONE; G5.vars['γ2'] = Q.ONE; evaluateGraph(G5);
+    const a = trace(G5, pSec3), b = trace(F(), pSec3);
+    for (let k = 0; k < b.length; k++) for (const l of Object.keys(b[k].levels)) if (!near(a[k].levels[l], b[k].levels[l])) return `Fig. 5 at γ = 1 differs from Fig. 2 at step ${k}, ${l}`;
+    const Gt = load(entangledTemplateJSON('truncatedHolmGate'));
+    if (Q.exact(Gt.ent.c[0]) !== '1/2' || Gt.ent.cexpr.join() !== 'γ,1-γ') return 'gatekeeping c: ' + Gt.ent.c.map(Q.exact).join() + ' ' + Gt.ent.cexpr.join();
+    const rs = closedTest(floatGraph(Gt), [0.01, 0.015, 0.011, 0.03], 0.025, 'simes', { upscale: false });
+    if (rs.rejected.join() !== 'true,true,true,false') return 'gatekeeping Simes rejected ' + rs.rejected.join();
+    const Gh = load(entangledTruncatedHolm(3)); Gh.alpha = 0.05;
+    const t = trace(Gh, [0.01, 0.02, 0.03]);
+    if (t.map(x => x.reject).join(',') !== 'H1,H2,H3,') return 'truncated Holm order ' + t.map(x => x.reject).join(',');
+    const want = [0.05 / 3, (0.25 + 1 / 6) * 0.05, (0.5 + 1 / 6) * 0.05];
+    for (let k = 0; k < 3; k++) if (!near(t[k].levels[t[k].reject], want[k], 1e-12)) return `truncated Holm step ${k}: ${t[k].levels[t[k].reject]} vs ${want[k]}`;
+    Gh.vars['γ'] = Q.ONE; evaluateGraph(Gh);
+    const th = trace(Gh, [0.01, 0.02, 0.03]);
+    return (near(th[1].levels.H2, 0.025) && near(th[2].levels.H3, 0.05)) || 'γ = 1 is not Holm';
+  });
+  check('Switching the active component keeps every component intact; a hypothesis added later has weight 0 in the other components; symbolic ε in a hidden component follows the variables panel', () => {
+    const G = F();
+    const sum = () => stateFromGraph(G).ent.comps.map(cs => [...cs.w.values()].reduce((a, b) => Q.add(a, b), Q.ZERO)).map(Q.exact).join();
+    if (sum() !== '1,1') return 'sums ' + sum();
+    entLoad(G, 1); if (Q.exact(G.nodes[1].w) !== '1' || !G.edges.some(e => e.expr === '1-ε' && e.from === byLabel(G, 'H3') && e.to === byLabel(G, 'H5'))) return 'component 2 not loaded';
+    entLoad(G, 0); if (Q.exact(G.nodes[0].w) !== '1' || sum() !== '1,1') return 'component 1 not restored';
+    G.nodes.push({ id: 'n99', label: 'H6', w: Q.ZERO, x: 0, y: 0, p: '', color: '', desc: '', group: '' });
+    const st = stateFromGraph(G);
+    if (Q.exact(st.ent.comps[1].w.get('n99')) !== '0' || st.ids.length !== 6) return 'new hypothesis missing from component 2';
+    G.vars['ε'] = Q.parse('1/10'); evaluateGraph(G);
+    const g2 = stateFromGraph(G).ent.comps[1].g.get(gKey(byLabel(G, 'H3'), byLabel(G, 'H5')));
+    return Q.exact(g2) === '9/10' || 'hidden component kept the old ε: ' + Q.exact(g2);
+  });
+  check('Default graph (Appendix A, pp. 1752-1753): Holm on m hypotheses is all m! sequences at 1/m! (p. 1753); Fig. 5 is the four hierarchies of p. 1749 and at γ1 = γ2 = 1 the two of Fig. 4(a); Fig. 2 with ε = 1/1000 gives the Fig. 4(a) chains at (1 − ε)/2 plus ε-order sequences; 100 random graphs (ordinary and entangled) reproduce the Algorithm 2 weights, and the entangled form of the sequences does too; the text import round trip', () => {
+    const seqText = (G, s) => s.order.map(id => G.nodes.find(n => n.id === id).label).join('>');
+    for (const m of [3, 4]) {
+      const H = load(templateJSON('holm'));
+      while (H.nodes.length < m) { const id = 'x' + H.nodes.length; H.nodes.push({ id, label: 'H' + (H.nodes.length + 1), w: Q.ZERO, x: 0, y: 0, p: '', color: '', desc: '', group: '' }); }
+      const ids = H.nodes.map(n => n.id);
+      for (const n of H.nodes) n.w = Q.make(1n, BigInt(m));
+      H.edges = []; for (const a of ids) for (const b of ids) if (a !== b) H.edges.push({ from: a, to: b, g: Q.make(1n, BigInt(m - 1)), bend: null });
+      const dg = defaultGraphOf(H);
+      const fact = [1, 1, 2, 6, 24][m];
+      if (dg.seqs.length !== fact || !dg.seqs.every(s => Q.exact(s.c) === `1/${fact}` && s.order.length === m && !s.partial)) return `Holm m = ${m}: ${dg.seqs.length} sequences, first ${dg.seqs.length ? Q.exact(dg.seqs[0].c) : '-'}`;
+      if (Q.exact(dg.total) !== '1') return 'Holm total ' + Q.exact(dg.total);
+    }
+    const F5 = load(entangledTemplateJSON('maurerFig5'));
+    /* with ε = 1/1000 the four hierarchies of p. 1749 carry the factor 1 − ε, and ε-order sequences end early (an ε
+       share reaches a leaf); at ε = 0 exactly the two-cycle H3 <-> H4 has product 1 and the update gives 0, so the
+       paper's ε-free reading is the limit, not the value at 0 */
+    const bigOnes = dg => dg.seqs.filter(s => Q.cmp(s.c, Q.parse('1/100')) >= 0);
+    F5.vars['γ1'] = Q.parse('1/3'); F5.vars['γ2'] = Q.parse('1/5'); evaluateGraph(F5);
+    const d5 = defaultGraphOf(F5), b5 = bigOnes(d5);
+    const want5 = { 'H1>H2>H3>H4>H5': '333/1000', 'H1>H3>H4>H2>H5': '333/2000', 'H2>H1>H3>H5>H4': '999/2500', 'H2>H3>H5>H1>H4': '999/10000' };
+    if (b5.length !== 4 || !b5.every(s => want5[seqText(F5, s)] === Q.exact(s.c) && !s.partial) || !d5.seqs.slice(4).every(s => s.partial) || Q.exact(d5.total) !== '1') return 'Fig. 5 at γ1 = 1/3, γ2 = 1/5: ' + d5.seqs.map(s => seqText(F5, s) + ' ' + Q.exact(s.c) + (s.partial ? '*' : '')).join('; ');
+    F5.vars['γ1'] = Q.ONE; F5.vars['γ2'] = Q.ONE; evaluateGraph(F5);
+    const b5b = bigOnes(defaultGraphOf(F5));
+    if (b5b.length !== 2 || b5b.map(s => seqText(F5, s) + ' ' + Q.exact(s.c)).sort().join('; ') !== 'H1>H3>H4>H2>H5 999/2000; H2>H3>H5>H1>H4 999/2000') return 'Fig. 4(a): ' + b5b.map(s => seqText(F5, s) + ' ' + Q.exact(s.c)).join('; ');
+    const F2 = F(); const d2 = defaultGraphOf(F2);
+    const big = d2.seqs.filter(s => Q.cmp(s.c, Q.parse('1/100')) >= 0);
+    if (big.length !== 2 || big.map(s => seqText(F2, s) + ' ' + Q.exact(s.c)).sort().join('; ') !== 'H1>H3>H4>H2>H5 999/2000; H2>H3>H5>H1>H4 999/2000') return 'Fig. 2 main chains: ' + big.map(s => seqText(F2, s) + ' ' + Q.exact(s.c)).join('; ');
+    if (!d2.seqs.some(s => s.partial) || Q.exact(d2.total) !== '1') return 'Fig. 2 ε sequences: partial ' + d2.seqs.filter(s => s.partial).length + ', total ' + Q.exact(d2.total);
+    /* random graphs: the hypotheses are tested, for every intersection J, at the sum of the weights of the sequences
+       in which they come first among J (section 5.1, p. 1748), which must equal v_i(J) of Algorithm 2 */
+    const rnd = mulberry32(2013);
+    const randomGraph = (m, ent) => {
+      const o = { format: 'multiplicity-graph', version: ent ? 2 : 1, alpha: 0.025, nodes: [], edges: [] };
+      const mk = () => {
+        const w = Array.from({ length: m }, () => Math.floor(rnd() * 3)); if (!w.some(Boolean)) w[0] = 1; const sw = w.reduce((a, b) => a + b, 0);
+        const nodes = w.map((x, i) => ({ id: String(i), weight: `${x}/${sw}` }));
+        const edges = [];
+        for (let i = 0; i < m; i++) { const g = Array.from({ length: m }, (_, j) => (j === i ? 0 : Math.floor(rnd() * 3))); const sg = g.reduce((a, b) => a + b, 0) + (rnd() < 0.3 ? 1 : 0); if (!sg) continue; g.forEach((x, j) => { if (x) edges.push({ from: String(i), to: String(j), weight: `${x}/${sg}`, bend: null }); }); }
+        return { nodes, edges };
+      };
+      const c1 = mk();
+      o.nodes = c1.nodes.map((n, i) => Object.assign({ label: 'H' + (i + 1), x: 0, y: 0, p: '' }, n)); o.edges = c1.edges;
+      if (ent) { const c2 = mk(); o.ent = { c: ['1/3', '2/3'], active: 0, comps: [c1, c2] }; }
+      return load(o);
+    };
+    for (let t = 0; t < 100; t++) {
+      const m = 2 + Math.floor(rnd() * 4), ent = t % 2 === 1, Gr = randomGraph(m, ent);
+      const dg = defaultGraphOf(Gr); if (!dg) return 'no decomposition';
+      const W = closureWeights(floatGraph(Gr)), ids = Gr.nodes.map(n => n.id);
+      for (let mask = 1; mask < (1 << m); mask++) {
+        const v = new Array(m).fill(0);
+        for (const s of dg.seqs) { const first = s.order.find(id => mask & (1 << ids.indexOf(id))); if (first != null) v[ids.indexOf(first)] += Q.toNum(s.c); }
+        for (let i = 0; i < m; i++) if (mask & (1 << i) && !near(v[i], W[mask * m + i], 1e-9)) return `random ${t} (m = ${m}${ent ? ', entangled' : ''}): J = ${mask}, H${i + 1}: sequences give ${v[i]}, Algorithm 2 gives ${W[mask * m + i]}`;
+      }
+      const E = load(defaultGraphToEntangled(Gr, dg)), WE = closureWeights(floatGraph(E));
+      for (let i = 0; i < W.length; i++) if (!near(W[i], WE[i], 1e-9)) return `random ${t}: entangled form of the sequences differs at ${i}`;
+      if (E.ent.comps.length !== dg.seqs.length) return 'component count';
+    }
+    const parsed = parseDefaultGraph('# Fig. 4(a)\nH1 > H3 > H4 > H2 > H5 : 1/2\nH2 → H3 → H5 → H1 → H4 = 1/2');
+    const P = load(defaultGraphJSON(parsed, Array.from({ length: 5 }, (_, i) => ({ x: i * 100, y: 0 })), 0.025));
+    const F4 = load(entangledTemplateJSON('maurerFig4')), W4 = closureWeights(floatGraph(F4)), WP = closureWeights(floatGraph(P));
+    if (P.nodes.map(n => n.label).join(',') !== 'H1,H3,H4,H2,H5' || P.ent.comps.length !== 2) return 'import shape';
+    const perm = P.nodes.map(n => F4.nodes.findIndex(x => x.label === n.label));
+    for (let mask = 1; mask < 32; mask++) { let mask4 = 0; for (let i = 0; i < 5; i++) if (mask & (1 << i)) mask4 |= 1 << perm[i]; for (let i = 0; i < 5; i++) if (mask & (1 << i) && !near(WP[mask * 5 + i], W4[mask4 * 5 + perm[i]], 1e-12)) return 'imported Fig. 4(a) differs from the Fig. 4(b) template'; }
+    let bad = null; try { parseDefaultGraph('H1 > H1 : 1'); } catch (e) { bad = e.message; }
+    if (!/appears twice/.test(bad || '')) return 'duplicate not refused';
+    return true;
+  });
+  return res;
+}
+
 function closedTestAsync(fg, p, alpha, test, ctx, onProgress) {
   return new Promise((resolve, reject) => {
     const m = fg.m;

@@ -17,6 +17,7 @@ Created by Niamh Fitzgerald.
 - Test with p-values: step through the Bonferroni procedure one rejection at a time, in any order, with the weight moving along the arrows; see what it would take to reject a hypothesis; run closed tests with weighted Simes, Simes within groups, or parametric tests with known correlations; adjusted p-values.
 - Power by simulation, with runs kept for comparison and the matching graphicalMCP code.
 - Compare two graphs: keep a copy, change it, and see both pictures, the weights and transitions that differ, the test result on the same p-values, and the power on the same simulated trials with the difference and its standard error.
+- Entangled graphs (Maurer and Bretz, 2013): several component graphs on the same hypotheses with weights c, edited one at a time and overlaid in an All view; templates for the paper's Figs. 2, 4(b) and 5, parallel gatekeeping with truncated Holm (Xi and Bretz, 2019), truncated Holm for any m and at least k of m; a default-graph view of any graph as fixed sequences with weights (Burman, Sonesson and Guilbaud, 2009).
 - Export a PNG, SVG, TikZ, beamer step-by-step frames, R code for graphicalMCP and gMCP, SAP or protocol text with tables, a JSON file or a share link.
 - Plain-language mode for discussing a design with clinicians, and a presentation mode.
 
@@ -62,11 +63,12 @@ The built-in self-test (More menu, or the "debug" button in the footer) runs 57 
 - Closed tests (Simes and parametric) are available for up to 12 hypotheses; the Bonferroni procedure has no such limit.
 - Parametric adjusted p-values are Monte Carlo estimates; the standard error is shown. Confirm them in R before relying on them in a submission.
 - The Simes options need positively dependent one-sided statistics; the parametric option needs one-sided p-values.
-- Not covered: trimmed Simes tests, entangled graphs, group sequential and adaptive designs, simultaneous confidence intervals, sample size.
+- Entangled graphs: gMCP tests them with Bonferroni only; the Simes and parametric closed tests on an entangled graph follow Maurer and Bretz (2013, p. 1746) and are checked by hand from the exported intersection weights.
+- Not covered: trimmed Simes tests, group sequential and adaptive designs, simultaneous confidence intervals, sample size.
 
 ## Citation
 
-Fitzgerald N (2026). Multiplicity Graph Sketchpad, version 1.1.5. https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad. See `CITATION.cff`.
+Fitzgerald N (2026). Multiplicity Graph Sketchpad, version 1.2.0. https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad. See `CITATION.cff`.
 
 ## Licence
 
