@@ -47,7 +47,8 @@ async function step(name, fn) {
     }
     /* the entangled templates come last; leave an ordinary graph for the steps that follow */
     await page.selectOption('#templateSelect', 'holm'); await sleep(120);
-    return opts.length === 21 || 'expected 21 options, got ' + opts.length;
+    /* 25 with Plain language off (the default): the four statistician-only templates are in (21 up to 1.3.1, with Advanced off) */
+    return opts.length === 25 || 'expected 25 options, got ' + opts.length;
   });
 
   await step('Starter cards: clear graph, size buttons, each card, Import from R', async () => {
@@ -231,7 +232,7 @@ async function step(name, fn) {
 
   await step('Variables: typing γ makes a variable; value edits re-evaluate; replace variables', async () => {
     await page.selectOption('#templateSelect', 'successive'); await sleep(150);
-    await page.click('#moreMenu summary'); await page.check('#advToggle'); await page.keyboard.press('Escape'); await sleep(100);
+    await ev(() => setPlain(false)); await sleep(100);
     const vars = await ev(() => Object.keys(G.vars).sort().join()); if (vars !== 'γ,δ') return 'vars ' + vars;
     await page.click('#tabbtn-graph');
     if (!(await page.locator('#det-vars').evaluate(d => d.open))) await page.click('#det-vars summary');
@@ -245,9 +246,9 @@ async function step(name, fn) {
     if ((await ev(() => Q.exact(G.edges[0].g))) !== '1/4') return 'values lost after replace';
   });
 
-  await step('Advanced-only templates: shown in the picker in advanced mode, loaded with their variables, taken out in simple mode', async () => {
+  await step('Statistician-only templates (data-adv): in the picker with Plain language off, loaded with their variables, taken out with it on', async () => {
     const adv = await page.locator('#templateSelect option[data-adv]').evaluateAll(os => os.map(o => o.value));
-    if (!adv.includes('hungWang') || !adv.includes('efficacySafety')) return 'advanced options: ' + adv.join(',');
+    if (!adv.includes('hungWang') || !adv.includes('efficacySafety')) return 'statistician-only options: ' + adv.join(',');
     const full = await page.locator('#templateSelect option').evaluateAll(os => os.map(o => o.value));
     for (const v of adv) {
       await page.selectOption('#templateSelect', v); await sleep(150);
@@ -257,12 +258,12 @@ async function step(name, fn) {
     const lab = await ev(() => G.nodes.map(n => n.label).join('|')); if (lab !== 'H1,NI|H1,S|H2,NI|H2,S') return 'labels ' + lab;
     const vars = await ev(() => Object.keys(G.vars).sort().join('')); if (vars !== 'ντω') return 'vars ' + vars;
     const s = await status(); if (!/H2,S has no outgoing/.test(s)) return 'status: ' + s;
-    await page.click('#moreMenu summary'); await page.uncheck('#advToggle'); await page.keyboard.press('Escape'); await sleep(100);
+    await page.check('#plainToggle'); await sleep(100);
     const simple = await page.locator('#templateSelect option').evaluateAll(os => os.map(o => o.value));
-    if (adv.some(v => simple.includes(v))) return 'advanced options still listed in simple mode';
-    await page.click('#moreMenu summary'); await page.check('#advToggle'); await page.keyboard.press('Escape'); await sleep(100);
+    if (adv.some(v => simple.includes(v))) return 'statistician-only options still listed with Plain language on';
+    await page.uncheck('#plainToggle'); await sleep(100);
     const back = await page.locator('#templateSelect option').evaluateAll(os => os.map(o => o.value));
-    if (!adv.every(v => back.includes(v))) return 'advanced options not restored';
+    if (!adv.every(v => back.includes(v))) return 'statistician-only options not restored';
     if (back.join() !== full.join()) return 'options not back in their places: ' + back.join(',');
   });
 
@@ -314,7 +315,7 @@ async function step(name, fn) {
     if (!/must be a number between 0 and 1/.test(await page.locator('#tab-test').innerText())) return 'bad p message';
     await inp.fill('abc'); await inp.press('Tab'); await sleep(120);
     if (!(await inp.evaluate(e => e.classList.contains('bad')))) return 'bad class';
-    if (!(await page.locator('#det-paste').count())) return 'paste section missing (advanced on?)';
+    if (!(await page.locator('#det-paste').count())) return 'paste section missing (Plain language on?)';
     await openDet('det-paste');
     await page.fill('#pastePs', 'c(0.01, 0.02)'); await page.click('[data-action="paste-p"]'); await sleep(80);
     if (!/Found 2 values for 4/.test(await page.locator('#pasteMsg').innerText())) return 'paste count message';
@@ -455,9 +456,9 @@ async function step(name, fn) {
     await page.fill('#sim-rho', '0.5'); await page.locator('#sim-rho').dispatchEvent('change'); await sleep(100);
     await page.click('#tabbtn-optimise'); await sleep(60);
     if ((await page.locator('#opt-sim-rho').inputValue()) !== '0.5') return 'rho edit in the Power tab not shown';
-    await page.click('#moreMenu summary'); await page.uncheck('#advToggle'); await page.keyboard.press('Escape'); await sleep(100);
-    if (await page.locator('#tabbtn-optimise').isVisible() || (await ev(() => activeTab)) !== 'graph') return 'simple mode';
-    await page.click('#moreMenu summary'); await page.check('#advToggle'); await page.keyboard.press('Escape'); await sleep(100);
+    await page.check('#plainToggle'); await sleep(100);
+    if (await page.locator('#tabbtn-optimise').isVisible() || (await ev(() => activeTab)) !== 'graph' || await page.locator('#tab-optimise').isVisible() || !(await page.locator('#tab-graph').isVisible())) return 'Plain language on: Optimise tab or panel still shown';
+    await page.uncheck('#plainToggle'); await sleep(100);
     await ev(() => { OPT.source = 'quick'; OPT.text = ''; SIM.success = { ids: [], rule: 'any' }; SIM.n = 10000; renderAll(); });
   });
 
@@ -711,13 +712,18 @@ async function step(name, fn) {
     await page.keyboard.press('Control+z'); await sleep(80);
   });
 
-  await step('Settings persist across reload (advanced, decimals, theme, plain)', async () => {
+  await step('Settings persist across reload (decimals, theme, plain); both Plain language boxes agree; a stored mgs-adv is ignored', async () => {
     await page.click('#moreMenu summary'); await page.check('#decToggle'); await page.selectOption('#skinSelect', 'white'); await page.keyboard.press('Escape');
-    await page.click('#tabbtn-test'); await page.check('#plainToggle'); await sleep(100);
+    await page.check('#plainToggle'); await sleep(100);
+    if (!(await ev(() => $('plainMenuToggle').checked && document.body.classList.contains('clinician')))) return 'menu box or body class not in step with the switch';
+    await ev(() => store.set('mgs-adv', '0')); /* a 1.3.0 browser with Advanced features off */
     await page.reload(); await sleep(600);
-    if (!(await ev(() => advanced && numMode === 'dec' && plain && document.documentElement.dataset.skin === 'white'))) return 'settings lost: ' + await ev(() => [advanced, numMode, plain, document.documentElement.dataset.skin].join());
+    if (!(await ev(() => numMode === 'dec' && plain && document.documentElement.dataset.skin === 'white' && $('plainToggle').checked && $('plainMenuToggle').checked))) return 'settings lost: ' + await ev(() => [numMode, plain, document.documentElement.dataset.skin].join());
     await page.click('#moreMenu summary'); await page.uncheck('#decToggle'); await page.selectOption('#skinSelect', 'auto'); await page.keyboard.press('Escape');
-    await page.click('#tabbtn-test'); await page.uncheck('#plainToggle');
+    await page.uncheck('#plainToggle'); await sleep(100);
+    if (await ev(() => document.body.classList.contains('clinician') || $('plainMenuToggle').checked)) return 'menu box or body class still on after unticking';
+    if (!(await page.locator('#tabbtn-matrix').isVisible())) return 'the stored mgs-adv = 0 still hides the Matrix tab';
+    await ev(() => { localStorage.removeItem('mgs-adv'); });
   });
 
   await step('Plain-language mode reads sensibly in design and test', async () => {
@@ -817,9 +823,9 @@ async function step(name, fn) {
 
   await step('Closed-test warnings in the Test tab: not alpha-exhaustive (with and without upscale), two-sided p-values; none for Bonferroni or an exhaustive graph', async () => {
     if ((await ev(() => mode)) === 'test') { await page.click('[data-action="exit-test"]'); await sleep(100); }
-    const saved = await ev(() => ({ g: JSON.stringify(serializeGraph(G)), sided: G.sided, adv: advanced }));
+    const saved = await ev(() => ({ g: JSON.stringify(serializeGraph(G)), sided: G.sided, pl: plain }));
     const warns = async () => { await page.click('#tabbtn-test'); await sleep(120); return (await page.locator('#tab-test [data-warn="closed"]').allInnerTexts()).join(' | '); };
-    await ev(() => { setAdvanced(true, true); loadGraph(templateJSON('parallel')); G.test.type = 'simes'; G.test.upscale = false; renderAll(); });
+    await ev(() => { setPlain(false, true); loadGraph(templateJSON('parallel')); G.test.type = 'simes'; G.test.upscale = false; renderAll(); });
     let w = await warns(); if (!/not α-exhaustive/.test(w) || /Upscaling/.test(w) || /Two-sided/.test(w)) return 'parallel simes: ' + w;
     await ev(() => { G.test.upscale = true; renderAll(); });
     w = await warns(); if (!/Upscaling the weights also changes/.test(w)) return 'upscale: ' + w;
@@ -831,14 +837,14 @@ async function step(name, fn) {
     await page.selectOption('#sidedSelect', 'one'); await sleep(150);
     await ev(() => { loadGraph(templateJSON('improvedParallel')); G.test.type = 'simes'; renderAll(); });
     w = await warns(); if (w) return 'exhaustive one-sided graph should have no warning: ' + w;
-    await ev(s => { loadGraph(JSON.parse(s.g)); G.sided = s.sided; setAdvanced(s.adv, true); renderAll(); }, saved);
+    await ev(s => { loadGraph(JSON.parse(s.g)); G.sided = s.sided; setPlain(s.pl, true); renderAll(); }, saved);
     await page.selectOption('#sidedSelect', saved.sided === 'two' ? 'two' : 'one'); await sleep(100);
   });
 
   await step('Correlation checks: impossible block named in the Test tab and live in the Power tab; Simes warning for negative correlations (Simes within groups: same group only)', async () => {
     if ((await ev(() => mode)) === 'test') { await page.click('[data-action="exit-test"]'); await sleep(100); }
-    const saved = await ev(() => ({ g: JSON.stringify(serializeGraph(G)), sided: G.sided, adv: advanced, sim: JSON.stringify({ rho: SIM.rho, useMatrix: SIM.useMatrix, corr: SIM.corr }) }));
-    const K = await ev(() => { setAdvanced(true, true); loadGraph(templateJSON('parallel')); const id = G.nodes.map(n => n.id), k = (i, j) => pairKey(id[i], id[j]); G.sided = 'one'; G.test.type = 'parametric'; G.test.corr = { [k(0, 1)]: 0.9, [k(0, 2)]: 0.9, [k(1, 2)]: -0.9 }; SIM.rho = '0.5'; SIM.useMatrix = false; SIM.corr = {}; setTab('test'); renderAll(); return { k01: k(0, 1), k02: k(0, 2), k12: k(1, 2) }; });
+    const saved = await ev(() => ({ g: JSON.stringify(serializeGraph(G)), sided: G.sided, pl: plain, sim: JSON.stringify({ rho: SIM.rho, useMatrix: SIM.useMatrix, corr: SIM.corr }) }));
+    const K = await ev(() => { setPlain(false, true); loadGraph(templateJSON('parallel')); const id = G.nodes.map(n => n.id), k = (i, j) => pairKey(id[i], id[j]); G.sided = 'one'; G.test.type = 'parametric'; G.test.corr = { [k(0, 1)]: 0.9, [k(0, 2)]: 0.9, [k(1, 2)]: -0.9 }; SIM.rho = '0.5'; SIM.useMatrix = false; SIM.corr = {}; setTab('test'); renderAll(); return { k01: k(0, 1), k02: k(0, 2), k12: k(1, 2) }; });
     await openDet('det-testtype');
     let t = await page.locator('#det-testtype').innerText(); if (!/between H1, H2 and H3 cannot all hold/.test(t)) return 'Test tab block message: ' + t.slice(0, 400);
     await ev(k => { G.test.corr = { [k]: 1 }; renderAll(); }, K.k01);
@@ -868,7 +874,7 @@ async function step(name, fn) {
     if (!/−0\.2 for every pair/.test(w)) return 'Simes warning (single value): ' + w;
     await ev(() => { G.test.type = 'bonferroni'; renderAll(); });
     w = (await page.locator('#tab-test [data-warn="closed"]').allInnerTexts()).join(' | '); if (w) return 'Bonferroni warned: ' + w;
-    await ev(s => { const o = JSON.parse(s.sim); SIM.rho = o.rho; SIM.useMatrix = o.useMatrix; SIM.corr = o.corr; loadGraph(JSON.parse(s.g)); G.sided = s.sided; setAdvanced(s.adv, true); renderAll(); }, saved);
+    await ev(s => { const o = JSON.parse(s.sim); SIM.rho = o.rho; SIM.useMatrix = o.useMatrix; SIM.corr = o.corr; loadGraph(JSON.parse(s.g)); G.sided = s.sided; setPlain(s.pl, true); renderAll(); }, saved);
   });
 
   await step('Phone-width layout: no horizontal overflow, tabs and toolbar usable at 390px; the hint box does not cover the graph; a zoomed view is kept on resize', async () => {
@@ -900,7 +906,7 @@ async function step(name, fn) {
   });
 
   await step('Entangled graphs (design): template from the picker, component bar switches the component, c edited in the panel, add and remove a component, undo, make entangled and reduce, simple mode hides the editing buttons', async () => {
-    await page.evaluate(() => { setMode('design', true); setAdvanced(true, true); setTab('graph'); });
+    await page.evaluate(() => { setMode('design', true); setPlain(false, true); setTab('graph'); });
     await page.selectOption('#templateSelect', 'ent:maurerFig2'); await sleep(250);
     let r = await ev(() => ({ ent: isEntangled(G), hidden: $('compBar').hidden, w: G.nodes.map(n => Q.exact(n.w)).join(), bar: $('compBar').innerText.replace(/\s+/g, ' ') }));
     if (!r.ent || r.hidden || r.w !== '1,0,0,0,0' || !/Graph 1.*Graph 2.*\+ Graph.*Remove Graph 1/.test(r.bar)) return 'template: ' + JSON.stringify(r);
@@ -966,11 +972,11 @@ async function step(name, fn) {
     await page.evaluate(() => { $('det-ent').open = true; }); await page.click('#tab-graph [data-action="comp-collapse"]'); await sleep(120);
     r = await ev(() => ({ ent: isEntangled(G), w: G.nodes.map(n => Q.exact(n.w)).join(), hidden: $('compBar').hidden }));
     if (r.ent || r.w !== '1/2,1/2,0,0' || !r.hidden) return 'reduce: ' + JSON.stringify(r);
-    await page.evaluate(() => { loadGraph(entangledTemplateJSON('maurerFig4')); setAdvanced(false); }); await sleep(120);
+    await page.evaluate(() => { loadGraph(entangledTemplateJSON('maurerFig4')); setPlain(true); }); await sleep(120);
     r = await ev(() => ({ hidden: $('compBar').hidden, add: !!document.querySelector('#compBar [data-action="comp-add"]'), opt: !!document.querySelector('#templateSelect option[value="ent:maurerFig4"]'), ro: $('cw-0') ? $('cw-0').readOnly : null }));
     if (r.hidden || r.add || !r.opt || r.ro !== true) return 'simple: ' + JSON.stringify(r);
     /* Matrix view: c row, then w and G per component; a hidden component is editable there too; test mode shows each component's current state */
-    await page.evaluate(() => { setAdvanced(true, true); loadGraph(entangledTemplateJSON('maurerFig2')); setTab('matrix'); }); await sleep(150);
+    await page.evaluate(() => { setPlain(false, true); loadGraph(entangledTemplateJSON('maurerFig2')); setTab('matrix'); }); await sleep(150);
     r = await ev(() => ({ mc: document.querySelectorAll('[data-mc]').length, mw: document.querySelectorAll('[data-mwk]').length, mg: document.querySelectorAll('[data-mgk]').length, txt: $('mx-dyn').innerText.replace(/\s+/g, ' ') }));
     if (r.mc !== 2 || r.mw !== 10 || r.mg !== 40 || !/COMPONENT WEIGHTS C/i.test(r.txt) || !/GRAPH 2/i.test(r.txt)) return 'matrix: ' + JSON.stringify(r);
     const ids = await ev(() => G.nodes.map(n => n.id));
@@ -996,7 +1002,7 @@ async function step(name, fn) {
     await page.fill('#imp-ent', 'x <- c(1, 2)'); await page.click('[data-action="import-ent"]'); await sleep(100);
     if (!/entangledMCP/.test(await page.locator('#imp-ent-msg').innerText())) return 'gMCP import refusal message';
     /* the other entangled templates and the k-of-m box */
-    await page.evaluate(() => { setAdvanced(true, true); setTab('graph'); });
+    await page.evaluate(() => { setPlain(false, true); setTab('graph'); });
     await page.selectOption('#templateSelect', 'ent:maurerFig5'); await sleep(200);
     r = await ev(() => ({ n: G.ent.comps.length, vars: Object.keys(G.vars).sort().join(','), bar: !$('compBar').hidden }));
     if (r.n !== 2 || r.vars !== 'γ1,γ2,ε' || !r.bar) return 'Fig. 5 template: ' + JSON.stringify(r);
@@ -1014,7 +1020,7 @@ async function step(name, fn) {
     await page.selectOption('#templateSelect', 'entKOfM'); await sleep(100); await page.fill('#tplW', '7 of 9'); await page.click('#tab-graph [data-action="tpl-w-create"]'); await sleep(100);
     if (!/2 to 6 primaries/.test(await page.locator('#tplWMsg').innerText())) return 'k of m refusal';
     await page.click('#tab-graph [data-action="tpl-w-cancel"]');
-    await page.evaluate(() => { setAdvanced(true, true); loadGraph(templateJSON('holm')); });
+    await page.evaluate(() => { setPlain(false, true); loadGraph(templateJSON('holm')); });
   });
 
   await step('Entangled graphs (exports): gMCP entangledMCP code with generateWeights and the weight table, graphicalMCP per component with the closed test by hand, Power tab calcPower code, SVG, PNG and TikZ of the All view with a key, beamer overlays with weight vectors, exports of one component view', async () => {
@@ -1074,7 +1080,7 @@ async function step(name, fn) {
     out = await page.locator('#exportCode').innerText();
     if ((out.match(/\\only<\d>\{%/g) || []).length !== 6) return 'beamer design overlays ' + (out.match(/\\only<\d>\{%/g) || []).length;
     if (!/\+0\.999 to H5/.test(out) || !/all hypotheses rejected/.test(out)) return 'beamer design captions';
-    await page.evaluate(() => { setAdvanced(true, true); loadGraph(templateJSON('holm')); });
+    await page.evaluate(() => { setPlain(false, true); loadGraph(templateJSON('holm')); });
   });
 
   await step('Entangled graphs (Compare tab): All-view pictures, combined weights with the component vectors, transitions compared graph by graph against a kept copy with different c and against an ordinary graph, test both, paired power, entangled templates offered', async () => {
@@ -1111,11 +1117,11 @@ async function step(name, fn) {
     if (!/B: Entangled/.test(await page.locator('#tab-compare').innerText()) || (await page.locator('.cmp-pic').count()) !== 2) return 'entangled template as B';
     await page.click('[data-action="cmp-remove"]'); await sleep(100);
     await page.click('#tabbtn-power'); await page.selectOption('#sim-n', '10000');
-    await page.evaluate(() => { setAdvanced(true, true); loadGraph(templateJSON('holm')); });
+    await page.evaluate(() => { setPlain(false, true); loadGraph(templateJSON('holm')); });
   });
 
   await step('Default-graph view (Matrix tab): Fig. 2 decomposes into the Fig. 4(a) chains plus ε-order sequences, hiding the small ones, copy as text, make an entangled graph of the sequences, the import box builds Fig. 4(a), Holm on 4 gives 24 sequences, 7 hypotheses refused', async () => {
-    await page.evaluate(() => { setAdvanced(true, true); loadGraph(entangledTemplateJSON('maurerFig2')); setTab('matrix'); $('det-default').open = true; }); await sleep(250);
+    await page.evaluate(() => { setPlain(false, true); loadGraph(entangledTemplateJSON('maurerFig2')); setTab('matrix'); $('det-default').open = true; }); await sleep(250);
     let t = await page.locator('#dg-body').innerText();
     if (!/default graph of 4 fixed sequences/.test(t) || !/H1 > H3 > H4 > H2 > H5\s+0\.4995/.test(t) || !/H1 > H3 > H5 \*\s+0\.0005/.test(t) || !/Appendix A, pp\. 1752-1753/.test(t)) return 'fig 2 sequences: ' + t.slice(0, 600);
     if ((await page.locator('#dg-body svg circle').count()) !== 16) return 'picture circles ' + (await page.locator('#dg-body svg circle').count());
@@ -1159,7 +1165,7 @@ async function step(name, fn) {
     await p2.waitForTimeout(900);
     const fr = p2.frames().find(f => f !== p2.mainFrame());
     if (!fr) return 'no frame';
-    const r = await fr.evaluate(() => { setAdvanced(true, true); setTab('export'); showExport('link'); return { isTop, txt: document.getElementById('exportOut').innerText.slice(0, 120), nodes: G.nodes.length }; });
+    const r = await fr.evaluate(() => { setPlain(false, true); setTab('export'); showExport('link'); return { isTop, txt: document.getElementById('exportOut').innerText.slice(0, 120), nodes: G.nodes.length }; });
     if (r.isTop) return 'isTop in frame';
     if (!/share code/i.test(r.txt)) return 'share code text: ' + r.txt;
     await p2.close();
@@ -1174,13 +1180,15 @@ async function step(name, fn) {
     await p.goto(FILE); await p.waitForTimeout(700);
     return { c, p };
   };
-  await step('Plain language off: the Test tab, drawing, hint, toolbar and presentation mode show exactly the 1.3.0 text (clinician set-up)', async () => {
+  await step('Plain language off: the Test tab, drawing, hint, toolbar and presentation mode show exactly the 1.3.0 text with Advanced on (clinician set-up)', async () => {
     const want = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, 'plain-off-1.3.0.json'), 'utf8')).text;
     const { c, p } = await freshPage();
     const got = await capturePlain(p, false);
     await c.close();
+    /* one planned exception: the Plain language box left the Test tab heading for the switch at the foot of the panel */
+    const noLabel = v => typeof v === 'string' ? v.replace(/^Test the graph\nPlain language\n/, 'Test the graph\n') : v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, noLabel(x)])) : v;
     for (const k of Object.keys(want)) {
-      const a = JSON.stringify(want[k]), g = JSON.stringify(got[k]);
+      const a = JSON.stringify(noLabel(want[k])), g = JSON.stringify(noLabel(got[k]));
       if (a !== g) { let i = 0; while (i < a.length && a[i] === g[i]) i++; return `${k} differs at ${i}: 1.3.0 "${a.slice(Math.max(0, i - 40), i + 60)}" now "${(g || '').slice(Math.max(0, i - 40), i + 60)}"`; }
     }
   });
@@ -1215,6 +1223,48 @@ async function step(name, fn) {
     if (await p.locator('#tab-test [data-hint="desc"]').count()) sums += 'description tip still shown with a description. ';
     await c.close();
     if (hits.length || sums) return `${hits.length} old word${hits.length === 1 ? '' : 's'} left${hits.length ? ': ' + hits.slice(0, 6).join('; ') : ''}${sums ? '. ' + sums : ''}`;
+  });
+
+  /* One switch (after 1.3.1): Plain language on shows what 1.3.0 showed with Advanced off; off, what Advanced on showed */
+  const { captureViews, diffViews } = require('./view-capture');
+  await step('Plain language on hides exactly what 1.3.0 hid with Advanced off: tabs, templates, menu, sections and buttons; off shows what Advanced on showed', async () => {
+    const views = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, 'views-1.3.0.json'), 'utf8'));
+    /* planned differences: Import opens the Matrix tab, so it is hidden with the tab in the clinician view */
+    const planned = ['menu: only with 1.3.0 Advanced off: importBtn'];
+    let out = '';
+    for (const on of [true, false]) {
+      const { c, p } = await freshPage();
+      await p.evaluate(on => setPlain(on), on); await p.waitForTimeout(100);
+      const got = await captureViews(p);
+      if (on) {
+        /* the sentences that pointed to "advanced features" now point to the switch */
+        await p.evaluate(() => setTab('export')); await p.waitForTimeout(60);
+        const ex = await p.locator('#tab-export').innerText();
+        if (!/for the statistician\. Untick Plain language to see them\./.test(ex) || /advanced/i.test(ex)) out += 'Export note: ' + ex.slice(0, 160).replace(/\s+/g, ' ') + '. ';
+        await p.evaluate(() => { G.test.type = 'simes'; setTab('test'); }); await p.waitForTimeout(60);
+        const tx = await p.locator('#tab-test').innerText();
+        if (!/Test: Weighted Simes\. Untick Plain language to change it\./.test(tx) || /advanced/i.test(tx)) out += 'Test line: ' + tx.slice(0, 160).replace(/\s+/g, ' ') + '. ';
+        if (await p.locator('#tab-test #testType').count()) out += 'Test type section shown in the clinician view. ';
+        await p.evaluate(() => { G.test.type = 'bonferroni'; renderAll(); });
+      }
+      await c.close();
+      const want = on ? views.advancedOff : views.advancedOn;
+      const d = diffViews(want, got, `1.3.0 Advanced ${on ? 'off' : 'on'}`, `Plain language ${on ? 'on' : 'off'}`).filter(l => !planned.includes(l));
+      if (d.length) out += `Plain language ${on ? 'on' : 'off'}: ${d.slice(0, 5).join(' | ')}${d.length > 5 ? ` (+${d.length - 5})` : ''}. `;
+    }
+    if (out) return out;
+  });
+  await step('Ticking Plain language on the Matrix, Power or Optimise tab moves to the Graph tab: only its panel and tab button show (the 1.3.0 Advanced-off bug)', async () => {
+    const { c, p } = await freshPage();
+    let out = '';
+    for (const t of ['matrix', 'power', 'optimise']) {
+      await p.evaluate(() => setPlain(false)); await p.evaluate(t => setTab(t), t); await p.waitForTimeout(80);
+      await p.click('#plainToggle'); await p.waitForTimeout(120);
+      const r = await p.evaluate(() => ({ active: activeTab, shown: TABS.filter(x => !$('tab-' + x).hidden), selected: TABS.filter(x => $('tabbtn-' + x).getAttribute('aria-selected') === 'true'), ticked: $('plainToggle').checked, plain }));
+      if (!r.plain || !r.ticked || r.active !== 'graph' || r.shown.join() !== 'graph' || r.selected.join() !== 'graph') out += `${t}: ${JSON.stringify(r)}. `;
+    }
+    await c.close();
+    if (out) return out;
   });
 
   for (const r of results) console.log((r.ok ? 'PASS ' : 'FAIL ') + r.name + ` (${r.ms} ms)` + (r.ok ? '' : '\n      ' + r.detail));

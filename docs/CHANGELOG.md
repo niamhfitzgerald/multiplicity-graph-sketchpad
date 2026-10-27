@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.2 (2026-10-27)
+
+One switch instead of two, after a review of 1.3.0. The Advanced features box is gone and everything shows by default. Plain language is now the clinician view, on every tab.
+
+- With Plain language off, every tab, template, section and export is shown, as 1.3.0 was with Advanced features on. New users see everything.
+- Plain language ticked still rewords the Test tab, the drawing, the hint, presentation mode and the toolbar (1.3.1). It now also hides what Advanced features off hid in 1.3.0: the Matrix, Power and Optimise tabs; the four statistician-only templates; Test type, order analysis, adjusted p-values, Paste all p-values, Teaching tips; Join or extract, Add a transition from a list and the component buttons of an entangled graph; the Import menu item; the LaTeX, R and SAP exports.
+- The box moved from the Test tab to the foot of the side panel and the More menu (the two places the Advanced box was), so it works on every tab. The Test tab line "change it under advanced features" and the Export note "Show advanced features" now say "Untick Plain language". Help says where the switch is.
+- Fixed: unticking Advanced features on the Matrix, Power or Optimise tab left that panel on screen (1.3.0; `setAdvanced` set `activeTab` without `setTab`). Ticking Plain language on one of those tabs now moves to the Graph tab properly. A hidden tab opened by code (Import, a multigrain result file) stays on the Graph tab and says so.
+- A browser that stored `mgs-adv` from 1.3.0 or 1.3.1 is not affected: the key is no longer read. `mgs-plain` is kept, so a user who had Plain language on opens in the clinician view.
+- Tests: `tests/plain-off-1.3.0.json` retaken from 1.3.0 with Advanced features on; new `tests/views-1.3.0.json` with `tests/view-capture.js` and `tests/make-views-snapshot.js`; two new browser checks (the clinician view hides exactly what Advanced off hid, and the tab bug); 13 existing checks updated. Browser suite: 42. Self-tests: 110. Engine stress suite: 46 (`core.js` changed only in its version string).
+
 ## 1.3.1 (2026-10-27)
 
 Plain-language mode in clinician words, after the clinician test pack (15 October) and the pilot on 1.1.5 (22 October). With Plain language off, every word on the page is as in 1.3.0. The Hommel and Bretz (2008) section 4 self-test, planned for this release, moves to the next one.

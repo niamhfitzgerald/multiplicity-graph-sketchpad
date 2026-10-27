@@ -3,7 +3,8 @@
    Used by browser-stress.js and by make-plain-snapshot.js (which saved tests/plain-off-1.3.0.json from 1.3.0).
 
    With plain = false the "What would it take?" and "Step log" sections are opened, so their text is compared too.
-   With plain = true only "What would it take?" is opened: "Show the sums" stays closed, as a clinician sees it. */
+   With plain = true only "What would it take?" is opened: "Show the sums" stays closed, as a clinician sees it.
+   #plainToggle is the Plain language box: in the Test tab up to 1.3.1, at the foot of the side panel after that. */
 const SETUP_P = ['0.004', '0.009', '0.011', '0.03'];
 
 async function capturePlain(page, plain) {
@@ -67,7 +68,7 @@ async function capturePlain(page, plain) {
   return out;
 }
 
-/* Words a clinician should not meet with Plain language ticked (Bonferroni step-through, Advanced off) */
+/* Words a clinician should not meet with Plain language ticked (Bonferroni step-through) */
 const OLD_WORDS = [/Hyp\./, /Weight now/, /Level now/, /\bStatus\b/, /\breject/i, /α/, /\balpha\b/i, /\blevel\b/i, /≤/, /one-sided p/, /two-sided p/];
 
 /* Every place an old word appears, as "state/part: word in '...context...'" */

@@ -58,9 +58,8 @@ let dlCap; // undefined until resolved; null when this view cannot save files
 const openDetails = new Set(['det-steps', 'det-order', 'det-wit']);
 let wit = null;      // {target, set, step, sig}: a 'what would it take' set shown on the canvas
 let witForce = false; // user asked to enumerate a large graph anyway
-let plain = false;    // plain-language view for clinicians
+let plain = false;    // the clinician view: everyday words (plainWords), and the statistician's tabs, templates and sections hidden (body.clinician)
 let presenting = false;
-let advanced = false; // simple mode hides the matrix, power and technical exports until switched on
 let allView = false;  // entangled graphs: show every component overlaid (read-only) instead of the active one
 const hist = { past: [], future: [] };
 const SIM = { power: {}, rho: '0.5', useMatrix: false, corr: {}, n: 10000, success: { ids: [], rule: 'any' }, running: null, result: null, runs: [], error: '' };
@@ -555,7 +554,7 @@ function renderCompBar() {
     `<button data-comp="all" aria-pressed="${all}" title="Show every component at once">All</button>`;
   bar.innerHTML = `<span class="muted"><b>Entangled graph</b> (${n} component${n === 1 ? '' : 's'}):</span><div class="seg small" role="group" aria-label="Component graph">${btns}</div>` +
     (all ? `<span class="key muted small" aria-label="Line styles">${G.ent.comps.map((_, i) => `<span>${compKeySVG(i)} ${compName(i)}</span>`).join('')}</span><span class="muted small">Read only: pick a graph to edit it.</span>`
-      : (advanced && design ? `<button class="btn small" data-action="comp-add" title="Add a component graph, starting as a copy of this one">+ Graph</button>${n > 1 ? `<button class="btn small" data-action="comp-remove" title="Remove ${compName(k)}">Remove ${compName(k)}</button>` : ''}` : '') +
+      : (!plain && design ? `<button class="btn small" data-action="comp-add" title="Add a component graph, starting as a copy of this one">+ Graph</button>${n > 1 ? `<button class="btn small" data-action="comp-remove" title="Remove ${compName(k)}">Remove ${compName(k)}</button>` : ''}` : '') +
     `<span class="muted small">Weights and transitions belong to ${compName(k)}; names, positions and p-values are shared.</span>`);
   /* the hint chip and zoom buttons sit below the bar */
   wrap.style.setProperty('--comp-h', bar.offsetHeight + 'px');
@@ -607,18 +606,18 @@ function extractComponent(k) {
 function entangledSection() {
   if (mode !== 'design' || !G.nodes.length) return '';
   if (!isEntangled(G)) {
-    return advanced ? det('det-ent', 'Entangled graph', `<p class="small">An entangled graph (Maurer and Bretz, 2013) is several component graphs on the same hypotheses, each with a weight c. A hypothesis is tested at the sum of its levels across the components, and every component is updated separately after a rejection. It can remember where a level came from, which one graph cannot.</p>
+    return !plain ? det('det-ent', 'Entangled graph', `<p class="small">An entangled graph (Maurer and Bretz, 2013) is several component graphs on the same hypotheses, each with a weight c. A hypothesis is tested at the sum of its levels across the components, and every component is updated separately after a rejection. It can remember where a level came from, which one graph cannot.</p>
       <div class="row-actions"><button class="btn small" data-action="make-ent">Make this an entangled graph</button></div><p class="small muted">Starts with two copies of this graph, c = 1/2 each, which gives the same procedure until you edit them apart.</p>`) : '';
   }
   const n = G.ent.comps.length, k = G.ent.active, dis = mode === 'test' ? 'disabled' : '';
   let cs = Q.ZERO; for (const v of G.ent.c) cs = Q.add(cs, v);
   const st = sumStatus(cs);
-  const rows = G.ent.comps.map((_, i) => `<tr><th scope="row">${i === k ? `<b>${compName(i)}</b> (shown)` : `<button class="btn small" data-comp="${i}">${compName(i)}</button>`}</th><td><input id="cw-${i}" data-cw="${i}" value="${esc(weightText(G.ent.c[i], (G.ent.cexpr || [])[i]))}" aria-label="Component weight c${i + 1}" ${advanced ? '' : 'readonly'} ${dis}></td></tr>`).join('');
+  const rows = G.ent.comps.map((_, i) => `<tr><th scope="row">${i === k ? `<b>${compName(i)}</b> (shown)` : `<button class="btn small" data-comp="${i}">${compName(i)}</button>`}</th><td><input id="cw-${i}" data-cw="${i}" value="${esc(weightText(G.ent.c[i], (G.ent.cexpr || [])[i]))}" aria-label="Component weight c${i + 1}" ${!plain ? '' : 'readonly'} ${dis}></td></tr>`).join('');
   const col = entCollapse(G);
   return det('det-ent', 'Entangled graph', `<p class="small">${n} component graph${n === 1 ? '' : 's'} on the same hypotheses (Maurer and Bretz, 2013, Statistics in Medicine 32:1739-1753). Each hypothesis is tested at &alpha; times the sum over components of c &times; its weight there (Algorithm 1, p. 1743). Use the bar above the canvas to switch the component you are editing.</p>
     <table class="t"><thead><tr><th scope="col">Component</th><th scope="col">Weight c</th></tr></thead><tbody>${rows}</tbody></table>
     <p class="small sum ${st.cls}">Component weights add up to <b>${esc(fmt(cs))}</b> ${st.text}</p>
-    ${advanced ? `<div class="row-actions"><button class="btn small" data-action="comp-add">Add a component (copy of ${compName(k)})</button>${n > 1 ? `<button class="btn small" data-action="comp-remove">Remove ${compName(k)}</button>` : ''}<button class="btn small" data-action="comp-extract">Keep only ${compName(k)} as an ordinary graph</button>${col ? '<button class="btn small" data-action="comp-collapse">Reduce to a single graph</button>' : ''}</div>
+    ${!plain ? `<div class="row-actions"><button class="btn small" data-action="comp-add">Add a component (copy of ${compName(k)})</button>${n > 1 ? `<button class="btn small" data-action="comp-remove">Remove ${compName(k)}</button>` : ''}<button class="btn small" data-action="comp-extract">Keep only ${compName(k)} as an ordinary graph</button>${col ? '<button class="btn small" data-action="comp-collapse">Reduce to a single graph</button>' : ''}</div>
     ${col ? '<p class="small muted">Every component has the same transition matrix, so this is one graph with the c-weighted average of the weights (Appendix A, p. 1752).</p>' : ''}
     <p class="small muted">Join and extract subgraph work on ordinary graphs only.</p>` : ''}`, `${n} components, c = ${G.ent.c.map(v => fmt(v)).join(', ')}`);
 }
@@ -680,7 +679,7 @@ function overviewPanel() {
   ${G.nodes.length > 1 && mode === 'design' ? `<div class="row-actions"><button class="btn small" data-action="equal-w">Give every hypothesis equal weight</button></div>` : ''}
   ${varsSection()}
   ${entangledSection()}
-  ${advanced && mode === 'design' && G.nodes.length && !isEntangled(G) ? det('det-build', 'Join or extract', `<p class="small"><b>Join with a template</b> (gMCP joinGraphs): adds a second graph below this one. Weights are rescaled if they then add up to more than 1.</p>
+  ${!plain && mode === 'design' && G.nodes.length && !isEntangled(G) ? det('det-build', 'Join or extract', `<p class="small"><b>Join with a template</b> (gMCP joinGraphs): adds a second graph below this one. Weights are rescaled if they then add up to more than 1.</p>
     <div class="row-actions"><select class="sel" id="joinSelect" aria-label="Template to join">${Object.entries(TEMPLATES).map(([k, t]) => `<option value="${k}">${esc(t.name)}</option>`).join('')}</select><button class="btn small" data-action="join">Join</button></div>
     <p class="small"><b>Extract a subgraph</b> (gMCP subgraph): keep only the ticked hypotheses, with the transitions among them.</p>
     <div class="row-actions">${G.nodes.map(n => `<label class="chk"><input type="checkbox" data-keep="${n.id}" checked> ${esc(n.label)}</label>`).join('')}</div>
@@ -695,7 +694,7 @@ function overviewPanel() {
 }
 function varsSection() {
   const names = Object.keys(G.vars || {});
-  if (!names.length && !advanced) return '';
+  if (!names.length && plain) return '';
   const dis = mode === 'test' ? 'disabled' : '';
   const rows = names.map(v => `<tr><th scope="row">${esc(v)}</th><td><input id="var-${esc(v)}" data-var="${esc(v)}" value="${esc(editVal(G.vars[v]))}" ${dis} aria-label="Value of ${esc(v)}"></td><td class="small muted">${esc([...G.nodes.filter(n => n.wexpr && exprVars(n.wexpr).includes(v)).map(n => n.label), ...G.edges.filter(e => e.expr && exprVars(e.expr).includes(v)).map(e => `${nodeById(e.from).label}→${nodeById(e.to).label}`)].join(', '))}</td></tr>`).join('');
   return det('det-vars', 'Variables', `<p class="small muted">Type a letter in any weight, such as <code>ε</code>, <code>1-ε</code> or <code>(1-γ)/2</code> (eps, gamma, delta, nu, tau and omega are recognised), and it becomes a variable listed here. Tests use the values below. ε is evaluated numerically as 1/1000, as gMCP does by default (substituteEps); Bretz et al. (2009) treat ε symbolically, so here a share α/1000 is carried along an ε edge instead of nothing. Exports evaluate the variables too.</p>
@@ -751,7 +750,7 @@ function nodePanel(n) {
   ${table}
   <p class="small sum ${st.cls}">Total passed on: <b>${esc(fmt(r))}</b> ${st.text}</p>
   ${design ? `<div class="row-actions"><button class="btn primary small" data-action="connect" ${others.length ? '' : 'disabled'}>Connect to another hypothesis</button>${outs.length > 1 ? '<button class="btn small" data-action="equal-row">Share equally</button>' : ''}</div>` : ''}
-  ${advanced && design && others.length ? det('det-addlist', 'Add a transition from a list', `<div class="row-actions"><select class="sel" id="node-add-to" aria-label="Add a transition to">${others.map(o => `<option value="${o.id}">→ ${esc(o.label)}</option>`).join('')}</select><input class="txt" id="node-add-g" style="width:6em" value="${esc(def)}" aria-label="Weight of new transition"><button class="btn small" data-action="add-edge">Add</button></div><p id="node-add-msg" class="err-text" hidden></p>`) : ''}
+  ${!plain && design && others.length ? det('det-addlist', 'Add a transition from a list', `<div class="row-actions"><select class="sel" id="node-add-to" aria-label="Add a transition to">${others.map(o => `<option value="${o.id}">→ ${esc(o.label)}</option>`).join('')}</select><input class="txt" id="node-add-g" style="width:6em" value="${esc(def)}" aria-label="Weight of new transition"><button class="btn small" data-action="add-edge">Add</button></div><p id="node-add-msg" class="err-text" hidden></p>`) : ''}
   ${design ? '<div class="row-actions"><button class="btn danger" data-action="delete-node">Delete hypothesis</button></div>' : ''}`;
 }
 function edgePanel(e) {
@@ -793,7 +792,7 @@ function matrixTables(editable, labels, wCells, gCell, wSum, rowSums) {
    2013, section 3.2). Every component is editable here, whichever one the canvas shows. */
 function renderMatrixEntangled(el) {
   const inTest = mode === 'test' && T, cur = inTest && mxView === 'current';
-  const dis = inTest ? 'disabled' : '', ro = advanced ? '' : 'readonly';
+  const dis = inTest ? 'disabled' : '', ro = plain ? 'readonly' : '';
   const ids = G.nodes.map(n => n.id), labels = G.nodes.map(n => n.label);
   const st = inTest ? T.st : null;
   const live = id => !cur || st.ids.includes(id);
@@ -864,7 +863,7 @@ function renderMatrixPanel() {
     }
     const dis = mode === 'test' ? 'disabled' : '';
     const tot = weightSum(), ts = sumStatus(tot);
-    const locks = advanced && mode === 'design' && OPT.showLocks;
+    const locks = !plain && mode === 'design' && OPT.showLocks;
     const lockBtn = (attr, key, on, forced) => `<button class="lock" ${attr}="${key}" aria-pressed="${on || forced}" title="${forced ? 'Fixed at 0: only transitions that already exist are optimised' : on ? 'Locked: keeps this value in the optimisation' : 'Free: multigrain may change this value'}" aria-label="${forced ? 'Fixed at 0' : on ? 'Locked' : 'Free'}" ${forced ? 'disabled' : ''}>${LOCK_SVG[on || forced ? 'closed' : 'open']}</button>`;
     const wCells = G.nodes.map(n => {
       const bad = Q.cmp(n.w, Q.ZERO) < 0 || Q.cmp(n.w, Q.ONE) > 0, on = locks && OPT.lockW.has(n.id);
@@ -884,7 +883,7 @@ function renderMatrixPanel() {
     const rs = G.nodes.map(n => { const r = rowSum(n.id), st = sumStatus(r); return { cls: st.cls, html: `${esc(fmt(r))} ${st.text}` }; });
     el.innerHTML = `<h2>Matrix view</h2>
       ${mode === 'test' ? '<div class="seg small" role="group" aria-label="Which graph"><button data-action="mx-current" aria-pressed="false">Current graph</button><button data-action="mx-initial" aria-pressed="true">Initial graph</button></div><p class="small muted">Switch to Design mode to edit.</p>' : '<p class="small muted">Edits here and on the canvas stay in sync. Type 0 to remove a transition.</p>'}
-      ${advanced && mode === 'design' ? `<label class="chk"><input type="checkbox" id="mx-locks" ${OPT.showLocks ? 'checked' : ''}> Show locks for the optimisation (Optimise tab)</label>${locks ? `<p class="small muted">A closed lock keeps the current value when multigrain optimises the graph; an open lock lets multigrain change it. ${OPT.existingOnly ? 'Missing transitions stay at 0 (set in the Optimise tab).' : ''}</p>` : ''}` : ''}` +
+      ${!plain && mode === 'design' ? `<label class="chk"><input type="checkbox" id="mx-locks" ${OPT.showLocks ? 'checked' : ''}> Show locks for the optimisation (Optimise tab)</label>${locks ? `<p class="small muted">A closed lock keeps the current value when multigrain optimises the graph; an open lock lets multigrain change it. ${OPT.existingOnly ? 'Missing transitions stay at 0 (set in the Optimise tab).' : ''}</p>` : ''}` : ''}` +
       matrixTables(true, G.nodes.map(n => n.label), wCells, gCell, { cls: ts.cls, html: `${esc(fmt(tot))} ${ts.text}` }, rs);
   });
 }
@@ -942,8 +941,8 @@ function renderDefaultGraph() {
       h += `<div class="mx-scroll"><table class="t"><thead><tr><th scope="col">#</th><th scope="col">Sequence</th><th scope="col" class="num">Weight</th><th scope="col" class="num">Level (weight × α)</th></tr></thead><tbody>${shown.map((s, i) => `<tr><td>${i + 1}</td><td>${esc(seqText(s))}${s.partial ? ' *' : ''}</td><td class="num">${esc(fmt(s.c))}</td><td class="num">${esc(fmtNum(Q.toNum(s.c) * G.alpha, 6))}</td></tr>`).join('')}</tbody></table></div>`;
       if (hidden) h += `<p class="small muted">${hidden} sequence${hidden === 1 ? '' : 's'} hidden (total weight ${esc(fmt(hiddenW))}); the shown weights add up to ${esc(fmt(Q.sub(dg.total, hiddenW)))}.</p>`;
       else if (!Q.eq(dg.total, Q.ONE)) h += `<p class="small muted">The weights add up to ${esc(fmt(dg.total))}, so the procedure does not use the full α.</p>`;
-      h += `<div class="row-actions"><button class="btn small" data-action="dg-copy">Copy as text</button>${advanced && mode === 'design' ? `<button class="btn small" data-action="dg-make" ${shown.length > 24 ? 'disabled title="At most 24 sequences"' : ''}>Make this an entangled graph of ${shown.length === 1 ? 'this sequence' : `these ${shown.length} sequences`}</button>` : ''}</div>`;
-      if (advanced && mode === 'design') h += `<p class="small muted">The entangled graph of fixed sequences has one component graph per sequence (weight 1 on its first hypothesis, transitions of 1 along the chain) with c = the weight, and runs the same test${hidden ? '; the hidden sequences are left out, so it uses less than the full α' : ''}. Symbolic weights become numbers. The text copies in the format of the "Default graph" import box.</p>`;
+      h += `<div class="row-actions"><button class="btn small" data-action="dg-copy">Copy as text</button>${!plain && mode === 'design' ? `<button class="btn small" data-action="dg-make" ${shown.length > 24 ? 'disabled title="At most 24 sequences"' : ''}>Make this an entangled graph of ${shown.length === 1 ? 'this sequence' : `these ${shown.length} sequences`}</button>` : ''}</div>`;
+      if (!plain && mode === 'design') h += `<p class="small muted">The entangled graph of fixed sequences has one component graph per sequence (weight 1 on its first hypothesis, transitions of 1 along the chain) with c = the weight, and runs the same test${hidden ? '; the hidden sequences are left out, so it uses less than the full α' : ''}. Symbolic weights become numbers. The text copies in the format of the "Default graph" import box.</p>`;
     }
     el.innerHTML = h;
   });
@@ -1025,7 +1024,6 @@ function doImportEntangled() {
   }
 }
 function openImport() {
-  if (!advanced) setAdvanced(true);
   setTab('matrix');
   openDetails.add('det-import');
   $('det-import').open = true;
@@ -1288,7 +1286,7 @@ function closedSection(inTest) {
     const adjRows = G.nodes.map((n, i) => `<tr><th scope="row">${esc(n.label)}</th><td class="num">${fmtNum(parseP(n.p))}</td><td class="num">${fmtNum(CT.adj[i])}</td><td>${CT.rejected[i] ? '<span class="status-cell rej">✓ Rejected</span>' : '✕ Not rejected'}</td></tr>`).join('');
     let h = det('det-adj', 'Adjusted p-values', `<p class="small muted">${TEST_TYPES[CT.type]} closed test. A hypothesis is rejected at level &alpha; exactly when its adjusted p-value is at most &alpha;.${CT.type === 'parametric' ? ` Parametric values come from randomised quasi-Monte Carlo integration of the multivariate normal distribution (Genz and Bretz, 2009; 512 lattice points, 12 random shifts)${CT.se != null ? `; the largest Monte Carlo standard error of an intersection p-value in this run is ${fmtNum(CT.se, 2)}` : ''}.` : ''}</p>
       <table class="t"><thead><tr><th scope="col">Hyp.</th><th scope="col" class="num">p</th><th scope="col" class="num">Adjusted p</th><th scope="col">At &alpha; = ${fmtNum(G.alpha)}</th></tr></thead><tbody>${adjRows}</tbody></table>`);
-    if (advanced && m <= 8) {
+    if (!plain && m <= 8) {
       const lab = mask => G.nodes.filter((_, i) => mask & (1 << i)).map(n => n.label).join(' ∩ ');
       const rows = CT.subsets.slice().sort((a, b) => popcount(b.mask) - popcount(a.mask) || a.mask - b.mask).map(sj => `<tr><td>${esc(lab(sj.mask))}</td><td class="num">${sj.w.map((w, i) => (sj.mask & (1 << i) ? fmtNum(w, 3) : '·')).join(' ')}</td><td class="num">${fmtNum(sj.adjP)}</td><td>${sj.adjP <= G.alpha * (1 + 1e-9) ? '✓' : '✕'}</td></tr>`).join('');
       h += det('det-closure', 'Closed test details', `<p class="small muted">Every intersection hypothesis with its weights (in hypothesis order) and the smallest level at which it is rejected. An elementary hypothesis is rejected when every intersection containing it is rejected.</p>
@@ -1456,11 +1454,11 @@ function renderTestPanel() {
     const inTest = mode === 'test' && T;
     /* Plain language rewords the Bonferroni step-through only; closed tests keep the statistician's words (1.3.1) */
     const pl = plainWords();
-    let h = `<div class="row-actions" style="justify-content:space-between;align-items:center"><h2>Test the graph</h2><label class="chk" title="Describe the graph and each step in everyday words"><input type="checkbox" id="plainToggle" ${plain ? 'checked' : ''}> Plain language</label></div>`;
+    let h = `<div class="row-actions" style="justify-content:space-between;align-items:center"><h2>Test the graph</h2></div>`;
     if (plain) h += plainSection();
     if (!inTest) h += pl ? `<p class="small muted">Enter a p-value for each question, then press Run test, or step through it yourself. The trial's allowance is ${pctWords(G.alpha)}.</p>`
       : `<p class="small muted">Enter a p-value for each hypothesis, then run the test at &alpha; = ${fmtNum(G.alpha)}${isBonf() ? ', or step through it yourself' : ''}.</p>`;
-    if (!isBonf() && !advanced) h += `<p class="small muted">Test: ${TEST_TYPES[testType()]} (change it under advanced features).</p>`;
+    if (!isBonf() && plain) h += `<p class="small muted">Test: ${TEST_TYPES[testType()]}. Untick Plain language to change it.</p>`;
     if (!isBonf() && !(inTest && manual)) h += closedWarnings();
     if (errs) h += '<div class="blocked" role="alert">✕ Fix the errors shown under the canvas before testing.</div>';
     const busy = animating || (inTest && T.running);
@@ -1501,7 +1499,7 @@ function renderTestPanel() {
     if (!inTest) {
       const can = G.nodes.length && !errs && G.nodes.some(n => { const p = parseP(n.p); return p != null && !Number.isNaN(p); });
       h += `<div class="row-actions"><button class="btn primary" data-action="run" ${can ? '' : 'disabled'}>Run test</button>${isBonf() ? `<button class="btn" data-action="enter-test" ${G.nodes.length && !errs ? '' : 'disabled'}>Step through it</button><button class="btn" data-action="mode-whatif" ${G.nodes.length && !errs ? '' : 'disabled'}>What if (no p-values)</button>` : `<button class="btn" data-action="mode-whatif" ${G.nodes.length && !errs ? '' : 'disabled'}>What if (Bonferroni graph)</button>`}</div>`;
-      if (advanced) h += testTypeSection();
+      if (!plain) h += testTypeSection();
       if (isBonf()) h += witSection(); else h += closedSection(false);
     } else {
       const done = T.done || !T.st.ids.length;
@@ -1525,17 +1523,17 @@ function renderTestPanel() {
           <span class="r-ok">✓ Rejected: ${rej.length ? rej.map(n => esc(n.label)).join(', ') : 'none'}</span>
           <span class="r-no">✕ Not rejected: ${not.length ? not.map(n => esc(n.label)).join(', ') : 'none'}</span></div>`;
       }
-      if (advanced) h += testTypeSection();
+      if (!plain) h += testTypeSection();
       if (T.closed) h += closedSection(true);
-      else { if (advanced) h += orderSection(); h += witSection(); }
+      else { if (!plain) h += orderSection(); h += witSection(); }
       /* plain language: the same step log, closed by default, for a statistician sitting beside the clinician */
       if (T.log.length) h += det(pl ? 'det-sums' : 'det-steps', pl ? 'Show the sums (for the statistician)' : 'Step log', `<ol class="log">${T.log.map(l => l.stop ? `<li class="stop">${esc(l.text)}</li>` : `<li>${esc(l.text)}${l.gave ? `<br><span class="small">${esc(l.gave)}</span>` : ''}${l.now ? `<br><span class="muted small">${esc(l.now)}</span>` : ''}</li>`).join('')}</ol>`, `${T.step} step${T.step === 1 ? '' : 's'}`);
-      if (advanced) h += det('det-teach', 'Teaching tips', `<p class="small muted">The Matrix tab shows the current weights and transition matrix after each step. Step back and Redo (or Ctrl+Z and Ctrl+Y) move through the steps.</p>`);
+      if (!plain) h += det('det-teach', 'Teaching tips', `<p class="small muted">The Matrix tab shows the current weights and transition matrix after each step. Step back and Redo (or Ctrl+Z and Ctrl+Y) move through the steps.</p>`);
     }
-    if (advanced) h += det('det-paste', 'Paste all p-values at once', `<p class="small muted">In order (${G.nodes.map(n => esc(n.label)).join(', ')}), as <code>c(0.01, 0.02, ...)</code> or separated by commas or spaces.</p>
+    if (!plain) h += det('det-paste', 'Paste all p-values at once', `<p class="small muted">In order (${G.nodes.map(n => esc(n.label)).join(', ')}), as <code>c(0.01, 0.02, ...)</code> or separated by commas or spaces.</p>
       <textarea class="txt" id="pastePs" rows="2" placeholder="c(0.004, 0.009, 0.011, 0.03)" aria-label="p-values for every hypothesis, in order"></textarea>
       <div class="row-actions"><button class="btn small" data-action="paste-p">Fill in p-values</button></div><p id="pasteMsg" class="err-text" hidden></p>`);
-    if (advanced && isBonf() && allPValid() && !errs) {
+    if (!plain && isBonf() && allPValid() && !errs) {
       const adj = adjustedPValues(stateFromGraph(G), id => parseP(nodeById(id).p));
       h += det('det-adj', 'Adjusted p-values', `<p class="small muted">A hypothesis is rejected at level &alpha; exactly when its adjusted p-value is at most &alpha; (Bretz et al., 2009).</p>
         <table class="t"><thead><tr><th scope="col">Hyp.</th><th scope="col" class="num">p</th><th scope="col" class="num">Adjusted p</th><th scope="col">At &alpha; = ${fmtNum(G.alpha)}</th></tr></thead><tbody>${G.nodes.map(n => { const a = adj.get(n.id); return `<tr><th scope="row">${esc(n.label)}</th><td class="num">${fmtNum(parseP(n.p))}</td><td class="num">${fmtNum(a)}</td><td>${a <= G.alpha * (1 + 1e-12) ? '<span class="status-cell rej">✓ Rejected</span>' : '✕ Not rejected'}</td></tr>`; }).join('')}</tbody></table>`);
@@ -1985,7 +1983,7 @@ function applyImportedOptimisation(b) {
   }
   OPT.result = null; OPT.error = '';
   setTab('optimise');
-  flashMessage('Optimised graph from multigrain opened. The Optimise tab compares its expected gain with a fresh estimate.');
+  flashMessage(plain ? 'Optimised graph from multigrain opened. Untick Plain language for the Optimise tab\'s comparison of its expected gain with a fresh estimate.' : 'Optimised graph from multigrain opened. The Optimise tab compares its expected gain with a fresh estimate.');
   if (OPT.source === 'own' && OPT.text) runOptGain();
 }
 /* The note at the top of the Optimise tab for a graph opened from a multigrain result */
@@ -2213,7 +2211,7 @@ function initExportPanel() {
     <button class="btn" data-export="gmcp">gMCP</button>
   </div>
   </div>
-  <p class="small muted simple-only">LaTeX, R code and SAP text are under advanced features: <button class="btn small" data-action="go-advanced">Show advanced features</button></p>
+  <p class="small muted clinician-only">LaTeX, R code and SAP text are for the statistician. Untick Plain language to see them.</p>
   <div id="exportOut" class="form" aria-live="polite"></div>`;
 }
 const SAVE_OK = ['png', 'svg', 'json', 'txt', 'md', 'html', 'csv'];
@@ -2655,27 +2653,35 @@ function updateToolbar() {
   a.setAttribute('aria-label', pl ? "The trial's allowance, as a decimal" : 'Significance level alpha');
   if (sd) { sd.options[0].textContent = pl ? 'one direction' : 'one-sided p'; sd.options[1].textContent = pl ? 'both directions' : 'two-sided p'; sd.title = pl ? 'Whether the p-values you enter test for an effect in one direction (one-sided) or in both directions (two-sided).' : 'Whether the p-values you enter are one-sided or two-sided. The parametric test needs one-sided p-values; the SAP text says which you chose.'; }
 }
-/* Template picker entries marked data-adv are shown in advanced mode only. They are taken out of the select in simple
-   mode and put back in their place in advanced mode (CSS display: none on an option is ignored by Safari). */
+/* Template picker entries marked data-adv are for the statistician. They are taken out of the select in the clinician view
+   (Plain language on) and put back in their place when it is off (CSS display: none on an option is ignored by Safari). */
 const ADV_OPTS = Array.from($('templateSelect').querySelectorAll('option[data-adv]')).map(o => { let next = o.nextElementSibling; while (next && next.dataset.adv) next = next.nextElementSibling; return { o, parent: o.parentNode, next }; });
 function syncAdvOptions() {
   for (const r of ADV_OPTS) {
-    if (advanced) { if (!r.o.isConnected) r.parent.insertBefore(r.o, r.next); }
+    if (!plain) { if (!r.o.isConnected) r.parent.insertBefore(r.o, r.next); }
     else if (r.o.isConnected) r.o.remove();
   }
 }
-function setAdvanced(on, silent) {
-  advanced = !!on;
+/* Tabs the clinician view hides (class adv on their buttons) */
+const STAT_TABS = ['matrix', 'power', 'optimise'];
+/* The one switch. Plain language on is the clinician view: everyday words in the Test tab, on the drawing and in
+   presentation mode, and the statistician's tabs, templates, sections and exports hidden. Off shows everything.
+   (Until 1.3.1 this was two switches: Advanced features and Plain language. The stored key mgs-adv is no longer read.) */
+function setPlain(on, silent) {
+  plain = !!on;
   syncAdvOptions();
-  store.set('mgs-adv', advanced ? '1' : '0');
-  document.body.classList.toggle('simple', !advanced);
-  $('advToggle').checked = advanced;
-  $('advSwitch').checked = advanced;
-  if (!advanced && (activeTab === 'matrix' || activeTab === 'power' || activeTab === 'optimise')) activeTab = 'graph';
+  store.set('mgs-plain', plain ? '1' : '0');
+  document.body.classList.toggle('clinician', plain);
+  $('plainToggle').checked = plain;
+  $('plainMenuToggle').checked = plain;
+  /* on a hidden tab, move to the Graph tab properly: setTab updates the panels and the tab buttons (the 1.3.0 bug set
+     activeTab alone, so the panel stayed on screen) */
+  if (plain && STAT_TABS.includes(activeTab)) setTab('graph');
   if (!silent) renderAll();
 }
 function setTab(name) {
-  if (!advanced && (name === 'matrix' || name === 'power' || name === 'optimise')) setAdvanced(true);
+  /* a hidden tab opened by code in the clinician view (Import, a multigrain result file): stay on the Graph tab */
+  if (plain && STAT_TABS.includes(name)) { flashMessage(`The ${name[0].toUpperCase() + name.slice(1)} tab is shown with Plain language off.`); name = 'graph'; }
   activeTab = name;
   for (const t of TABS) {
     $('tab-' + t).hidden = t !== name;
@@ -3202,8 +3208,6 @@ $('tab-test').addEventListener('change', e => {
     const x = Number(v);
     if (!(x >= -1 && x <= 1)) { t.classList.add('bad'); return; }
     checkpoint(); G.test.corr[t.dataset.tcorr] = x; CT = null; deferChange();
-  } else if (t.id === 'plainToggle') {
-    plain = t.checked; store.set('mgs-plain', plain ? '1' : '0'); renderTestPanel(); renderGraphPanel(); renderCanvas(); updatePresentBar(); updateToolbar();
   } else if (t.id === 'manualToggle') {
     manual = t.checked;
     renderCanvas(); renderTestPanel();
@@ -3336,8 +3340,7 @@ $('tab-export').addEventListener('click', e => {
   const b = e.target.closest('[data-action]');
   if (!b) return;
   const act = b.dataset.action;
-  if (act === 'go-advanced') setAdvanced(true);
-  else if (act === 'copy') copyText(exportPayload, b);
+  if (act === 'copy') copyText(exportPayload, b);
   else if (act === 'copy-sap-text') { const sp = sapText(G); copyRich(sapPlainText(sp) + '\n\n' + sapRefsText(sp), sapParasHTML(sp) + sapRefsHTML(sp), b, 'sapText'); }
   else if (act === 'copy-sap-tables') copyRich(sapText(G).tables.map(tableToTSV).join('\n\n'), sapText(G).tables.map(tableToHTML).join(''), b, 'sapTable0');
   else if (act === 'copy-sap-all') copyRich(exportPayload, sapHTML, b, 'sapText');
@@ -3419,8 +3422,8 @@ $('undoBtn').addEventListener('click', undo);
 $('redoBtn').addEventListener('click', redo);
 $('snapToggle').addEventListener('change', e => { snap = e.target.checked; store.set('mgs-snap', snap ? '1' : '0'); });
 $('decToggle').addEventListener('change', e => { numMode = e.target.checked ? 'dec' : 'frac'; store.set('mgs-num', numMode); renderAll(); });
-$('advToggle').addEventListener('change', e => setAdvanced(e.target.checked));
-$('advSwitch').addEventListener('change', e => setAdvanced(e.target.checked));
+$('plainToggle').addEventListener('change', e => setPlain(e.target.checked));
+$('plainMenuToggle').addEventListener('change', e => setPlain(e.target.checked));
 $('hintToggle').addEventListener('change', e => { hints = e.target.checked; store.set('mgs-hints', hints ? '1' : '0'); updateHint(); });
 $('hintClose').addEventListener('click', () => { hints = false; $('hintToggle').checked = false; store.set('mgs-hints', '0'); updateHint(); });
 function applySkin(v) {
@@ -3471,9 +3474,10 @@ $('helpBtn').addEventListener('click', () => openModal('Help and shortcuts', `
     <li><b>Adjusted p-values</b> and <b>pasting all p-values at once</b> sit under the p-value table.</li>
     <li><b>Power:</b> the Power tab simulates how often each hypothesis is rejected, and lets you keep runs to compare designs.</li>
     <li><b>Compare:</b> keep a copy of the graph, change it, and the Compare tab shows both pictures, the weights and transitions that differ, the test result on the same p-values and the power on the same simulated trials.</li>
-    <li><b>Optimise</b> (advanced): say what each set of claims is worth (a gain function: quick rules, build from values, or write your own), lock the parts of the graph that must not change, and the tab writes an R script for the multigrain package. Run it in R, open the file it saves, and the tab compares multigrain's expected gain with a fresh estimate and the starting graph.</li>
+    <li><b>Optimise</b> (shown with Plain language off): say what each set of claims is worth (a gain function: quick rules, build from values, or write your own), lock the parts of the graph that must not change, and the tab writes an R script for the multigrain package. Run it in R, open the file it saves, and the tab compares multigrain's expected gain with a fresh estimate and the starting graph.</li>
     <li><b>Matrix tab:</b> edit w and G as numbers, or import R code. In Test mode it shows the graph after each step.</li>
     <li><b>Export:</b> picture, TikZ, R code for graphicalMCP or gMCP, a share link, or a saved file.</li>
+    <li><b>Plain language</b> (foot of the side panel, or the More menu): everyday words for a clinical team, and only the parts they need. Untick it to see every tab, template and export.</li>
   </ul>
   <p><b>Shortcuts</b></p>
   <ul class="tips">
@@ -3633,8 +3637,7 @@ new ResizeObserver(() => {
   if (store.get('mgs-num') === 'dec') { numMode = 'dec'; $('decToggle').checked = true; }
   if (store.get('mgs-snap') === '1') { snap = true; $('snapToggle').checked = true; }
   if (GAPS[store.get('mgs-gap')]) setGap(store.get('mgs-gap'));
-  if (store.get('mgs-plain') === '1') plain = true;
-  setAdvanced(store.get('mgs-adv') === '1', true);
+  setPlain(store.get('mgs-plain') === '1', true);
   if (store.get('mgs-hints') === '0') { hints = false; $('hintToggle').checked = false; }
   initMatrixStatic();
   initExportPanel();

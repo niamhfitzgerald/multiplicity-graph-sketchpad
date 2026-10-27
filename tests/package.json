@@ -1,6 +1,6 @@
 {
   "name": "multiplicity-graph-sketchpad-tests",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "private": true,
   "description": "Self-tests, engine stress test and browser test for the Multiplicity Graph Sketchpad.",
   "scripts": {

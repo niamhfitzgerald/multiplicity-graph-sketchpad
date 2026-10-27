@@ -189,9 +189,11 @@ body.present .comp-bar, .comp-bar[hidden] { display: none; }
 
 /* ---- side panel ---- */
 .panel { min-height: 0; min-width: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; }
-.adv-switch { border-top: 1px solid var(--line); padding: 0 16px; font-size: 13.5px; color: var(--muted); min-height: 34px; }
-body.simple .adv { display: none !important; }
-body:not(.simple) .simple-only { display: none !important; }
+/* The clinician view (Plain language ticked, body.clinician) hides the statistician's parts (.adv) and shows
+   .clinician-only ones. (.plain is the plain-language box in the Test tab, so the body class is not .plain.) */
+.plain-switch { border-top: 1px solid var(--line); padding: 0 16px; font-size: 13.5px; color: var(--muted); min-height: 34px; }
+body.clinician .adv { display: none !important; }
+body:not(.clinician) .clinician-only { display: none !important; }
 .tabs { display: flex; border-bottom: 1px solid var(--line); background: var(--surface-2); overflow-x: auto; }
 .tabs button { flex: 1 0 auto; min-height: 44px; border: 0; background: transparent; cursor: pointer; font-weight: 700; color: var(--muted); border-bottom: 3px solid transparent; }
 .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); background: var(--surface); }
@@ -453,8 +455,8 @@ table.t td:first-child { white-space: nowrap; }
       <details class="menu" id="moreMenu">
         <summary class="btn">More <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 L6 8 L9.5 4.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></summary>
         <div class="menu-pop">
-          <label class="chk"><input type="checkbox" id="advToggle"> <b>Advanced features</b></label>
-          <p class="small muted" style="margin:-2px 0 4px 26px">Matrix editing, power simulation, order analysis, adjusted p-values, LaTeX, R and SAP exports.</p>
+          <label class="chk" title="Describe the graph and each step in everyday words"><input type="checkbox" id="plainMenuToggle"> <b>Plain language</b></label>
+          <p class="small muted" style="margin:-2px 0 4px 26px">Everyday words, and only the parts a clinical team needs.</p>
           <hr>
           <label class="chk"><input type="checkbox" id="hintToggle" checked> Show hints on the canvas</label>
           <label class="chk"><input type="checkbox" id="snapToggle"> Snap to grid</label>
@@ -468,7 +470,7 @@ table.t td:first-child { white-space: nowrap; }
             </select>
           </label>
           <hr>
-          <button class="menu-item" id="importBtn">Import from R or a matrix&hellip;</button>
+          <button class="menu-item adv" id="importBtn">Import from R or a matrix&hellip;</button>
           <button class="menu-item" id="selftestBtn">Run the self-test</button>
           <button class="menu-item" id="aboutBtn">About, references and licence&hellip;</button>
           <button class="menu-item danger" id="clearBtn">Clear graph&hellip;</button>
@@ -557,7 +559,7 @@ table.t td:first-child { white-space: nowrap; }
       <div class="tabpanel" role="tabpanel" id="tab-optimise" aria-labelledby="tabbtn-optimise" hidden></div>
       <div class="tabpanel" role="tabpanel" id="tab-compare" aria-labelledby="tabbtn-compare" hidden></div>
       <div class="tabpanel" role="tabpanel" id="tab-export" aria-labelledby="tabbtn-export" hidden></div>
-      <label class="adv-switch chk"><input type="checkbox" id="advSwitch"> Advanced features</label>
+      <label class="plain-switch chk" title="Describe the graph and each step in everyday words"><input type="checkbox" id="plainToggle"> Plain language</label>
     </aside>
   </main>
 
