@@ -4,7 +4,7 @@
 const $ = id => document.getElementById(id);
 const svg = $('canvas'), world = $('world'), overlay = $('overlay'), gridRect = $('gridRect');
 const inl = $('inlineEdit');
-const TABS = ['graph', 'matrix', 'test', 'power', 'compare', 'export'];
+const TABS = ['graph', 'matrix', 'test', 'power', 'optimise', 'compare', 'export'];
 
 let G = { nodes: [], edges: [], diag: {}, alpha: 0.025, sided: 'one', note: '', test: defaultTest() };
 let CT = null;        // last closed-test result: {sig, adj, subsets, rejected, type, ms}
@@ -64,6 +64,18 @@ let advanced = false; // simple mode hides the matrix, power and technical expor
 let allView = false;  // entangled graphs: show every component overlaid (read-only) instead of the active one
 const hist = { past: [], future: [] };
 const SIM = { power: {}, rho: '0.5', useMatrix: false, corr: {}, n: 10000, success: { ids: [], rule: 'any' }, running: null, result: null, runs: [], error: '' };
+/* Optimise tab (multigrain stage): the gain function and its expected gain for the current graph. Session state only;
+   the gain function is not saved with the graph (Spiers et al. 2026, p. 19: it may be commercially sensitive). */
+const OPT = { source: 'quick', quick: 'any', values: { reg: [], rule: 'all', scores: {}, anchor: '150' }, text: '', running: null, result: null, error: '',
+  /* Fixed and free parts (plan section 7): locked weights (node ids) and transitions (gKey) keep their current value;
+     everything else is free. existingOnly fixes every missing transition at 0. showLocks shows the locks in the Matrix view. */
+  lockW: new Set(), lockG: new Set(), existingOnly: false, showLocks: false,
+  /* freeRows: node ids whose row stays free even with existingOnly (the fix for a row multigrain would refuse) */
+  freeRows: new Set(),
+  /* Script options (plan section 8) */
+  script: { nsim: 100000, global: true, threads: 1, start: true, file: 'optimised-graph.json' },
+  /* The optimisation block of the file last opened (readOptimisationBlock), with the graph signature it belongs to */
+  imported: null };
 /* Help on what correlation to enter, shown in the Power tab and in the parametric help of the Test tab */
 /* Result-text note for correlations entered as 1 and capped at 0.999999 so the matrix is positive definite (runSim and the Compare tab) */
 function corrCapText(capped) { return capped ? ` (${capped} pair${capped > 1 ? 's' : ''} entered as 1 ${capped > 1 ? 'were' : 'was'} set to 0.999999 so that the matrix is positive definite)` : ''; }
@@ -422,7 +434,7 @@ function renderCanvas() {
     const l = e.label;
     const isSel = mode === 'design' && sel && sel.type === 'edge' && sel.key === e.key;
     const isErr = errRows.has(e.from) || errEdges.has(e.key);
-    P.push(`<g class="elabel${isSel ? ' sel' : ''}${isErr ? ' err' : ''}${e.comp != null ? ` comp-${e.comp % 4}` : ''}"${vm.all ? '' : ` data-elabel="${e.key}"`} transform="translate(${l.x.toFixed(1)},${l.y.toFixed(1)})"><rect x="${(-l.w / 2).toFixed(1)}" y="${(-l.h / 2).toFixed(1)}" width="${l.w.toFixed(1)}" height="${l.h}" rx="4"/><text y="4.4">${esc(e.text)}</text></g>`);
+    P.push(`<g class="elabel${isSel ? ' sel' : ''}${isErr ? ' err' : ''}${e.comp != null ? ` comp-${e.comp % 4}` : ''}"${vm.all ? '' : ` data-elabel="${e.key}"`} transform="translate(${l.x.toFixed(1)},${l.y.toFixed(1)})">${e.expr ? `<title>${esc(e.text)} = ${esc(fmt(e.g))}</title>` : ''}<rect x="${(-l.w / 2).toFixed(1)}" y="${(-l.h / 2).toFixed(1)}" width="${l.w.toFixed(1)}" height="${l.h}" rx="4"/><text y="4.4">${esc(e.text)}</text></g>`);
     if (isSel && Math.abs(l.t - 0.5) > 0.01) {
       const m = pointAt(e, 0.5);
       P.push(`<circle class="bend-handle" data-bend="${e.key}" cx="${m.x.toFixed(1)}" cy="${m.y.toFixed(1)}" r="6.5"/>`);
@@ -850,9 +862,11 @@ function renderMatrixPanel() {
     }
     const dis = mode === 'test' ? 'disabled' : '';
     const tot = weightSum(), ts = sumStatus(tot);
+    const locks = advanced && mode === 'design' && OPT.showLocks;
+    const lockBtn = (attr, key, on, forced) => `<button class="lock" ${attr}="${key}" aria-pressed="${on || forced}" title="${forced ? 'Fixed at 0: only transitions that already exist are optimised' : on ? 'Locked: keeps this value in the optimisation' : 'Free: multigrain may change this value'}" aria-label="${forced ? 'Fixed at 0' : on ? 'Locked' : 'Free'}" ${forced ? 'disabled' : ''}>${LOCK_SVG[on || forced ? 'closed' : 'open']}</button>`;
     const wCells = G.nodes.map(n => {
-      const bad = Q.cmp(n.w, Q.ZERO) < 0 || Q.cmp(n.w, Q.ONE) > 0;
-      return `<td><input id="mw-${n.id}" data-mw="${n.id}" value="${esc(weightText(n.w, n.wexpr))}" class="${bad ? 'bad' : ''}" aria-label="Initial weight of ${esc(n.label)}" ${dis}></td>`;
+      const bad = Q.cmp(n.w, Q.ZERO) < 0 || Q.cmp(n.w, Q.ONE) > 0, on = locks && OPT.lockW.has(n.id);
+      return `<td class="${locks ? 'lockcell' : ''}"><input id="mw-${n.id}" data-mw="${n.id}" value="${esc(weightText(n.w, n.wexpr))}" class="${bad ? 'bad' : ''}${on ? ' locked' : ''}" aria-label="Initial weight of ${esc(n.label)}" ${dis}>${locks ? lockBtn('data-lockw', n.id, on, false) : ''}</td>`;
     }).join('');
     const gCell = (i, j) => {
       const a = G.nodes[i], b = G.nodes[j];
@@ -862,11 +876,13 @@ function renderMatrixPanel() {
       }
       const e = edgeOf(a.id, b.id);
       const bad = e && (Q.cmp(e.g, Q.ZERO) < 0 || Q.cmp(e.g, Q.ONE) > 0);
-      return `<td><input id="mg-${a.id}-${b.id}" data-mg="${gKey(a.id, b.id)}" value="${e ? esc(weightText(e.g, e.expr)) : '0'}" class="${bad ? 'bad' : ''}" aria-label="Transition from ${esc(a.label)} to ${esc(b.label)}" ${dis}></td>`;
+      const key = gKey(a.id, b.id), on = locks && OPT.lockG.has(key), forced = locks && !on && OPT.existingOnly && !e && !OPT.freeRows.has(a.id);
+      return `<td class="${locks ? 'lockcell' : ''}"><input id="mg-${a.id}-${b.id}" data-mg="${key}" value="${e ? esc(weightText(e.g, e.expr)) : '0'}" class="${bad ? 'bad' : ''}${on || forced ? ' locked' : ''}" aria-label="Transition from ${esc(a.label)} to ${esc(b.label)}" ${dis}>${locks ? lockBtn('data-lockg', key, on, forced) : ''}</td>`;
     };
     const rs = G.nodes.map(n => { const r = rowSum(n.id), st = sumStatus(r); return { cls: st.cls, html: `${esc(fmt(r))} ${st.text}` }; });
     el.innerHTML = `<h2>Matrix view</h2>
-      ${mode === 'test' ? '<div class="seg small" role="group" aria-label="Which graph"><button data-action="mx-current" aria-pressed="false">Current graph</button><button data-action="mx-initial" aria-pressed="true">Initial graph</button></div><p class="small muted">Switch to Design mode to edit.</p>' : '<p class="small muted">Edits here and on the canvas stay in sync. Type 0 to remove a transition.</p>'}` +
+      ${mode === 'test' ? '<div class="seg small" role="group" aria-label="Which graph"><button data-action="mx-current" aria-pressed="false">Current graph</button><button data-action="mx-initial" aria-pressed="true">Initial graph</button></div><p class="small muted">Switch to Design mode to edit.</p>' : '<p class="small muted">Edits here and on the canvas stay in sync. Type 0 to remove a transition.</p>'}
+      ${advanced && mode === 'design' ? `<label class="chk"><input type="checkbox" id="mx-locks" ${OPT.showLocks ? 'checked' : ''}> Show locks for the optimisation (Optimise tab)</label>${locks ? `<p class="small muted">A closed lock keeps the current value when multigrain optimises the graph; an open lock lets multigrain change it. ${OPT.existingOnly ? 'Missing transitions stay at 0 (set in the Optimise tab).' : ''}</p>` : ''}` : ''}` +
       matrixTables(true, G.nodes.map(n => n.label), wCells, gCell, { cls: ts.cls, html: `${esc(fmt(tot))} ${ts.text}` }, rs);
   });
 }
@@ -1494,7 +1510,7 @@ function renderTestPanel() {
 /* ---------- power tab ---------- */
 function simPower(id) { return SIM.power[id] != null ? SIM.power[id] : '80'; }
 /* Everything a power result depends on: graph, alpha, test settings, marginal powers, correlations and the success rule */
-function powerSig() { return simSig() + testType() + G.test.upscale + JSON.stringify(serializeTest(G.test) || '') + JSON.stringify([G.nodes.map(n => simPower(n.id)), SIM.rho, SIM.useMatrix, SIM.useMatrix ? G.nodes.map(a => G.nodes.map(b => corrOf(a.id, b.id))) : null, SIM.success, SIM.n]); }
+function powerSig() { return simSig() + testType() + G.test.upscale + JSON.stringify(serializeTest(G.test) || '') + JSON.stringify([G.nodes.map(n => simPower(n.id)), SIM.rho, SIM.useMatrix, SIM.useMatrix ? G.nodes.map(a => G.nodes.map(b => corrOf(a.id, b.id))) : null, SIM.success, SIM.n, optGainText()]); }
 function simSig() {
   if (isEntangled(G)) { const o = serializeGraph(G); return JSON.stringify({ a: G.alpha, ids: G.nodes.map(n => n.id), c: o.ent.c, k: o.ent.comps.map(cs => [cs.nodes.map(n => n.weight), cs.edges.map(e => [e.from, e.to, e.weight])]) }); }
   return JSON.stringify({ a: G.alpha, n: G.nodes.map(n => [n.id, Q.exact(n.w)]), e: G.edges.map(e => [e.from, e.to, Q.exact(e.g)]) });
@@ -1528,30 +1544,63 @@ function corrOf(a, b) {
   if (SIM.useMatrix && SIM.corr[pairKey(a, b)] != null) return SIM.corr[pairKey(a, b)];
   return SIM.rho;
 }
+/* The power-alone table, the correlation box and the pair-by-pair table. Shared by the Power and Optimise tabs
+   (same values, editable in either); pre keeps the element ids apart ('' in the Power tab, 'opt-' in the Optimise tab). */
+function simInputsHTML(pre) {
+  const za = qnorm(1 - G.alpha), m = G.nodes.length;
+  const rows = G.nodes.map(n => {
+    const v = simPower(n.id), x = Number(v);
+    const ok = x > 0 && x < 100;
+    return `<tr><th scope="row">${esc(n.label)}</th><td><input id="${pre}sp-${n.id}" data-pw="${n.id}" value="${esc(v)}" inputmode="decimal" class="${ok ? '' : 'bad'}" aria-label="Power of ${esc(n.label)} alone, percent"></td><td class="num">${ok ? (za + qnorm(x / 100)).toFixed(2) : ''}</td></tr>`;
+  }).join('');
+  const corrBad = (a, b) => { const v = Number(corrOf(a, b)); return !(v >= -1 && v <= 1); };
+  const corrTable = `<label class="chk"><input type="checkbox" id="${pre}sim-usematrix" data-usematrix="1" ${SIM.useMatrix ? 'checked' : ''}> Use the values below instead</label>
+    <div class="mx-scroll"><table class="mx"><thead><tr><th></th>${G.nodes.map(n => `<th scope="col">${esc(n.label)}</th>`).join('')}</tr></thead><tbody>${G.nodes.map((a, i) => `<tr><th scope="row">${esc(a.label)}</th>${G.nodes.map((b, j) => j <= i ? `<td style="text-align:center;color:var(--muted)">${j === i ? '1' : ''}</td>` : `<td><input id="${pre}sc-${a.id}-${b.id}" data-corr="${pairKey(a.id, b.id)}" value="${esc(String(corrOf(a.id, b.id)))}" class="${SIM.useMatrix && corrBad(a.id, b.id) ? 'bad' : ''}" aria-label="Correlation between ${esc(a.label)} and ${esc(b.label)}" ${SIM.useMatrix ? '' : 'disabled'}></td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  return `<table class="t"><thead><tr><th scope="col">Hyp.</th><th scope="col">Power alone (%)</th><th scope="col" class="num">Mean z</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="form"><label for="${pre}sim-rho">Correlation between test statistics <span class="hint">The same value for every pair, between &minus;1 and 1</span><input class="txt" id="${pre}sim-rho" data-rho="1" value="${esc(String(SIM.rho))}" inputmode="decimal" style="max-width:8em" ${SIM.useMatrix ? 'disabled' : ''}></label></div>
+      <p class="small muted">${CORR_WHAT_TO_ENTER}</p>
+      ${m > 1 ? det(pre + 'det-corr', 'Set each pair separately', corrTable) : ''}
+      ${!SIM.error && simCorrProblem() ? `<p class="err-text" id="${pre}simCorrMsg">✕ ${esc(simCorrProblem())}</p>` : ''}`;
+}
+/* A change in one of the shared inputs, from either tab. Returns true when it was one of them. */
+function simInputChange(t) {
+  if (t.dataset.pw) SIM.power[t.dataset.pw] = t.value.trim();
+  else if (t.dataset.rho) { SIM.rho = t.value.trim(); SIM.error = ''; }
+  else if (t.dataset.usematrix) SIM.useMatrix = t.checked;
+  else if (t.dataset.corr) { SIM.corr[t.dataset.corr] = t.value.trim(); SIM.error = ''; }
+  else return false;
+  setTimeout(() => { renderPowerPanel(); renderOptimisePanel(); }, 0);
+  return true;
+}
+/* The simulation inputs as numbers: {pw, Rm, L, mean, capped}, or {error} */
+function simInputsCheck() {
+  const m = G.nodes.length;
+  const pw = G.nodes.map(n => Number(simPower(n.id)));
+  if (pw.some(x => !(x > 0 && x < 100))) return { error: 'Each power must be a percentage between 0 and 100, such as 80.' };
+  const Rm = new Float64Array(m * m);
+  let capped = 0;
+  for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) {
+    const v = i === j ? 1 : Number(corrOf(G.nodes[i].id, G.nodes[j].id));
+    if (!(v >= -1 && v <= 1)) return { error: 'Correlations must be numbers between −1 and 1.' };
+    Rm[i * m + j] = i === j ? 1 : Math.min(v, 0.999999);
+    if (i < j && v > 0.999999) capped++;
+  }
+  const L = cholesky(Rm, m);
+  if (!L) return { error: 'Those correlations cannot all hold at once (the matrix is not positive definite). Try values closer to 0.' };
+  const za = qnorm(1 - G.alpha);
+  return { pw, Rm, L, mean: pw.map(x => za + qnorm(x / 100)), capped };
+}
 function renderPowerPanel() {
   const el = $('tab-power');
   preserveFocus(el, () => {
     if (!G.nodes.length) { el.innerHTML = '<h2>Power</h2><p class="muted">Add hypotheses first.</p>'; return; }
-    const za = qnorm(1 - G.alpha);
-    const rows = G.nodes.map(n => {
-      const v = simPower(n.id), x = Number(v);
-      const ok = x > 0 && x < 100;
-      return `<tr><th scope="row">${esc(n.label)}</th><td><input id="sp-${n.id}" data-pw="${n.id}" value="${esc(v)}" inputmode="decimal" class="${ok ? '' : 'bad'}" aria-label="Power of ${esc(n.label)} alone, percent"></td><td class="num">${ok ? (za + qnorm(x / 100)).toFixed(2) : ''}</td></tr>`;
-    }).join('');
-    const m = G.nodes.length;
-    const corrBad = (a, b) => { const v = Number(corrOf(a, b)); return !(v >= -1 && v <= 1); };
-    const corrTable = `<label class="chk"><input type="checkbox" id="sim-usematrix" ${SIM.useMatrix ? 'checked' : ''}> Use the values below instead</label>
-      <div class="mx-scroll"><table class="mx"><thead><tr><th></th>${G.nodes.map(n => `<th scope="col">${esc(n.label)}</th>`).join('')}</tr></thead><tbody>${G.nodes.map((a, i) => `<tr><th scope="row">${esc(a.label)}</th>${G.nodes.map((b, j) => j <= i ? `<td style="text-align:center;color:var(--muted)">${j === i ? '1' : ''}</td>` : `<td><input id="sc-${a.id}-${b.id}" data-corr="${pairKey(a.id, b.id)}" value="${esc(String(corrOf(a.id, b.id)))}" class="${SIM.useMatrix && corrBad(a.id, b.id) ? 'bad' : ''}" aria-label="Correlation between ${esc(a.label)} and ${esc(b.label)}" ${SIM.useMatrix ? '' : 'disabled'}></td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    const m = G.nodes.length, inp = simInputsHTML('');
     const succ = `<p class="small muted">Count a trial as a success when</p>
       <div class="row-actions"><label class="chk"><input type="radio" name="sim-rule" value="any" ${SIM.success.rule === 'any' ? 'checked' : ''}> any</label><label class="chk"><input type="radio" name="sim-rule" value="all" ${SIM.success.rule === 'all' ? 'checked' : ''}> all</label><span class="small muted" style="align-self:center">of these are rejected:</span></div>
       <div class="row-actions">${G.nodes.map(n => `<label class="chk"><input type="checkbox" data-succ="${n.id}" ${SIM.success.ids.includes(n.id) ? 'checked' : ''}> ${esc(n.label)}</label>`).join('')}</div>`;
     let h = `<h2>Power by simulation</h2>
       <p class="small muted">How often does the graph reject each hypothesis? Set the power each test would have on its own at the full &alpha;, and how correlated the test statistics are. The mean of each z statistic is then &Phi;&#8315;&sup1;(1 &minus; &alpha;) + &Phi;&#8315;&sup1;(power), with the trial\'s one-sided &alpha; (Xi and Chen, 2024, eq. 2). One-sided z-tests, initial graph, &alpha; = ${fmtNum(G.alpha)}, ${esc(TEST_TYPES[testType()])} test (set in the Test tab).${G.sided === 'two' ? ' The p-values are set to two-sided in the toolbar, but the simulation is one-sided: read its &alpha; as a one-sided level.' : ''}</p>
-      <table class="t"><thead><tr><th scope="col">Hyp.</th><th scope="col">Power alone (%)</th><th scope="col" class="num">Mean z</th></tr></thead><tbody>${rows}</tbody></table>
-      <div class="form"><label for="sim-rho">Correlation between test statistics <span class="hint">The same value for every pair, between &minus;1 and 1</span><input class="txt" id="sim-rho" value="${esc(String(SIM.rho))}" inputmode="decimal" style="max-width:8em" ${SIM.useMatrix ? 'disabled' : ''}></label></div>
-      <p class="small muted">${CORR_WHAT_TO_ENTER}</p>
-      ${m > 1 ? det('det-corr', 'Set each pair separately', corrTable) : ''}
-      ${!SIM.error && simCorrProblem() ? `<p class="err-text" id="simCorrMsg">✕ ${esc(simCorrProblem())}</p>` : ''}
+      ${inp}
       ${det('det-success', 'Define success', succ, SIM.success.ids.length ? `${SIM.success.rule} of ${SIM.success.ids.map(id => (nodeById(id) || {}).label).filter(Boolean).join(', ')}` : '')}
       <div class="row-actions" style="align-items:center"><label for="sim-n" class="small">Simulations</label><select class="sel" id="sim-n">${[2000, 10000, 100000].map(v => `<option value="${v}" ${SIM.n === v ? 'selected' : ''}>${v.toLocaleString('en-GB')}</option>`).join('')}</select>
       <button class="btn primary" data-action="sim-run" ${SIM.running || hasErrors() ? 'disabled' : ''}>${SIM.running ? 'Running…' : 'Run simulation'}</button></div>
@@ -1566,7 +1615,7 @@ function renderPowerPanel() {
       if (R.sig !== powerSig()) h += '<div class="stale">! The graph, &alpha;, test or simulation settings have changed since this run. Run it again to update.</div>';
       h += `<h3>Results (${n.toLocaleString('en-GB')} simulated trials)</h3>
         <table class="t"><thead><tr><th scope="col">Hyp.</th><th scope="col" class="num">Power</th><th scope="col" class="num">&plusmn; 1 SE</th><th scope="col" class="num">Alone</th></tr></thead><tbody>${R.labels.map((l, i) => `<tr><th scope="row">${esc(l)}</th><td class="num"><b>${pct(t.rej[i])}</b></td><td class="num muted">${se(t.rej[i])}</td><td class="num muted">${R.pw[i]}%</td></tr>`).join('')}</tbody></table>
-        <dl class="facts"><dt>At least one rejected</dt><dd><b>${pct(t.any)}</b></dd><dt>All rejected</dt><dd>${pct(t.all)}</dd><dt>Expected number rejected</dt><dd>${(t.total / n).toFixed(2)}</dd>${R.successText ? `<dt>Success (${esc(R.successText)})</dt><dd><b>${pct(t.custom)}</b></dd>` : ''}</dl>
+        <dl class="facts"><dt>At least one rejected</dt><dd><b>${pct(t.any)}</b></dd><dt>All rejected</dt><dd>${pct(t.all)}</dd><dt>Expected number rejected</dt><dd>${(t.total / n).toFixed(2)}</dd>${R.successText ? `<dt>Success (${esc(R.successText)})</dt><dd><b>${pct(t.custom)}</b></dd>` : ''}${R.gainText ? `<dt>Expected gain</dt><dd><b>${gainMeanText(t.gain, t.gain2, n)}</b> <span class="small muted">gain function from the Optimise tab</span></dd>` : ''}</dl>
         <p class="small muted">Test: ${esc(R.testNote || 'Bonferroni')}. Correlation: ${esc(R.corrText)}. Seed 2009, so the same settings give the same numbers.</p>
         <div class="row-actions"><button class="btn small" data-action="sim-keep">Keep for comparison</button></div>`;
     }
@@ -1598,25 +1647,17 @@ function runSim() {
   if (SIM.running || hasErrors()) return;
   SIM.error = '';
   const m = G.nodes.length;
-  const pw = G.nodes.map(n => Number(simPower(n.id)));
-  if (pw.some(x => !(x > 0 && x < 100))) { SIM.error = 'Each power must be a percentage between 0 and 100, such as 80.'; renderPowerPanel(); return; }
-  const Rm = new Float64Array(m * m);
-  let capped = 0;
-  for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) {
-    const v = i === j ? 1 : Number(corrOf(G.nodes[i].id, G.nodes[j].id));
-    if (!(v >= -1 && v <= 1)) { SIM.error = 'Correlations must be numbers between −1 and 1.'; renderPowerPanel(); return; }
-    Rm[i * m + j] = i === j ? 1 : Math.min(v, 0.999999);
-    if (i < j && v > 0.999999) capped++;
-  }
-  const L = cholesky(Rm, m);
-  if (!L) { SIM.error = 'Those correlations cannot all hold at once (the matrix is not positive definite). Try values closer to 0.'; renderPowerPanel(); return; }
-  const za = qnorm(1 - G.alpha);
-  const mean = pw.map(x => za + qnorm(x / 100));
+  const chk = simInputsCheck();
+  if (chk.error) { SIM.error = chk.error; renderPowerPanel(); return; }
+  const { pw, L, mean, capped } = chk;
   const fg = floatGraph(G);
   const ids = G.nodes.map(n => n.id);
   const sIdx = SIM.success.ids.map(id => ids.indexOf(id)).filter(i => i >= 0);
-  const success = sIdx.length ? { idx: sIdx, rule: SIM.success.rule } : null;
-  const tally = { n: 0, rej: Array(m).fill(0), any: 0, all: 0, total: 0, custom: 0 };
+  let success = sIdx.length ? { idx: sIdx, rule: SIM.success.rule } : null;
+  /* With a gain function from the Optimise tab, its value is tallied too (Spiers et al. 2026, eq. 3) */
+  const gp = optParsed(), gainText = gp && gp.ok ? optGainText() : '';
+  if (gainText) success = Object.assign(success || {}, { gain: gp.fn });
+  const tally = { n: 0, rej: Array(m).fill(0), any: 0, all: 0, total: 0, custom: 0, gain: 0, gain2: 0 };
   const norm = normalGen(mulberry32(2009));
   let tester = null, testNote = '';
   if (!isBonf()) {
@@ -1641,7 +1682,347 @@ function runSim() {
     SIM.running.done = tally.n;
     const pr = $('simProgress'); if (pr) pr.textContent = `${Math.round(100 * tally.n / total)}% done`;
     if (tally.n < total) setTimeout(step, 0);
-    else { SIM.running = null; SIM.result = { tally, sig, labels, pw: pwTxt, corrText, successText, testNote }; renderPowerPanel(); }
+    else { SIM.running = null; SIM.result = { tally, sig, labels, pw: pwTxt, corrText, successText, testNote, gainText }; renderPowerPanel(); }
+  };
+  setTimeout(step, 0);
+}
+
+/* ---------- Optimise tab (multigrain stage, Spiers et al. 2026) ---------- */
+/* The gain function as text in multigrain's form, from whichever source is selected; '' when there is none yet */
+function optGainText() {
+  const ids = G.nodes.map(n => n.id), pos = id => ids.indexOf(id) + 1;
+  if (OPT.source === 'own') return OPT.text.trim();
+  if (OPT.source === 'quick') {
+    if (OPT.quick === 'average') return ids.length ? `(${ids.map((_, i) => 'r' + (i + 1)).join(' + ')}) / ${ids.length}` : '';
+    const picked = SIM.success.ids.map(pos).filter(k => k > 0).sort((a, b) => a - b);
+    return picked.map(k => 'r' + k).join(OPT.quick === 'all' ? ' && ' : ' || ');
+  }
+  const e = optElicit();
+  return e && e.ok ? e.expr : '';
+}
+/* Build from values: the elicitation inputs by node id, turned into positions for elicitGain() */
+function optElicit() {
+  const ids = G.nodes.map(n => n.id), pos = id => ids.indexOf(id) + 1, V = OPT.values;
+  const reg = V.reg.map(pos).filter(k => k > 0).sort((a, b) => a - b);
+  if (!reg.length) return { ok: false, msg: 'Tick the hypotheses that make up regulatory success.' };
+  const scores = {}, missing = [];
+  for (const n of G.nodes) {
+    if (V.reg.includes(n.id)) continue;
+    const t = V.scores[n.id] == null ? '' : String(V.scores[n.id]).trim();
+    if (t === '') missing.push(n.label); else scores[pos(n.id)] = Number(t);
+  }
+  if (missing.length) return { ok: false, msg: `Give ${missing.join(', ')} a score from 0 to 100.` };
+  return elicitGain(ids.length, reg, V.rule, scores, V.anchor === '' ? NaN : Number(V.anchor));
+}
+function optParsed() {
+  const t = optGainText();
+  return t ? parseGain(t, G.nodes.length) : null;
+}
+/* Plain-English reading of a parsed gain, with the hypothesis labels */
+function gainEnglish(ast) {
+  const L = k => (G.nodes[k - 1] || { label: 'H' + k }).label;
+  const list = xs => (xs.length === 2 ? `${xs[0]} and ${xs[1]}` : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]);
+  const chain = (n, op) => (n.t === 'op' && n.op === op ? [...chain(n.a, op), ...chain(n.b, op)] : [n]);
+  const allR = xs => xs.every(x => x.t === 'r');
+  const num = n => (n.raw != null ? n.raw : fmtGainNum(n.v));
+  /* a condition, as a clause */
+  const cond = n => {
+    if (n.t === 'r') return `${L(n.i)} is rejected`;
+    if (n.type !== 'bool') return `${value(n, 'inner')} is not 0`;
+    const andChain = x => (x.t === 'op' && (x.op === '&&' || (x.op === '*' && x.type === 'bool')) ? [...andChain(x.a), ...andChain(x.b)] : [x]);
+    const andc = andChain(n), orc = chain(n, '||');
+    if (andc.length > 1 && allR(andc)) return andc.length === 2 ? `both ${list(andc.map(x => L(x.i)))} are rejected` : `${list(andc.map(x => L(x.i)))} are all rejected`;
+    if (orc.length > 1 && allR(orc)) return orc.length === 2 ? `${L(orc[0].i)} or ${L(orc[1].i)} is rejected` : `at least one of ${list(orc.map(x => L(x.i)))} is rejected`;
+    const part = x => (x.t === 'r' ? cond(x) : '(' + cond(x) + ')');
+    if (n.op === '||') return `either ${part(n.a)} or ${part(n.b)}`;
+    return `${part(n.a)} and ${part(n.b)}`; /* && or a product of conditions */
+  };
+  /* one term of a sum */
+  const term = n => {
+    if (n.t === 'num') return num(n);
+    if (n.type === 'bool') return `1 if ${cond(n)}`;
+    if (n.t === 'op' && n.op === '*') {
+      const [b, r] = n.a.type === 'bool' ? [n.a, n.b] : (n.b.type === 'bool' ? [n.b, n.a] : [null, null]);
+      if (b && r.t === 'num') return `${num(r)} if ${cond(b)}`;
+    }
+    return value(n, 'inner');
+  };
+  const value = (n, where) => {
+    if (n.t === 'num') return num(n);
+    if (n.type === 'bool') return where === 'top' ? `1 if ${cond(n)}, otherwise 0` : `1 if ${cond(n)}`;
+    if (n.op === '+') {
+      const terms = chain(n, '+');
+      if (allR(terms)) return `the number of ${list(terms.map(x => L(x.i)))} rejected`;
+      return terms.map(term).join(', plus ');
+    }
+    if (n.op === '-') return `${value(n.a, 'inner')} minus ${value(n.b, 'inner')}`;
+    if (n.op === '*') {
+      const [b, r] = n.a.type === 'bool' ? [n.a, n.b] : (n.b.type === 'bool' ? [n.b, n.a] : [null, null]);
+      if (b) return where === 'top' ? `If ${cond(b)}: ${value(r, 'inner')}. Otherwise 0` : `(${value(r, 'inner')}) if ${cond(b)}`;
+      return `${value(n.a, 'inner')} times ${value(n.b, 'inner')}`;
+    }
+    if (n.op === '/') return `${value(n.a, 'inner')}, divided by ${value(n.b, 'inner')}`;
+    return value(n.a, where);
+  };
+  const out = value(ast, 'top');
+  return out.replace(/^./, c => c.toUpperCase()) + '.';
+}
+function gainMeanText(gain, gain2, n) {
+  const mu = gain / n, v = Math.max(0, gain2 / n - mu * mu);
+  return `${mu.toFixed(3)} <span class="muted">&plusmn; ${Math.sqrt(v / Math.max(1, n - 1)).toFixed(3)}</span>`;
+}
+/* Padlock icons (the embedded fonts have no lock glyphs) */
+const LOCK_SVG = {
+  closed: '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M4 6V4.2a3 3 0 0 1 6 0V6" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="2.5" y="6" width="9" height="6.5" rx="1.2" fill="currentColor"/></svg>',
+  open: '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M4 6V4.2a3 3 0 0 1 5.9-.6" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="2.5" y="6" width="9" height="6.5" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>'
+};
+function toggleLock(set, key) { if (set.has(key)) set.delete(key); else set.add(key); }
+/* The fixed and free parts of the current graph for the optimisation (plan section 7). A locked weight or
+   transition keeps its current value; with existingOnly every missing transition is fixed at 0; the rest is free
+   (NA in multigrain's graph_constraint()). problems: things to fix before a script can be written. */
+function optConstraints() {
+  const ids = G.nodes.map(n => n.id), m = ids.length, labels = G.nodes.map(n => n.label);
+  const lockedW = ids.filter(id => OPT.lockW.has(id)), freeW = ids.filter(id => !OPT.lockW.has(id));
+  const lockedG = [], fixedZero = [], freeG = [];
+  const trans = ids.map(a => ids.map(b => {
+    if (a === b) return 0;
+    const key = gKey(a, b), e = edgeOf(a, b);
+    if (OPT.lockG.has(key)) { lockedG.push(key); return e ? Q.toNum(e.g) : 0; }
+    if (OPT.existingOnly && !e && !OPT.freeRows.has(a)) { fixedZero.push(key); return 0; }
+    freeG.push(key); return null;
+  }));
+  const hyp = ids.map(id => (OPT.lockW.has(id) ? Q.toNum(nodeById(id).w) : null));
+  /* With two hypotheses multigrain fixes free transitions at 1 (graph_constraint_free(2)); the script does the same */
+  const two = m === 2 && freeG.length > 0;
+  const problems = multigrainConstraintProblems(hyp, two ? [[0, 1], [1, 0]] : trans, labels).map(pr => {
+    if (pr.what === 'all') return { text: pr.text, fixes: [['opt-unlock-all', 'Unlock everything']] };
+    if (pr.what === 'w') return { text: pr.text, fixes: [['opt-unlock-w', 'Unlock the weights'], ...(freeW.length ? [['opt-lock-w', 'Lock the free weights too']] : [])] };
+    const id = ids[pr.id], lab = labels[pr.id];
+    return { text: pr.text, fixes: [['opt-free-row:' + id, `Free the row of ${lab}`], ...(trans[pr.id].some(x => x == null) ? [['opt-lock-row:' + id, `Lock the row of ${lab}`]] : [])] };
+  });
+  const symbolic = [...lockedW.filter(id => nodeById(id).wexpr).map(id => `w(${nodeById(id).label})`), ...lockedG.map(k => { const [a, b] = k.split('>'), e = edgeOf(a, b); return e && e.expr ? `${nodeById(a).label} → ${nodeById(b).label}` : null; }).filter(Boolean)];
+  return { lockedW, freeW, lockedG, fixedZero, freeG, problems, symbolic, hyp, trans: two ? [[0, 1], [1, 0]] : trans, two };
+}
+/* The spec for optimiseRScript() from the current state, or {error} */
+function optScriptSpec() {
+  if (isEntangled(G)) return { error: 'multigrain optimises one graph, not an entangled graph.' };
+  const gp = optParsed();
+  if (!gp || !gp.ok) return { error: 'Give a gain function first (section 2).' };
+  const chk = simInputsCheck();
+  if (chk.error) return { error: chk.error };
+  const C = optConstraints();
+  if (C.problems.length) return { error: 'Fix the fixed and free parts first (section 3).' };
+  const m = G.nodes.length, fg = floatGraph(G);
+  const g = []; for (let i = 0; i < m; i++) g.push(Array.from(fg.g.slice(i * m, i * m + m)));
+  const notes = [];
+  if (G.sided === 'two') notes.push('The p-values are set to two-sided in the Sketchpad; multigrain simulates one-sided tests at alpha.');
+  if (!isBonf()) notes.push(`The Test tab is set to ${TEST_TYPES[testType()]}; multigrain optimises the weighted Bonferroni graph (Spiers et al. 2026, p. 3).`);
+  if (C.two) notes.push('With two hypotheses multigrain fixes the two transitions at 1.');
+  return {
+    labels: G.nodes.map(n => n.label), descs: G.nodes.map(n => n.desc || ''), groups: G.nodes.map(n => n.group || ''),
+    alpha: G.alpha, powers: chk.pw.map(x => x / 100), corr: Array.from(chk.Rm), nsim: OPT.script.nsim,
+    gainR: gainToR(gp.ast, m), hyp: C.hyp, trans: C.trans,
+    start: OPT.script.start ? { w: Array.from(fg.w), g } : null,
+    globalSearch: OPT.script.global, threads: OPT.script.threads, file: OPT.script.file || 'optimised-graph.json',
+    note: notes.join('\n')
+  };
+}
+/* Everything the Optimise tab's expected gain depends on */
+function optSig() { return simSig() + JSON.stringify([G.nodes.map(n => simPower(n.id)), SIM.rho, SIM.useMatrix, SIM.useMatrix ? G.nodes.map(a => G.nodes.map(b => corrOf(a.id, b.id))) : null, SIM.n, optGainText()]); }
+function renderOptimisePanel() {
+  const el = $('tab-optimise');
+  preserveFocus(el, () => {
+    if (!G.nodes.length) { el.innerHTML = '<h2>Optimise</h2><p class="muted">Add hypotheses first.</p>'; return; }
+    const m = G.nodes.length, ids = G.nodes.map(n => n.id);
+    const seg = (name, opts, cur, label) => `<div class="seg small" role="group" aria-label="${label}">${opts.map(([v, t]) => `<button data-oseg="${name}" data-val="${v}" aria-pressed="${cur === v}">${t}</button>`).join('')}</div>`;
+    let h = `<h2>Optimise with multigrain</h2>${optImportedSection()}
+      <p class="small muted">Choose the graph that gives the most value from the trial. Say what each set of claims is worth (the gain function), and multigrain (Spiers, Grayling, Wheeler and Mander, 2026) searches for the weights and transitions with the highest expected gain. The search runs in R; this tab writes the script and reads the result back. Weighted Bonferroni graphs only.</p>
+      <h3>1. Power and correlation</h3>
+      <p class="small muted">The same values as the Power tab. The mean of each z statistic is &Phi;&#8315;&sup1;(1 &minus; &alpha;) + &Phi;&#8315;&sup1;(power) (Spiers et al. 2026, eq. 9), with &alpha; = ${fmtNum(G.alpha)} one-sided.</p>
+      ${simInputsHTML('opt-')}
+      <h3>2. Gain function</h3>
+      <p class="small muted">The gain is the value of the trial for each set of rejected hypotheses (Spiers et al. 2026, section 2.3.1). It must never be negative.</p>
+      ${seg('source', [['quick', 'Quick rules'], ['values', 'Build from values'], ['own', 'Write your own']], OPT.source, 'How to give the gain function')}`;
+    if (OPT.source === 'quick') {
+      h += `<div class="form" style="margin-top:10px">${seg('quick', [['any', 'Any of the ticked'], ['all', 'All of the ticked'], ['average', 'Average power']], OPT.quick, 'Quick rule')}</div>`;
+      if (OPT.quick === 'average') h += `<p class="small muted">The share of the ${m} hypotheses rejected (average power, p. 4).</p>`;
+      else h += `<p class="small muted">${OPT.quick === 'any' ? 'Disjunctive power (p. 4): the gain is 1 when at least one ticked hypothesis is rejected.' : 'Conjunctive power (p. 4): the gain is 1 only when every ticked hypothesis is rejected.'} The ticks are shared with "Define success" in the Power tab.</p>
+        <div class="row-actions">${G.nodes.map(n => `<label class="chk"><input type="checkbox" data-osucc="${n.id}" ${SIM.success.ids.includes(n.id) ? 'checked' : ''}> ${esc(n.label)}</label>`).join('')}</div>`;
+    } else if (OPT.source === 'values') {
+      const V = OPT.values, others = G.nodes.filter(n => !V.reg.includes(n.id));
+      h += `<p class="small muted" style="margin-top:10px">The paper's elicitation (section 2.4, eq. 5 and p. 8). Regulatory success is worth 1 on its own; the other claims share the extra value.</p>
+        <p class="small"><b>Regulatory success</b> needs ${seg('vrule', [['all', 'all'], ['any', 'any']], V.rule, 'All or any of the regulatory hypotheses')} of these:</p>
+        <div class="row-actions">${G.nodes.map(n => `<label class="chk"><input type="checkbox" data-oreg="${n.id}" ${V.reg.includes(n.id) ? 'checked' : ''}> ${esc(n.label)}</label>`).join('')}</div>`;
+      if (others.length) h += `<p class="small"><b>Score the other claims</b> from 0 to 100 (for example, the clinical team's median rating of each claim's importance).</p>
+        <table class="t"><thead><tr><th scope="col">Hyp.</th><th scope="col">Score</th></tr></thead><tbody>${others.map(n => { const t = V.scores[n.id] == null ? '' : String(V.scores[n.id]); const x = Number(t); return `<tr><th scope="row">${esc(n.label)}</th><td><input id="opt-score-${n.id}" data-oscore="${n.id}" value="${esc(t)}" inputmode="decimal" class="${t !== '' && (!(x >= 0 && x <= 100)) ? 'bad' : ''}" aria-label="Score of ${esc(n.label)}" style="max-width:6em"></td></tr>`; }).join('')}</tbody></table>
+        <div class="form"><label for="opt-anchor"><b>Anchor question.</b> If regulatory success alone is worth 100, what is it worth together with every other claim? <span class="hint">100 or more. The paper's osteoporosis example answers 150 (p. 8).</span><input class="txt" id="opt-anchor" data-oanchor="1" value="${esc(V.anchor)}" inputmode="decimal" style="max-width:8em"></label></div>`;
+      else h += `<p class="small muted">Every hypothesis is part of regulatory success, so the gain is 1 for success and 0 otherwise.</p>`;
+      const e = optElicit();
+      if (e && !e.ok) h += `<p class="err-text">✕ ${esc(e.msg)}</p>`;
+      else if (e && Object.keys(e.v).length) h += `<p class="small muted">&kappa; = ${fmtGainNum(e.kappa)}; v<sub>base</sub> = ${fmtGainNum(e.vBase)}; ${others.map(n => `v(${esc(n.label)}) = ${fmtGainNum(e.v[ids.indexOf(n.id) + 1] || 0)}`).join(', ')}.</p>`;
+    } else {
+      h += `<p class="small muted" style="margin-top:10px">multigrain's form: r1, r2, ... mean "${esc(G.nodes[0].label)} rejected", "${esc((G.nodes[1] || G.nodes[0]).label)} rejected", ... Use numbers, + &minus; * /, &amp;&amp; (and), || (or) and brackets. For example <code>(r1 &amp;&amp; r2) * (0.7 + 0.3*r3)</code>.</p>
+        <textarea class="txt" id="opt-text" rows="2" placeholder="r1 || r2" aria-label="Gain function" spellcheck="false">${esc(OPT.text)}</textarea>
+        <div class="row-actions"><span class="small muted" style="align-self:center">Insert:</span>${G.nodes.map((n, i) => `<button class="btn small" data-ins="r${i + 1}" title="r${i + 1}: ${esc(n.label)} rejected">${esc(n.label)}</button>`).join('')}<button class="btn small" data-ins="&&" title="and">&amp;&amp;</button><button class="btn small" data-ins="||" title="or">||</button></div>`;
+    }
+    const txt = optGainText(), gp = txt ? parseGain(txt, m) : null;
+    if (txt) {
+      if (gp.ok) {
+        h += `<p class="small" style="margin-top:12px"><b>Gain function</b> <span class="muted">(multigrain syntax)</span></p><div class="gain-expr" id="optExpr">${esc(txt)}</div>
+          <div class="row-actions"><button class="btn small" data-action="opt-copy">Copy</button></div>
+          <p class="small"><b>In words:</b> ${esc(gainEnglish(gp.ast))}</p>`;
+        if (m <= 8) {
+          const T = gainTable(gp.fn, m);
+          if (T.notFinite) h += '<p class="err-text">✕ The gain divides by zero for some rejection sets.</p>';
+          if (T.negative) h += '<p class="err-text">✕ The gain is negative for some rejection sets. multigrain needs a gain of 0 or more (Spiers et al. 2026, p. 4).</p>';
+          const rows = T.rows.slice().sort((a, b) => b.v - a.v || a.k - b.k).map(r => `<tr><td>${r.k ? G.nodes.filter((_, i) => (r.k >> i) & 1).map(n => esc(n.label)).join(', ') : '<span class="muted">none</span>'}</td><td class="num">${Number.isFinite(r.v) ? fmtGainNum(r.v) : '∞'}</td></tr>`).join('');
+          h += det('det-gaintable', 'Gain for every set of rejections', `<p class="small muted">Check it does what you meant. Highest first.</p><div class="mx-scroll"><table class="t"><thead><tr><th scope="col">Rejected</th><th scope="col" class="num">Gain</th></tr></thead><tbody>${rows}</tbody></table></div>`, `${T.rows.length} sets`);
+        }
+      } else {
+        const pos = Math.min(gp.pos, txt.length);
+        h += `<p class="small" style="margin-top:12px"><b>Gain function</b></p><div class="gain-expr" id="optExpr">${esc(txt.slice(0, pos))}<mark>${esc(txt.slice(pos, pos + 1) || ' ')}</mark>${esc(txt.slice(pos + 1))}</div><p class="err-text" role="alert">✕ ${esc(gp.msg)}</p>`;
+      }
+    } else if (OPT.source === 'quick' && OPT.quick !== 'average') h += '<p class="small muted" style="margin-top:12px">Tick at least one hypothesis.</p>';
+    else if (OPT.source === 'own') h += '<p class="small muted" style="margin-top:12px">Write a gain function above.</p>';
+    if (isEntangled(G)) h += `<h3>3. Fixed and free parts</h3><p class="small muted">multigrain optimises one graph, not an entangled graph. Keep one component as an ordinary graph (Graph tab) to optimise it.</p>`;
+    else {
+      const C = optConstraints(), lab = id => esc(nodeById(id).label), edgeLab = k => { const [a, b] = k.split('>'); return `${lab(a)} → ${lab(b)}`; };
+      const edgeVal = k => { const [a, b] = k.split('>'), e = edgeOf(a, b); return e ? esc(fmt(e.g)) : '0'; };
+      h += `<h3>3. Fixed and free parts</h3>
+        <p class="small muted">multigrain changes every weight and transition unless it is locked. A locked cell keeps the value it has now. Lock cells in the Matrix tab, where each weight and transition has a lock.</p>
+        <label class="chk"><input type="checkbox" id="opt-existing" ${OPT.existingOnly ? 'checked' : ''}> Only optimise transitions that already exist (missing ones stay at 0)</label>
+        <p class="small muted">multigrain's rules (read from its validation code): every fixed row must add up to 1, a row cannot have exactly one free transition, and the same holds for the weights. Rows that break a rule are listed below with a one-click fix.</p>
+        <div class="row-actions"><button class="btn small" data-action="opt-show-locks">Lock cells in the Matrix tab</button><button class="btn small" data-action="opt-lock-w" ${C.freeW.length ? '' : 'disabled'}>Lock all weights</button><button class="btn small" data-action="opt-lock-g" ${C.freeG.length ? '' : 'disabled'}>Lock all transitions</button><button class="btn small" data-action="opt-unlock-all" ${C.lockedW.length || C.lockedG.length ? '' : 'disabled'}>Unlock everything</button></div>
+        <dl class="facts"><dt>Free</dt><dd>${C.freeW.length} of ${m} weight${m === 1 ? '' : 's'}, ${C.freeG.length} of ${m * (m - 1)} transitions</dd>
+        <dt>Locked</dt><dd>${C.lockedW.length || C.lockedG.length ? [...C.lockedW.map(id => `w(${lab(id)}) = ${esc(fmt(nodeById(id).w))}`), ...C.lockedG.map(k => `${edgeLab(k)}: ${edgeVal(k)}`)].join('; ') : '<span class="muted">none</span>'}</dd>
+        ${C.fixedZero.length ? `<dt>Fixed at 0</dt><dd>${C.fixedZero.length} missing transition${C.fixedZero.length === 1 ? '' : 's'}${[...OPT.freeRows].filter(id => nodeById(id)).length ? ` (rows kept free: ${[...OPT.freeRows].filter(id => nodeById(id)).map(id => esc(nodeById(id).label)).join(', ')})` : ''}</dd>` : ''}</dl>`;
+      if (C.symbolic.length) h += `<p class="small muted">Locked cells with a symbolic weight (${C.symbolic.map(esc).join(', ')}) are fixed at their current number.</p>`;
+      for (const pr of C.problems) h += `<div class="msg"><span class="txt-part err-text">✕ ${esc(pr.text)}</span>${pr.fixes.map(([act, t]) => `<button class="btn small" data-action="${act}">${esc(t)}</button>`).join('')}</div>`;
+      if (C.two && C.freeG.length) h += '<p class="small muted">With two hypotheses multigrain fixes the two transitions at 1, so only the weights are optimised.</p>';
+    }
+    h += `<h3>4. Expected gain of this graph</h3>
+      <p class="small muted">The average gain over simulated trials (Spiers et al. 2026, eq. 3), with the Bonferroni test the optimisation uses${!isBonf() ? ` (the Test tab is set to ${esc(TEST_TYPES[testType()])}; the Power tab shows the gain under that test)` : ''}. Seed 2009.</p>
+      <div class="row-actions" style="align-items:center"><label for="opt-n" class="small">Simulations</label><select class="sel" id="opt-n">${[2000, 10000, 100000].map(v => `<option value="${v}" ${SIM.n === v ? 'selected' : ''}>${v.toLocaleString('en-GB')}</option>`).join('')}</select>
+      <button class="btn primary" data-action="opt-run" ${OPT.running || hasErrors() || !(gp && gp.ok) ? 'disabled' : ''}>${OPT.running ? 'Running…' : 'Estimate expected gain'}</button></div>
+      <div id="optProgress" class="progress">${OPT.running ? `${Math.round(100 * OPT.running.done / OPT.running.total)}% done` : ''}</div>`;
+    if (hasErrors()) h += '<div class="blocked">✕ Fix the errors shown under the canvas first.</div>';
+    if (OPT.error) h += `<p class="err-text" role="alert">✕ ${esc(OPT.error)}</p>`;
+    const R = OPT.result;
+    if (R) {
+      const t = R.tally, n = t.n, pct = x => (100 * x / n).toFixed(1) + '%';
+      if (R.sig !== optSig()) h += '<div class="stale">! The graph, &alpha;, gain function or simulation settings have changed since this run. Run it again to update.</div>';
+      h += `<dl class="facts"><dt>Expected gain</dt><dd><b>${gainMeanText(t.gain, t.gain2, n)}</b> <span class="small muted">(${n.toLocaleString('en-GB')} trials, &plusmn; 1 SE)</span></dd><dt>Gain function</dt><dd><code>${esc(R.gainText)}</code></dd><dt>Power by hypothesis</dt><dd>${R.labels.map((l, i) => `${esc(l)} ${pct(t.rej[i])}`).join(', ')}</dd></dl>
+        <p class="small muted">Correlation: ${esc(R.corrText)}.</p>`;
+    }
+    h += optScriptSection();
+    el.innerHTML = h;
+  });
+}
+/* An opened file carries multigrain's optimisation block (plan section 9): take over the gain function and the inputs,
+   keep the starting graph in Compare, estimate the gain afresh and show the Optimise tab. */
+function applyImportedOptimisation(b) {
+  const m = G.nodes.length;
+  OPT.imported = Object.assign({ sig: simSig(), when: new Date().toISOString().slice(0, 10), keptIndex: -1 }, b);
+  if (b.gain && parseGain(b.gain, m).ok) { OPT.source = 'own'; OPT.text = b.gain; }
+  if (b.inputs) {
+    if (b.inputs.powerNominal) G.nodes.forEach((n, i) => { SIM.power[n.id] = fmtNum(100 * b.inputs.powerNominal[i], 6); });
+    const R = b.inputs.corrMatrix;
+    if (R) {
+      const off = []; for (let i = 0; i < m; i++) for (let j = i + 1; j < m; j++) off.push(R[i][j]);
+      if (off.every(v => Math.abs(v - off[0]) < 1e-12)) { SIM.rho = off.length ? String(off[0]) : SIM.rho; SIM.useMatrix = false; }
+      else { SIM.useMatrix = true; for (let i = 0; i < m; i++) for (let j = i + 1; j < m; j++) SIM.corr[pairKey(G.nodes[i].id, G.nodes[j].id)] = String(R[i][j]); }
+    }
+  }
+  if (b.start) {
+    const o = serializeGraph(G);
+    o.nodes.forEach((n, i) => { n.weight = Q.exact(Q.fromNumber(b.start.weights[i])); n.p = ''; delete n.wexpr; });
+    o.edges = []; o.diag = [];
+    for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) if (i !== j && b.start.transitions[i][j]) o.edges.push({ from: o.nodes[i].id, to: o.nodes[j].id, weight: Q.exact(Q.fromNumber(b.start.transitions[i][j])), bend: null });
+    o.note = 'Starting graph given to multigrain.';
+    const name = 'Starting graph (multigrain)';
+    const key = g => { const ix = new Map(g.nodes.map((n, i) => [n.id, i])); return JSON.stringify([g.nodes.map(n => [n.label, n.weight]), g.edges.map(e => [ix.get(e.from), ix.get(e.to), e.weight]).sort()]); };
+    const same = KEPT.findIndex(k => k.name === name && key(k.graph) === key(o));
+    if (same >= 0) OPT.imported.keptIndex = same;
+    else { KEPT.push({ name, graph: o, when: OPT.imported.when }); saveKept(); OPT.imported.keptIndex = KEPT.length - 1; }
+    CMP.with = 'kept:' + OPT.imported.keptIndex; cmpInvalidate();
+  }
+  OPT.result = null; OPT.error = '';
+  setTab('optimise');
+  flashMessage('Optimised graph from multigrain opened. The Optimise tab compares its expected gain with a fresh estimate.');
+  if (OPT.source === 'own' && OPT.text) runOptGain();
+}
+/* The note at the top of the Optimise tab for a graph opened from a multigrain result */
+function optImportedSection() {
+  const I = OPT.imported;
+  if (!I) return '';
+  const changed = I.sig !== simSig();
+  const R = OPT.result, fresh = R && R.sig === optSig() && !changed ? R : null;
+  const se = fresh ? Math.sqrt(Math.max(0, fresh.tally.gain2 / fresh.tally.n - (fresh.tally.gain / fresh.tally.n) ** 2) / Math.max(1, fresh.tally.n - 1)) : null;
+  const mu = fresh ? fresh.tally.gain / fresh.tally.n : null;
+  const gap = fresh && I.expectedGain != null ? mu - I.expectedGain : null;
+  const pct = x => (100 * x).toFixed(1) + '%';
+  const line = (label, body) => `<p class="small" style="margin:2px 0"><b>${label}.</b> ${body}</p>`;
+  let h = `<div class="result-card" style="margin-bottom:12px"><div class="row-actions" style="justify-content:space-between;align-items:center"><b>Optimised with ${esc(I.package || 'multigrain')}</b><button class="btn small" data-action="opt-dismiss">Dismiss</button></div>`;
+  if (changed) h += '<p class="small muted" style="margin:2px 0">The graph has changed since it was opened; the numbers below belong to the graph as opened.</p>';
+  if (I.gain) h += line('Gain function', `<code>${esc(I.gain)}</code>`);
+  let eg = '';
+  if (I.expectedGain != null) eg += `multigrain <b>${I.expectedGain.toFixed(3)}</b> on its own sample${I.inputs && I.inputs.nsim ? ` (${I.inputs.nsim.toLocaleString('en-GB')} trials)` : ''}, which it also optimised on, so a little optimistic (Spiers et al. 2026, p. 20). `;
+  eg += `Fresh sample here: ${fresh ? `<b>${mu.toFixed(3)}</b> &plusmn; ${se.toFixed(3)} (${fresh.tally.n.toLocaleString('en-GB')} trials, seed 2009).` : (OPT.running ? 'running…' : (changed ? 'not for the changed graph.' : 'not estimated yet; press "Estimate expected gain" below.'))}`;
+  if (gap != null) {
+    const big = Math.abs(gap) > 3 * se + 0.005;
+    eg += ` Difference ${gap >= 0 ? '+' : ''}${gap.toFixed(3)}: ${big ? '<span class="err-text">larger than simulation error and the small expected optimism. Check that the power, correlation and gain function here match the script.</span>' : 'within simulation error.'}`;
+  }
+  h += line('Expected gain', eg);
+  if (I.localPower) h += line('Power by hypothesis (multigrain)', G.nodes.map((n, i) => `${esc(n.label)} ${pct(I.localPower[i])}`).join(', ') + (I.disjunctivePower != null || I.conjunctivePower != null || I.expectedRejections != null ? `; ${[I.disjunctivePower != null ? `any ${pct(I.disjunctivePower)}` : '', I.conjunctivePower != null ? `all ${pct(I.conjunctivePower)}` : '', I.expectedRejections != null ? `expected number ${I.expectedRejections.toFixed(2)}` : ''].filter(Boolean).join(', ')}` : ''));
+  if (I.optSource || I.graphValid) h += line('Solution', `${I.optSource ? `from the ${esc(I.optSource)} search` : ''}${I.globalSearch != null ? ` (global search ${I.globalSearch ? 'on' : 'off'})` : ''}${I.graphValid ? `; valid graph: local ${I.graphValid.local == null ? 'not run' : I.graphValid.local ? 'yes' : 'no'}, global ${I.graphValid.global == null ? 'not run' : I.graphValid.global ? 'yes' : 'no'}` : ''}`);
+  if (I.start && I.keptIndex >= 0 && KEPT[I.keptIndex]) h += `<div class="row-actions" style="margin-top:4px"><button class="btn small" data-action="opt-compare-start">Compare with the starting graph</button><span class="small muted" style="align-self:center">kept in the Compare tab as "${esc(KEPT[I.keptIndex].name)}"</span></div>`;
+  h += `<p class="small muted" style="margin:4px 0 0">multigrain's 0.001 weights are shown as ε.</p>${optShareSwitch('saved files, share links and the SAP text')}</div>`;
+  return h;
+}
+/* Section 5: the R script for multigrain, with its options, Copy and Download */
+function optScriptSection() {
+  const O = OPT.script, spec = optScriptSpec();
+  let h = `<h3>5. Write the R script</h3>
+    <p class="small muted">The script simulates the p-values, builds the gain function and the constraints, runs multigrain's search and saves the optimised graph as a file. Run it in R (multigrain 1.0.0 from CRAN; no Java needed). Then open the file here: Export tab, "Open a saved graph".</p>
+    <div class="row-actions" style="align-items:center">
+      <label for="opt-snsim" class="small">Simulated trials</label><select class="sel" id="opt-snsim">${[10000, 100000, 1000000].map(v => `<option value="${v}" ${O.nsim === v ? 'selected' : ''}>${v.toLocaleString('en-GB')}${v === 1000000 ? ' (paper)' : ''}</option>`).join('')}</select>
+    </div>
+    <div class="row-actions" style="align-items:center">
+      <label for="opt-threads" class="small">Threads</label><input class="txt" id="opt-threads" value="${O.threads}" inputmode="numeric" style="max-width:4em" aria-label="Number of threads"><span class="small muted">1 unless you know the machine has more to spare</span>
+    </div>
+    <label class="chk"><input type="checkbox" id="opt-global" ${O.global ? 'checked' : ''}> Global search first (genetic algorithm, slower and more thorough)</label>
+    <label class="chk"><input type="checkbox" id="opt-start" ${O.start ? 'checked' : ''}> Start from the graph on the canvas as well as multigrain's own starting points</label>
+    <div class="form"><label for="opt-file">File the script writes <input class="txt" id="opt-file" value="${esc(O.file)}" style="max-width:18em" autocomplete="off"></label></div>`;
+  if (spec.error) h += `<p class="err-text">✕ ${esc(spec.error)}</p>`;
+  else {
+    const code = optimiseRScript(spec), file = 'optimise-graph.R';
+    h += `<pre class="code" id="optScript">${esc(code)}</pre>
+      <div class="row-actions"><button class="btn primary" data-action="opt-copy-script">Copy</button>${canDownload(file) ? `<button class="btn" data-action="opt-dl-script">Download ${file}</button>` : ''}</div>
+      <p class="small muted">The script carries the gain function. Share the saved graph, not the script, if the gain function is confidential.</p>`;
+  }
+  return h;
+}
+function runOptGain() {
+  if (OPT.running || hasErrors()) return;
+  OPT.error = '';
+  const gp = optParsed();
+  if (!gp || !gp.ok) { OPT.error = 'Give a gain function first.'; renderOptimisePanel(); return; }
+  const chk = simInputsCheck();
+  if (chk.error) { OPT.error = chk.error; renderOptimisePanel(); return; }
+  const { L, mean, capped } = chk, m = G.nodes.length;
+  const fg = floatGraph(G), norm = normalGen(mulberry32(2009));
+  const tally = { n: 0, rej: Array(m).fill(0), any: 0, all: 0, total: 0, custom: 0, gain: 0, gain2: 0 };
+  const total = SIM.n, sig = optSig(), gainText = optGainText(), labels = G.nodes.map(n => n.label);
+  const corrText = (SIM.useMatrix ? 'set pair by pair' : `${Number(SIM.rho)} for every pair`) + corrCapText(capped);
+  OPT.running = { done: 0, total };
+  renderOptimisePanel();
+  const step = () => {
+    const k = Math.min(5000, total - tally.n);
+    simulateChunk(fg, mean, L, G.alpha, k, norm, tally, { gain: gp.fn });
+    OPT.running.done = tally.n;
+    const pr = $('optProgress'); if (pr) pr.textContent = `${Math.round(100 * tally.n / total)}% done`;
+    if (tally.n < total) setTimeout(step, 0);
+    else { OPT.running = null; OPT.result = { tally, sig, labels, gainText, corrText }; renderOptimisePanel(); }
   };
   setTimeout(step, 0);
 }
@@ -1801,6 +2182,12 @@ async function resolveDownloads() {
   try { dlCap = await window.claude.use('downloads'); } catch (e) { dlCap = null; }
   if (activeTab === 'export' && exportView && exportView !== 'load') showExport(exportView);
 }
+/* The sharing switch for a graph that came from multigrain (plan section 10): the gain function and multigrain's own
+   numbers leave the app in a saved file, share link or SAP text only when it is on */
+function optShareSwitch(what) {
+  if (!G.opt || isEntangled(G)) return '';
+  return `<label class="chk"><input type="checkbox" data-optshare="1" ${G.opt.share ? 'checked' : ''}> Include the gain function and multigrain's result in ${what}</label><p class="small muted">The gain function can encode commercially sensitive judgements and need not be disclosed (Spiers et al. 2026, p. 19). Off: ${what === 'the SAP text' ? 'the text says the graph was chosen by gain-function optimisation without giving the gain function' : 'only the graph is written'}.</p>`;
+}
 function codeBlock(title, desc, code, file, mime) {
   const dl = file && canDownload(file);
   return `<h3>${esc(title)}</h3>${desc ? `<p class="small muted">${desc}</p>` : ''}
@@ -1871,13 +2258,13 @@ async function showExport(kind) {
     exportPayload = exportGMCP(G);
     out.innerHTML = codeBlock('R code for gMCP', isEntangled(G) ? 'Builds each component with matrix2graph() and joins them as an entangledMCP object. gMCP tests an entangled graph with Bonferroni only, so the code also prints the intersection weights to check a closed test by hand.' : 'Builds the graph with matrix2graph(), and tests it when every hypothesis has a p-value.', exportPayload, 'multiplicity-graph-gMCP.R', 'text/plain');
   } else if (kind === 'json') {
-    exportPayload = JSON.stringify(serializeGraph(G), null, 2);
-    out.innerHTML = codeBlock('Graph file (JSON)', 'Keeps labels, exact weights, positions, curvature, p-values and &alpha;. Open it again with "Open a saved graph".', exportPayload, 'multiplicity-graph.json', 'application/json');
+    exportPayload = JSON.stringify(G.opt && G.opt.share ? serializeGraph(G) : stripOptimisation(serializeGraph(G)), null, 2);
+    out.innerHTML = optShareSwitch('the file') + codeBlock('Graph file (JSON)', 'Keeps labels, exact weights, positions, curvature, p-values and &alpha;. Open it again with "Open a saved graph".', exportPayload, 'multiplicity-graph.json', 'application/json');
   } else if (kind === 'link') {
     const token = encodeShare(G);
     if (isTop) {
       exportPayload = location.href.split('#')[0] + '#' + token;
-      out.innerHTML = codeBlock('Share link', 'The whole graph is stored in the link itself, so nothing is uploaded. Anyone opening it sees this graph.', exportPayload, null);
+      out.innerHTML = optShareSwitch('the link') + codeBlock('Share link', 'The whole graph is stored in the link itself, so nothing is uploaded. Anyone opening it sees this graph.', exportPayload, null);
     } else {
       exportPayload = '#' + token;
       out.innerHTML = codeBlock('Share code', 'The whole graph is stored in this code, so nothing is uploaded. Add it to the end of this page\'s link (no spaces) to share the graph, or paste it into "Open a saved graph".', exportPayload, null);
@@ -1891,7 +2278,7 @@ async function showExport(kind) {
     const textAll = sapPlainText(sap) + '\n\n' + sap.tables.map(tableToTSV).join('\n\n') + '\n\n' + sapRefsText(sap);
     exportPayload = textAll;
     sapHTML = sapParasHTML(sap) + sap.tables.map(tableToHTML).join('') + sapRefsHTML(sap);
-    out.innerHTML = `<h3>Multiplicity strategy for a SAP or protocol</h3>
+    out.innerHTML = optShareSwitch('the SAP text') + `<h3>Multiplicity strategy for a SAP or protocol</h3>
       <p class="small muted">Describes the initial graph with the test type${G.test && G.test.type !== 'bonferroni' ? ' (closed test)' : ''} and the ${G.sided === 'two' ? 'two' : 'one'}-sided &alpha; set in the toolbar. Edit the wording to suit the document; the descriptions and groups in each hypothesis's panel feed into it. Check the stated assumptions against the trial's test statistics before using it. Fill in the [square-bracket placeholders], and number the tables and figure to match your document; Figure [X] is the graph, which you can export as PNG or SVG from this tab.${G.sided === 'two' && G.test && G.test.type !== 'bonferroni' ? ' <b>Two-sided p-values with a closed test:</b> this controls the two-sided error rate, but not a one-sided rate of &alpha;/2 for claims of benefit, since an effect in the harmful direction can help other hypotheses to be rejected. For directional claims, set the toolbar to one-sided p-values and halve &alpha;.' : ''}</p>
       <div class="sap" id="sapText">${sapParasHTML(sap)}</div>
       <div class="row-actions"><button class="btn primary" data-action="copy-sap-text">Copy text</button></div>
@@ -1906,8 +2293,8 @@ async function showExport(kind) {
       <div class="row-actions"><button class="btn primary" data-action="load-text">Open</button></div>
       <div id="loadMsg" aria-live="polite"></div>
       ${det('det-xfmt', 'File format for R and multigrain', `<p class="small muted">Besides its own saved files, the Sketchpad opens this simple JSON. <code>label</code>, <code>group</code>, <code>p</code> and <code>source</code> are optional; hypotheses in a group get matching colours. Rows of <code>transitions</code> are "from", columns are "to", in the same order as the hypotheses.</p>
-<pre class="code" id="xfmtCode">${esc(JSON.stringify({ format: 'multiplicity-graph', version: 1, source: 'multigrain 0.3.0', alpha: 0.025, hypotheses: [{ name: 'H1', label: 'Dose 1, primary', weight: 0.5, group: 'primary' }, { name: 'H2', label: 'Dose 1, secondary', weight: 0.5, group: 'secondary' }], transitions: [[0, 1], [1, 0]] }, null, 2))}</pre>
-<p class="small muted">The R function <code>sketchpad_json()</code> (supplied with the Sketchpad) writes this from a multigrain <code>graph_optimise()</code> result.</p>`)}`;
+<pre class="code" id="xfmtCode">${esc(JSON.stringify({ format: 'multiplicity-graph', version: 1, source: 'multigrain 1.0.0', alpha: 0.025, hypotheses: [{ name: 'H1', label: 'Dose 1, primary', weight: 0.5, group: 'primary' }, { name: 'H2', label: 'Dose 1, secondary', weight: 0.5, group: 'secondary' }], transitions: [[0, 1], [1, 0]] }, null, 2))}</pre>
+<p class="small muted">The R function <code>sketchpad_json()</code> (supplied with the Sketchpad, and copied into the script the Optimise tab writes) writes this from a multigrain <code>graph_optimise()</code> result. Its file also carries an optional <code>optimisation</code> block (gain function, multigrain's expected gain and powers, the inputs and the starting graph); when it is present, the Optimise tab shows the result against a fresh estimate, and multigrain's 0.001 weights appear as ε.</p>`)}`;
   }
 }
 function loadFromText(txt) {
@@ -1921,6 +2308,7 @@ function loadFromText(txt) {
     else throw new Error('Paste a saved JSON graph, a share link or a share code.');
     loadGraph(o);
     if (msg) msg.innerHTML = `<p class="ok-text">✓ Opened a graph with ${G.nodes.length} hypotheses.</p>`;
+    if (G.opt) applyImportedOptimisation(G.opt);
   } catch (err) {
     if (msg) msg.innerHTML = `<p class="err-text" role="alert">✕ ${esc(err.message.startsWith('Unexpected') ? 'That text is not valid JSON.' : err.message)}</p>`;
   }
@@ -2230,11 +2618,11 @@ function setAdvanced(on, silent) {
   document.body.classList.toggle('simple', !advanced);
   $('advToggle').checked = advanced;
   $('advSwitch').checked = advanced;
-  if (!advanced && (activeTab === 'matrix' || activeTab === 'power')) activeTab = 'graph';
+  if (!advanced && (activeTab === 'matrix' || activeTab === 'power' || activeTab === 'optimise')) activeTab = 'graph';
   if (!silent) renderAll();
 }
 function setTab(name) {
-  if (!advanced && (name === 'matrix' || name === 'power')) setAdvanced(true);
+  if (!advanced && (name === 'matrix' || name === 'power' || name === 'optimise')) setAdvanced(true);
   activeTab = name;
   for (const t of TABS) {
     $('tab-' + t).hidden = t !== name;
@@ -2243,6 +2631,7 @@ function setTab(name) {
   }
   if (name === 'export' && exportView && exportView !== 'load') showExport(exportView);
   if (name === 'power') renderPowerPanel();
+  if (name === 'optimise') renderOptimisePanel();
   if (name === 'compare') renderComparePanel();
   if (name === 'test') renderTestPanel();
 }
@@ -2254,6 +2643,7 @@ function renderAll() {
   renderMatrixPanel();
   renderTestPanel();
   if (activeTab === 'power') renderPowerPanel();
+  if (activeTab === 'optimise') renderOptimisePanel();
   if (activeTab === 'compare') renderComparePanel();
   renderStatus();
   updateToolbar();
@@ -2668,6 +3058,7 @@ $('tab-graph').addEventListener('click', e => {
 $('tab-matrix').addEventListener('change', e => {
   const t = e.target;
   if (t.id === 'dg-hide') { DG.hide = t.checked; renderDefaultGraph(); return; }
+  if (t.id === 'mx-locks') { OPT.showLocks = t.checked; renderMatrixPanel(); if (activeTab === 'optimise') renderOptimisePanel(); return; }
   if (t.dataset.mc != null && isEntangled(G)) {
     const k = +t.dataset.mc, r = readWeight(t.value);
     if (!r) { t.classList.add('bad'); return; }
@@ -2715,6 +3106,11 @@ $('tab-matrix').addEventListener('change', e => {
   }
 });
 $('tab-matrix').addEventListener('click', e => {
+  const lk = e.target.closest('[data-lockw],[data-lockg]');
+  if (lk && !lk.disabled) {
+    if (lk.dataset.lockw) toggleLock(OPT.lockW, lk.dataset.lockw); else toggleLock(OPT.lockG, lk.dataset.lockg);
+    renderMatrixPanel(); return;
+  }
   const b = e.target.closest('[data-action]');
   if (!b) return;
   const act = b.dataset.action;
@@ -2795,11 +3191,8 @@ $('tab-test').addEventListener('click', e => {
 });
 $('tab-power').addEventListener('change', e => {
   const t = e.target;
-  if (t.dataset.pw) { SIM.power[t.dataset.pw] = t.value.trim(); setTimeout(renderPowerPanel, 0); }
-  else if (t.id === 'sim-rho') { SIM.rho = t.value.trim(); SIM.error = ''; setTimeout(renderPowerPanel, 0); }
-  else if (t.id === 'sim-usematrix') { SIM.useMatrix = t.checked; renderPowerPanel(); }
-  else if (t.dataset.corr) { SIM.corr[t.dataset.corr] = t.value.trim(); SIM.error = ''; setTimeout(renderPowerPanel, 0); }
-  else if (t.id === 'sim-n') { SIM.n = Number(t.value); }
+  if (simInputChange(t)) return;
+  if (t.id === 'sim-n') { SIM.n = Number(t.value); }
   else if (t.name === 'sim-rule') { SIM.success.rule = t.value; renderPowerPanel(); }
   else if (t.dataset.succ) {
     const id = t.dataset.succ;
@@ -2820,6 +3213,69 @@ $('tab-power').addEventListener('click', e => {
   } else if (act === 'sim-clear') { SIM.runs = []; renderPowerPanel(); }
   else if (act === 'sim-copy-r') copyText(powerRCode(), b, 'simRCode');
 });
+$('tab-optimise').addEventListener('change', e => {
+  const t = e.target;
+  if (simInputChange(t)) return;
+  const V = OPT.values;
+  if (t.dataset.osucc) { const id = t.dataset.osucc; SIM.success.ids = t.checked ? [...new Set([...SIM.success.ids, id])] : SIM.success.ids.filter(x => x !== id); }
+  else if (t.dataset.oreg) { const id = t.dataset.oreg; V.reg = t.checked ? [...new Set([...V.reg, id])] : V.reg.filter(x => x !== id); }
+  else if (t.dataset.oscore) V.scores[t.dataset.oscore] = t.value.trim();
+  else if (t.dataset.oanchor) V.anchor = t.value.trim();
+  else if (t.id === 'opt-existing') { OPT.existingOnly = t.checked; renderMatrixPanel(); }
+  else if (t.id === 'opt-snsim') OPT.script.nsim = Number(t.value);
+  else if (t.id === 'opt-global') OPT.script.global = t.checked;
+  else if (t.id === 'opt-start') OPT.script.start = t.checked;
+  else if (t.id === 'opt-threads') { const k = Math.floor(Number(t.value)); OPT.script.threads = k >= 1 ? k : 1; }
+  else if (t.id === 'opt-file') OPT.script.file = t.value.trim().replace(/[\\/:*?"<>|]/g, '') || 'optimised-graph.json';
+  else if (t.id === 'opt-n') { SIM.n = Number(t.value); return; }
+  else return;
+  OPT.error = '';
+  setTimeout(renderOptimisePanel, 0);
+});
+let optTextTimer = null;
+$('tab-optimise').addEventListener('input', e => {
+  const t = e.target;
+  if (t.id !== 'opt-text') return;
+  OPT.text = t.value; OPT.error = '';
+  clearTimeout(optTextTimer); optTextTimer = setTimeout(renderOptimisePanel, 250);
+});
+$('tab-optimise').addEventListener('click', e => {
+  const b = e.target.closest('[data-ins]');
+  if (b) {
+    const ta = $('opt-text'); if (!ta) return;
+    const a = ta.selectionStart == null ? ta.value.length : ta.selectionStart, z = ta.selectionEnd == null ? a : ta.selectionEnd;
+    const before = ta.value.slice(0, a), after = ta.value.slice(z);
+    const ins = (before && !/\s$/.test(before) ? ' ' : '') + b.dataset.ins + (after && !/^\s/.test(after) ? ' ' : '');
+    ta.value = before + ins + after; OPT.text = ta.value; OPT.error = '';
+    ta.focus(); ta.setSelectionRange(a + ins.length, a + ins.length);
+    clearTimeout(optTextTimer); optTextTimer = setTimeout(renderOptimisePanel, 250);
+    return;
+  }
+  const sg = e.target.closest('[data-oseg]');
+  if (sg) {
+    const v = sg.dataset.val;
+    if (sg.dataset.oseg === 'source') { const prev = optGainText(); OPT.source = v; if (v === 'own' && !OPT.text.trim() && prev) OPT.text = prev; }
+    else if (sg.dataset.oseg === 'quick') OPT.quick = v;
+    else if (sg.dataset.oseg === 'vrule') OPT.values.rule = v;
+    OPT.error = ''; renderOptimisePanel();
+    return;
+  }
+  const c = e.target.closest('[data-action]');
+  if (!c || c.disabled) return;
+  const act = c.dataset.action;
+  if (act === 'opt-run') runOptGain();
+  else if (act === 'opt-copy') copyText(optGainText(), c, 'optExpr');
+  else if (act === 'opt-show-locks') { OPT.showLocks = true; renderMatrixPanel(); setTab('matrix'); }
+  else if (act === 'opt-lock-w') { for (const n of G.nodes) OPT.lockW.add(n.id); renderMatrixPanel(); renderOptimisePanel(); }
+  else if (act === 'opt-lock-g') { for (const a of G.nodes) for (const b of G.nodes) if (a !== b) OPT.lockG.add(gKey(a.id, b.id)); renderMatrixPanel(); renderOptimisePanel(); }
+  else if (act === 'opt-unlock-all' || act === 'opt-unlock-w') { OPT.lockW.clear(); if (act === 'opt-unlock-all') { OPT.lockG.clear(); OPT.freeRows.clear(); } renderMatrixPanel(); renderOptimisePanel(); }
+  else if (act.startsWith('opt-free-row:')) { const a = act.slice(13); for (const n of G.nodes) OPT.lockG.delete(gKey(a, n.id)); OPT.freeRows.add(a); renderMatrixPanel(); renderOptimisePanel(); }
+  else if (act.startsWith('opt-lock-row:')) { const a = act.slice(13); for (const n of G.nodes) if (n.id !== a) OPT.lockG.add(gKey(a, n.id)); OPT.freeRows.delete(a); renderMatrixPanel(); renderOptimisePanel(); }
+  else if (act === 'opt-dismiss') { OPT.imported = null; renderOptimisePanel(); }
+  else if (act === 'opt-compare-start') { if (OPT.imported && OPT.imported.keptIndex >= 0) { CMP.with = 'kept:' + OPT.imported.keptIndex; cmpInvalidate(); } setTab('compare'); }
+  else if (act === 'opt-copy-script') { const sp = optScriptSpec(); if (!sp.error) copyText(optimiseRScript(sp), c, 'optScript'); }
+  else if (act === 'opt-dl-script') { const sp = optScriptSpec(); if (!sp.error) download('optimise-graph.R', 'text/plain', optimiseRScript(sp), c); }
+});
 $('tab-export').addEventListener('click', e => {
   const ex = e.target.closest('[data-export]');
   if (ex) { showExport(ex.dataset.export); return; }
@@ -2834,6 +3290,13 @@ $('tab-export').addEventListener('click', e => {
   else if (act === 'download') download(b.dataset.file, b.dataset.mime, exportPayload, b);
   else if (act === 'download-png') download('multiplicity-graph.png', 'image/png', dataUrlToBlob(exportPayload), b);
   else if (act === 'load-text') loadFromText($('loadText').value);
+});
+document.addEventListener('change', e => {
+  const t = e.target;
+  if (!t || !t.dataset || !t.dataset.optshare || !G.opt) return;
+  G.opt.share = t.checked; scheduleHash();
+  if (activeTab === 'export' && exportView && exportView !== 'load') showExport(exportView);
+  if (activeTab === 'optimise') renderOptimisePanel();
 });
 $('tab-export').addEventListener('change', e => {
   if (e.target.id !== 'loadFile') return;
@@ -2954,6 +3417,7 @@ $('helpBtn').addEventListener('click', () => openModal('Help and shortcuts', `
     <li><b>Adjusted p-values</b> and <b>pasting all p-values at once</b> sit under the p-value table.</li>
     <li><b>Power:</b> the Power tab simulates how often each hypothesis is rejected, and lets you keep runs to compare designs.</li>
     <li><b>Compare:</b> keep a copy of the graph, change it, and the Compare tab shows both pictures, the weights and transitions that differ, the test result on the same p-values and the power on the same simulated trials.</li>
+    <li><b>Optimise</b> (advanced): say what each set of claims is worth (a gain function: quick rules, build from values, or write your own), lock the parts of the graph that must not change, and the tab writes an R script for the multigrain package. Run it in R, open the file it saves, and the tab compares multigrain's expected gain with a fresh estimate and the starting graph.</li>
     <li><b>Matrix tab:</b> edit w and G as numbers, or import R code. In Test mode it shows the graph after each step.</li>
     <li><b>Export:</b> picture, TikZ, R code for graphicalMCP or gMCP, a share link, or a saved file.</li>
   </ul>
@@ -2973,7 +3437,7 @@ $('helpBtn').addEventListener('click', () => openModal('Help and shortcuts', `
   </ul>
   <p class="small muted">Weights are kept as exact fractions and shown as fractions when the denominator is 100 or less. Type decimals (0.25) or fractions (1/3).</p>`));
 function showSelfTest() {
-  const r = runAllSelfTests().concat(runClosureSelfTests(), runLiteratureSelfTests(), runEntangledSelfTests());
+  const r = runAllSelfTests().concat(runClosureSelfTests(), runLiteratureSelfTests(), runEntangledSelfTests(), runGainSelfTests());
   const passed = r.filter(x => x.pass).length;
   openModal('Self-test', `<p><b>${passed} of ${r.length} checks passed.</b></p><ul class="check-list">${r.map(x => `<li><span class="${x.pass ? 'pass' : 'fail'}">${x.pass ? '✓ Pass' : '✕ Fail'}</span><span>${esc(x.name)}${x.detail ? `<br><span class="small muted">${esc(x.detail)}</span>` : ''}</span></li>`).join('')}</ul>`);
 }
@@ -3030,7 +3494,9 @@ const REFERENCES = [
   ['EMA2017', 'European Medicines Agency, CHMP (2017). Guideline on multiplicity issues in clinical trials (draft). EMA/CHMP/44762/2017.', 'Draft to replace the 2002 Points to Consider. Hierarchical testing in sections 5.1 and 6.2; the procedure must be in the protocol. It does not name graphical approaches.'],
   ['Genz2009', 'Genz A, Bretz F (2009). Computation of Multivariate Normal and t Probabilities. Lecture Notes in Statistics 195. Springer. doi:10.1007/978-3-642-01689-9', 'The randomised lattice rule used for the multivariate normal probabilities in the parametric test.'],
   ['gMCP', 'Rohmeyer K, Klinglmüller F (2024). gMCP: Graph Based Multiple Comparison Procedures. R package version 0.8-17. https://github.com/kornl/gMCP', 'Templates, ε convention, upscale option, Simes within groups rule; R export.'],
-  ['graphicalMCP', 'Xi D, Brockmann E (2025). graphicalMCP: Graphical Multiple Comparison Procedures. R package version 0.3.0. https://openpharma.github.io/graphicalMCP/', 'R export and the validation scripts.']
+  ['graphicalMCP', 'Xi D, Brockmann E (2025). graphicalMCP: Graphical Multiple Comparison Procedures. R package version 0.3.0. https://openpharma.github.io/graphicalMCP/', 'R export and the validation scripts.'],
+  ['Spiers2026', 'Spiers ADV, Grayling MJ, Wheeler GM, Mander AP (2026). Gain-function optimisation of graphical multiple testing procedures for confirmatory clinical trials. arXiv:2609.19994. https://arxiv.org/abs/2609.19994', 'The Optimise tab: gain functions (section 2.3.1), the hurdle form and elicitation (section 2.4, eq. 5, p. 8), expected gain (eq. 3), the optimisation problem (eq. 6), noncentrality from nominal power (eq. 9), re-estimation on a fresh sample (p. 20) and the note that a gain function may be commercially sensitive (p. 19). Examples 3 and 4 are self-tests.'],
+  ['multigrain', 'Spiers A, Moldovan-Grünfeld D (2026). multigrain: Optimise Graphical Approaches to Multiple Testing Procedures. R package version 1.0.0. https://CRAN.R-project.org/package=multigrain', 'The search the Optimise tab writes a script for: simulate_pvalues(), trial_success(), graph_constraint(), graph_optimise(). The app reads $hyp_weight, $trans_matrix, $power and $solution from the result and reimplements nothing from the package; its constraint rules were checked against the package\'s own validation code. LGPL (>= 3).']
 ];
 /* SAP text: paragraphs with their bold lead-ins, and the reference list (sapText in core.js) */
 function sapPlainText(sap) { return sap.paragraphs.join('\n\n'); }
@@ -3054,9 +3520,10 @@ function aboutHTML() {
     <li>Two-sided p-values can be entered for the Bonferroni and Simes tests; the parametric test refuses them. For the Bonferroni graph, two-sided p-values with a check of the direction of the effect amount to one-sided testing at &alpha;/2. For the closed Simes test they do not: an effect in the harmful direction can help other hypotheses to be rejected, so use one-sided p-values for claims of benefit.</li>
     <li>With the Simes or parametric tests, a graph that is not alpha-exhaustive does not guarantee its order of testing: a hypothesis can be rejected while the hypotheses that pass weight to it are not.</li>
     <li>The hypotheses are assumed to satisfy the free combination condition (Holm, 1979). If some combinations of true and false hypotheses are impossible (restricted hypotheses), the procedures still control the familywise error rate but may be conservative (Bretz et al., 2011, p. 895; Brannath and Bretz, 2010); the tool does not exploit such restrictions.</li>
+    <li>Optimised graphs (Optimise tab, Spiers et al., 2026): multigrain reports the expected gain on the same simulated sample it optimised on, which is a little optimistic; the app re-estimates it on a fresh sample when the result is opened, and flags a clear gap. The optimisation chooses the weights only; error rate control does not depend on how they were chosen. The gain function may be commercially sensitive, so it leaves the app in a file, link or SAP text only when you switch that on.</li>
     <li>Regulatory context: the FDA guidance on multiple endpoints (2022, Appendix, section 8) describes graphical approaches, and the EMA points to consider on multiplicity (2002) ask for the procedure to be fully specified in the protocol or statistical analysis plan.</li>
   </ul>
-  <p><b>Validation</b><br>The built-in self-test (More menu) checks the engine against worked examples from the papers below and against direct implementations of Holm, Hommel and the closed tests. Results were cross-checked against graphicalMCP for the Bonferroni, Simes and parametric tests.${REPO_URL ? ' The source and the test scripts are in the repository.' : ''}</p>
+  <p><b>Validation</b><br>The built-in self-test (More menu) checks the engine against worked examples from the papers below and against direct implementations of Holm, Hommel and the closed tests. Results were cross-checked against graphicalMCP for the Bonferroni, Simes and parametric tests, and the Optimise tab's expected gain against Tables 4 and 5 of Spiers et al. (2026) and against a real multigrain run.${REPO_URL ? ' The source and the test scripts are in the repository.' : ''}</p>
   <p><b>References</b></p><ol class="refs">${refs}</ol>`;
 }
 function showAbout() { closeMenu(); openModal('About this tool', aboutHTML()); }

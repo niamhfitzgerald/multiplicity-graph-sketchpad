@@ -192,9 +192,11 @@ body.present .comp-bar, .comp-bar[hidden] { display: none; }
 .adv-switch { border-top: 1px solid var(--line); padding: 0 16px; font-size: 13.5px; color: var(--muted); min-height: 34px; }
 body.simple .adv { display: none !important; }
 body:not(.simple) .simple-only { display: none !important; }
-.tabs { display: flex; border-bottom: 1px solid var(--line); background: var(--surface-2); }
-.tabs button { flex: 1; min-height: 44px; border: 0; background: transparent; cursor: pointer; font-weight: 700; color: var(--muted); border-bottom: 3px solid transparent; }
+.tabs { display: flex; border-bottom: 1px solid var(--line); background: var(--surface-2); overflow-x: auto; }
+.tabs button { flex: 1 0 auto; min-height: 44px; border: 0; background: transparent; cursor: pointer; font-weight: 700; color: var(--muted); border-bottom: 3px solid transparent; }
 .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); background: var(--surface); }
+.gain-expr { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; overflow-wrap: anywhere; }
+.gain-expr mark { background: rgba(220, 60, 60, .28); color: inherit; border-radius: 3px; }
 .tabpanel { overflow-y: auto; padding: 16px; display: grid; gap: 14px; align-content: start; grid-auto-rows: max-content; min-width: 0; }
 .tabpanel > * { min-width: 0; }
 .tabpanel h2 { font-size: 17px; margin: 0; }
@@ -229,6 +231,11 @@ table.mx th[scope="row"] { text-align: right; }
 table.mx td input { width: 4.4em; min-height: 32px; padding: 0 4px; text-align: center; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--canvas); }
 table.mx td input.diag { background: var(--surface-2); color: var(--muted); }
 table.mx td.sum { padding: 0 6px; white-space: nowrap; font-size: 13px; }
+table.mx td.lockcell { white-space: nowrap; }
+table.mx td.lockcell input.locked { background: var(--accent-soft); border-color: var(--accent); }
+table.mx .lock { vertical-align: middle; margin-left: 2px; min-height: 28px; min-width: 28px; padding: 0 4px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); cursor: pointer; font-size: 13px; line-height: 1; }
+table.mx .lock[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+table.mx .lock:disabled { opacity: .55; cursor: default; }
 .sum.error { color: var(--err); font-weight: 700; }
 .sum.warn { color: var(--warn); }
 .sum.ok { color: var(--ok); }
@@ -326,7 +333,7 @@ details.more > summary .sum-note { font-weight: 400; color: var(--muted); font-s
 .progress { font-size: 14px; color: var(--muted); }
 .stale { border: 1.5px solid var(--warn); background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 8px 10px; font-size: 14px; }
 table.t td.num, table.t th.num { text-align: right; }
-.tabs button { font-size: 14px; }
+.tabs button { font-size: 13.5px; padding: 0 3px; }
 
 
 /* ---- arrange and colours ---- */
@@ -378,6 +385,7 @@ table.t td:first-child { white-space: nowrap; }
   .canvas-wrap { height: 64vh; min-height: 380px; }
   .panel { max-height: none; }
   .brand .sub { display: none; }
+  .tabs button { font-size: 12.5px; padding: 0 2px; }
 }
 /* iPhone Safari zooms the page in when a text box smaller than 16px gets focus; touch screens get 16px boxes */
 @media (pointer: coarse) {
@@ -538,6 +546,7 @@ table.t td:first-child { white-space: nowrap; }
         <button role="tab" id="tabbtn-matrix" class="adv" aria-controls="tab-matrix" aria-selected="false">Matrix</button>
         <button role="tab" id="tabbtn-test" aria-controls="tab-test" aria-selected="false">Test</button>
         <button role="tab" id="tabbtn-power" class="adv" aria-controls="tab-power" aria-selected="false">Power</button>
+        <button role="tab" id="tabbtn-optimise" class="adv" aria-controls="tab-optimise" aria-selected="false">Optimise</button>
         <button role="tab" id="tabbtn-compare" aria-controls="tab-compare" aria-selected="false">Compare</button>
         <button role="tab" id="tabbtn-export" aria-controls="tab-export" aria-selected="false">Export</button>
       </nav>
@@ -545,6 +554,7 @@ table.t td:first-child { white-space: nowrap; }
       <div class="tabpanel" role="tabpanel" id="tab-matrix" aria-labelledby="tabbtn-matrix" hidden></div>
       <div class="tabpanel" role="tabpanel" id="tab-test" aria-labelledby="tabbtn-test" hidden></div>
       <div class="tabpanel" role="tabpanel" id="tab-power" aria-labelledby="tabbtn-power" hidden></div>
+      <div class="tabpanel" role="tabpanel" id="tab-optimise" aria-labelledby="tabbtn-optimise" hidden></div>
       <div class="tabpanel" role="tabpanel" id="tab-compare" aria-labelledby="tabbtn-compare" hidden></div>
       <div class="tabpanel" role="tabpanel" id="tab-export" aria-labelledby="tabbtn-export" hidden></div>
       <label class="adv-switch chk"><input type="checkbox" id="advSwitch"> Advanced features</label>

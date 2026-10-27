@@ -4,7 +4,7 @@ const fs = require('fs'), vm = require('vm'), path = require('path');
 const file = process.argv[2] || path.join(__dirname, '..', 'src', 'core.js');
 const ctx = { console, performance, TextEncoder, TextDecoder, btoa, atob, setTimeout, clearTimeout };
 vm.createContext(ctx);
-vm.runInContext(fs.readFileSync(file, 'utf8') + '\nthis.__run = () => [...runAllSelfTests(), ...runClosureSelfTests(), ...runLiteratureSelfTests(), ...runEntangledSelfTests()]; this.__v = APP_VERSION;', ctx);
+vm.runInContext(fs.readFileSync(file, 'utf8') + '\nthis.__run = () => [...runAllSelfTests(), ...runClosureSelfTests(), ...runLiteratureSelfTests(), ...runEntangledSelfTests(), ...runGainSelfTests()]; this.__v = APP_VERSION;', ctx);
 const res = ctx.__run();
 let fails = 0;
 for (const r of res) { if (!r.pass) fails++; console.log((r.pass ? 'PASS ' : 'FAIL ') + r.name + (r.pass ? '' : '\n      ' + r.detail)); }

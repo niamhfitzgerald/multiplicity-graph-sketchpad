@@ -4,7 +4,7 @@ if (!process.argv[2]) process.argv[2] = require('path').join(__dirname, '..', 's
 const src = fs.readFileSync(process.argv[2], 'utf8');
 const ctx = { console, performance, TextEncoder, TextDecoder, btoa, atob, setTimeout, clearTimeout };
 vm.createContext(ctx);
-vm.runInContext(src + '\nthis.__X = { Q, gKey, NODE_R, TEMPLATES, TEMPLATE_GEN, TEST_TYPES, pnormUpper, PRIMES, GREEK };', ctx);
+vm.runInContext(src + '\nthis.__X = { Q, gKey, NODE_R, TEMPLATES, TEMPLATE_GEN, TEST_TYPES, pnormUpper, PRIMES, GREEK, SKETCHPAD_JSON_R };', ctx);
 const C = Object.assign({}, ctx, ctx.__X);
 const { Q } = C;
 
@@ -110,7 +110,7 @@ function bvnLower(h, k, rho) {
 console.log('Stress testing', process.argv[2]);
 
 check('Built-in suites pass', () => {
-  const r = C.runAllSelfTests().concat(C.runClosureSelfTests(), C.runLiteratureSelfTests(), C.runEntangledSelfTests());
+  const r = C.runAllSelfTests().concat(C.runClosureSelfTests(), C.runLiteratureSelfTests(), C.runEntangledSelfTests(), C.runGainSelfTests());
   const bad = r.filter(x => !x.pass);
   return bad.length ? bad.map(x => x.name + ': ' + x.detail).join('; ') : true;
 });
@@ -773,6 +773,276 @@ check('Correlation conflicts: a positive definite matrix gives none; an impossib
     if (pd !== (c === null)) return `case ${k}: Cholesky ${pd}, conflict ${c}`;
     if (c && c.length < m) { const S = new Float64Array(c.length ** 2); c.forEach((i, a) => c.forEach((j, b) => { S[a * c.length + b] = M[i][j]; })); if (C.cholesky(S, c.length)) return `case ${k}: named set ${c} is fine on its own`; }
   }
+  return true;
+});
+
+/* ---------- gain functions (multigrain stage) ---------- */
+/* Random well-typed gain expressions, written with random spacing, brackets and and/or words */
+function randomGain(m, depth) {
+  const leafR = () => ({ txt: 'r' + ri(1, m), bool: true });
+  const leafN = () => ({ txt: String(ri(0, 20) / 4), bool: false });
+  if (depth <= 0) return rnd() < 0.7 ? leafR() : leafN();
+  const kind = ri(0, 5);
+  if (kind <= 1) { // && or || between true/false terms
+    const a = randomBool(m, depth - 1), b = randomBool(m, depth - 1);
+    const op = kind === 0 ? (rnd() < 0.5 ? '&&' : 'and') : (rnd() < 0.5 ? '||' : 'or');
+    return { txt: `(${a.txt} ${op} ${b.txt})`, bool: true };
+  }
+  const a = randomGain(m, depth - 1), b = randomGain(m, depth - 1), op = ['+', '-', '*', '/'][kind - 2];
+  if (op === '/' ) return { txt: `(${a.txt}) / (${ri(1, 8)})`, bool: false };
+  const br = rnd() < 0.5;
+  return { txt: br ? `(${a.txt} ${op} ${b.txt})` : `${a.txt}${rnd() < 0.5 ? ' ' : ''}${op}${rnd() < 0.5 ? ' ' : ''}${b.txt}`, bool: op === '*' && a.bool && b.bool };
+}
+function randomBool(m, depth) {
+  if (depth <= 0 || rnd() < 0.3) return { txt: 'r' + ri(1, m), bool: true };
+  const a = randomBool(m, depth - 1), b = randomBool(m, depth - 1), op = ['&&', '||', '*'][ri(0, 2)];
+  return { txt: `(${a.txt} ${op} ${b.txt})`, bool: true };
+}
+/* Independent reference: JavaScript's own precedence (* / then + - then && then ||) on 0/1 values;
+   && and || are turned into a*b and min(1, a+b) only at the top of each bracketed group by wrapping */
+function refGain(txt, r) {
+  const js = txt.replace(/\band\b/gi, '&&').replace(/\bor\b/gi, '||').replace(/r(\d+)/g, (_, k) => `R[${k - 1}]`);
+  const val = Function('R', `"use strict"; return (${js});`)(r);
+  return typeof val === 'boolean' ? (val ? 1 : 0) : Number(val);
+}
+check('Gain parser agrees with JavaScript\'s own evaluation on 3,000 random gain functions and every rejection pattern', () => {
+  for (let k = 0; k < 3000; k++) {
+    const m = ri(2, 5), e = randomGain(m, ri(1, 4)), g = C.parseGain(e.txt, m);
+    if (!/r\d/.test(e.txt)) { if (g.ok) return `"${e.txt}" has no hypothesis but was accepted`; continue; }
+    if (!g.ok) return `"${e.txt}" refused: ${g.msg}`;
+    for (let pat = 0; pat < (1 << m); pat++) {
+      const r = Array.from({ length: m }, (_, i) => (pat >> i) & 1), a = g.fn(r), b = refGain(e.txt, r);
+      if (!near(a, b, 1e-12)) return `"${e.txt}" pattern ${r.join('')}: app ${a}, reference ${b}`;
+    }
+  }
+  return true;
+});
+check('The R text written for multigrain reads back to the same gain for 3,000 random gain functions', () => {
+  for (let k = 0; k < 3000; k++) {
+    const m = ri(2, 6), e = randomGain(m, ri(1, 4)), g = C.parseGain(e.txt, m);
+    if (!g.ok) { if (/r\d/.test(e.txt)) return `"${e.txt}" refused: ${g.msg}`; continue; }
+    const R = C.gainToR(g.ast, m), g2 = C.parseGain(R, m);
+    if (!g2.ok) return `R text "${R}" refused: ${g2.msg}`;
+    if (!/^r\d+$/.test(R) && g.ast.t === 'op' && !(R.startsWith('(') || R.includes(' + 0 * r'))) return 'not bracketed: ' + R;
+    for (let pat = 0; pat < (1 << m); pat++) {
+      const r = Array.from({ length: m }, (_, i) => (pat >> i) & 1);
+      if (!near(g.fn(r), g2.fn(r), 1e-12)) return `"${e.txt}" -> "${R}" differs at ${r.join('')}`;
+    }
+    for (let i = 1; i <= m; i++) if (!new RegExp('\\br' + i + '\\b').test(R)) return `R text "${R}" does not mention r${i}`;
+  }
+  return true;
+});
+check('Expected gain equals the existing power tallies: any, all and number rejected (same trials, exactly)', () => {
+  for (let k = 0; k < 20; k++) {
+    const m = ri(2, 6), G = toG(randomGraphJSON(m)), fg = C.floatGraph(G), rho = ri(-1, 8) / 10;
+    const R = []; for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) R.push(i === j ? 1 : rho);
+    const pw = Array.from({ length: m }, () => 0.5 + rnd() * 0.45), L = C.cholesky(R, m), mean = pw.map(p => C.qnorm(0.975) + C.qnorm(p));
+    if (!L) continue;
+    const ids = Array.from({ length: m }, (_, i) => 'r' + (i + 1));
+    for (const [txt, key] of [[ids.join(' || '), 'any'], [ids.join(' && '), 'all'], [ids.join(' + '), 'total']]) {
+      const tally = { n: 0, rej: new Array(m).fill(0), any: 0, all: 0, total: 0, custom: 0 };
+      C.simulateChunk(fg, mean, L, 0.025, 4000, C.normalGen(C.mulberry32(k + 1)), tally, { gain: C.parseGain(txt, m).fn });
+      if (tally.gain !== tally[key]) return `graph ${k}: gain ${tally.gain} vs ${key} ${tally[key]}`;
+    }
+  }
+  return true;
+});
+check('Elicited gains: v_base plus all v_j is 1, every gain is in [0, 1] and the maximum is 1 (300 random elicitations)', () => {
+  for (let k = 0; k < 300; k++) {
+    const m = ri(2, 7), nReg = ri(1, m), reg = Array.from({ length: m }, (_, i) => i + 1).sort(() => rnd() - 0.5).slice(0, nReg).sort((a, b) => a - b);
+    const scores = {}; for (let j = 1; j <= m; j++) if (!reg.includes(j)) scores[j] = ri(1, 100);
+    const sAll = 100 + ri(0, 150), e = C.elicitGain(m, reg, rnd() < 0.5 ? 'all' : 'any', scores, sAll);
+    if (!e.ok) return `case ${k}: ${e.msg}`;
+    const tot = e.vBase + Object.values(e.v).reduce((a, b) => a + b, 0);
+    if (!near(tot, 1, 1e-12)) return `case ${k}: total ${tot}`;
+    const g = C.parseGain(e.expr, m); if (!g.ok) return `case ${k}: "${e.expr}" refused: ${g.msg}`;
+    const t = C.gainTable(g.fn, m);
+    if (t.negative || t.notFinite || t.max > 1 + 5e-4 || t.max < 1 - 5e-4) return `case ${k}: "${e.expr}" max ${t.max}`;
+  }
+  return true;
+});
+check('Expected gain reproduces Spiers et al. (2026) Tables 4 and 5 to within simulation error (500,000 trials each)', () => {
+  const fixedSeq = order => { const m = order.length, w = new Float64Array(m), g = new Float64Array(m * m); w[order[0]] = 1; for (let k = 0; k + 1 < m; k++) g[order[k] * m + order[k + 1]] = 1; return { m, w, g }; };
+  const S3 = [1, .8, .5, .5, .8, .8, 1, .5, .5, .8, .5, .5, 1, .5, .5, .5, .5, .5, 1, .5, .8, .8, .5, .5, 1];
+  const g3 = C.parseGain('r1 * r2 * (0.556 + 0.252*r3 + 0.148*r4 + 0.044*r5)', 5).fn;
+  const holm = { m: 5, w: Float64Array.of(1, 0, 0, 0, 0), g: new Float64Array(25) };
+  holm.g[1] = 1; for (const j of [2, 3, 4]) holm.g[5 + j] = 1 / 3;
+  for (const i of [2, 3, 4]) for (const j of [2, 3, 4]) if (i !== j) holm.g[i * 5 + j] = 0.5;
+  const S4 = []; for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) S4.push(i === j ? 1 : 0.7);
+  const g4 = C.parseGain('r1 * (0.4 + 0.2*r2 + 0.2*r3 + 0.2*r4)', 4).fn;
+  const runs = [
+    ['Ex 3 value-ordered', fixedSeq([0, 1, 2, 3, 4]), [0.90, 0.90, 0.80, 0.70, 0.85], S3, g3, 0.769],
+    ['Ex 3 power-ordered', fixedSeq([0, 1, 4, 2, 3]), [0.90, 0.90, 0.80, 0.70, 0.85], S3, g3, 0.767],
+    ['Ex 3 H1, H2, Holm', holm, [0.90, 0.90, 0.80, 0.70, 0.85], S3, g3, 0.770],
+    ['Ex 4 fixed sequence', fixedSeq([0, 1, 2, 3]), [0.90, 0.90, 0.80, 0.70], S4, g4, 0.803]
+  ];
+  for (const [name, fg, pw, S, g, want] of runs) {
+    const r = C.expectedGain(fg, pw, S, 0.025, g, 500000, 777);
+    if (Math.abs(r.mean - want) > 3 * r.se + 0.0005) return `${name}: ${r.mean.toFixed(4)} (SE ${r.se.toFixed(4)}), paper ${want}`;
+  }
+  return true;
+});
+
+/* ---------- multigrain script writer (multigrain stage, step 4) ---------- */
+const cp = require('child_process'), os = require('os');
+const haveR = (() => { try { cp.execSync('Rscript --version', { stdio: 'ignore' }); return true; } catch (e) { return false; } })();
+/* MULTIGRAIN_R: the R/ folder of the multigrain 1.0.0 source (a clone of https://github.com/cran/multigrain), used when the
+   package itself is not installed. Checks that need R pass with a note when R or the source is missing. */
+const mgR = process.env.MULTIGRAIN_R || '';
+const rCheck = (name, fn) => check(name, () => (haveR && (mgR || process.env.MULTIGRAIN_INSTALLED) ? fn() : true));
+function specFor(G, opts = {}) {
+  const m = G.nodes.length, fg = C.floatGraph(G);
+  const g = []; for (let i = 0; i < m; i++) g.push(Array.from(fg.g.slice(i * m, i * m + m)));
+  const corr = []; for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) corr.push(i === j ? 1 : 0.3);
+  return Object.assign({ labels: G.nodes.map(n => n.label), descs: G.nodes.map(() => ''), groups: G.nodes.map(() => ''), alpha: 0.025,
+    powers: G.nodes.map(() => 0.8), corr, nsim: 1000, gainR: C.gainToR(C.parseGain(G.nodes.map((_, i) => 'r' + (i + 1)).join(' || '), m).ast, m),
+    hyp: G.nodes.map(() => null), trans: G.nodes.map((_, i) => G.nodes.map((_, j) => (i === j ? 0 : null))),
+    start: { w: Array.from(fg.w), g }, globalSearch: true, threads: 1, file: 'optimised-graph.json', note: '' }, opts);
+}
+check('The embedded sketchpad_json() is identical to R/multigrain-to-sketchpad.R', () => {
+  const file = fs.readFileSync(require('path').join(__dirname, '..', 'R', 'multigrain-to-sketchpad.R'), 'utf8');
+  const i = file.indexOf('sketchpad_json <- function'); if (i < 0) return 'function not found in the R file';
+  const lines = file.slice(i).split('\n'); let j = lines.findIndex((l, k) => k > 0 && l === '}');
+  const fromFile = lines.slice(0, j + 1).join('\n');
+  return fromFile === C.SKETCHPAD_JSON_R || 'the copy in core.js differs from the R file';
+});
+check('The R script for multigrain: names, matrices, constraints, gain and options are written as given (snapshot checks on 60 random graphs)', () => {
+  for (let k = 0; k < 60; k++) {
+    const m = ri(2, 6), G = toG(randomGraphJSON(m)), spec = specFor(G), fg = C.floatGraph(G);
+    const locks = rnd() < 0.5; let fixedW = 0;
+    if (locks && m > 2) { for (let i = 0; i < m; i++) if (rnd() < 0.4) { spec.hyp[i] = Array.from(fg.w)[i]; fixedW++; } if (fixedW === m - 1) spec.hyp = G.nodes.map(() => null); }
+    spec.globalSearch = rnd() < 0.5; spec.threads = ri(1, 8); spec.nsim = [10000, 100000, 1000000][ri(0, 2)]; spec.file = 'graph ' + k + '.json';
+    if (rnd() < 0.5) spec.start = null;
+    if (rnd() < 0.3) { spec.descs[0] = 'Dose "1", primary'; spec.groups[1] = 'primary'; }
+    const s = C.optimiseRScript(spec);
+    const need = [`hyp_names <- c(${G.nodes.map(n => `"${n.label}"`).join(', ')})`, `nsim <- ${spec.nsim}`, `power_nominal <- c(${spec.powers.map(x => String(Number(x.toPrecision(15)))).join(', ')})`, `global_search = ${spec.globalSearch ? 'TRUE' : 'FALSE'}`, `num_threads = ${spec.threads}L`, 'inputs = list(power_nominal = power_nominal, corr_matrix = corr_matrix, nsim = nsim)',
+      `file = "graph ${k}.json"`, `trial_success("${spec.gainR}")`, `nrow = ${m}, byrow = TRUE`, 'set.seed(2009)', 'library(multigrain)', 'sketchpad_json <- function'];
+    for (const t of need) if (!s.includes(t)) return `graph ${k}: missing ${t}`;
+    if (spec.start ? !(s.includes('start_graph <- list(') && s.includes('start_graph = list(start_graph)') && s.includes('start = start_graph,')) : s.includes('start_graph')) return `graph ${k}: start_graph`;
+    if (spec.hyp.every(x => x == null) ? !s.includes(`graph_constraint_free(${m}, names = hyp_names)`) : !s.includes(`hyp_constraint = c(${spec.hyp.map(x => (x == null ? 'NA' : String(Number(x.toPrecision(15))))).join(', ')})`)) return `graph ${k}: constraint`;
+    if (spec.descs[0] && !s.includes('labels = c("Dose \\"1\\", primary"')) return `graph ${k}: label escaping`;
+    const gcBlock = s.includes('gc <- graph_constraint(') ? s.slice(s.indexOf('gc <- graph_constraint('), s.indexOf('\n)\n', s.indexOf('gc <- graph_constraint('))) : '';
+    if ((gcBlock.match(/\bNA\b/g) || []).length !== (spec.hyp.every(x => x == null) ? 0 : m - fixedW + m * (m - 1))) return `graph ${k}: NA count`;
+  }
+  return true;
+});
+check('multigrainConstraintProblems: the five rules on hand-made cases', () => {
+  const L = ['H1', 'H2', 'H3'], T = [[0, null, null], [null, 0, null], [null, null, 0]];
+  const P = (h, t) => C.multigrainConstraintProblems(h, t, L).map(x => x.what + (x.what === 'row' ? x.id : '')).join(',');
+  if (P([null, null, null], T) !== '') return 'free graph flagged';
+  if (P([0.5, 0.5, 0], [[0, 1, 0], [0, 0, 1], [1, 0, 0]]) !== 'all') return 'nothing free not flagged';
+  if (P([0.5, 0.5, 0], [[0, 1, 0], [0, 0, 1], [null, null, 0]]) !== '') return 'one free row flagged';
+  if (P([0.5, 0.5, 0], T) !== '') return 'complete weights summing to 1 flagged';
+  if (P([0.5, 0.25, 0], T) !== 'w') return 'complete weights not summing to 1 not flagged';
+  if (P([0.5, 0.5, null], T) !== 'w') return 'incomplete weights already at 1 not flagged';
+  if (P([0.5, null, null], T) !== '') return 'two free weights flagged';
+  if (P([0.5, 0.25, null], T) !== 'w') return 'single free weight not flagged';
+  if (P([0.7, 0.7, null], T) !== 'w') return 'weights over 1 not flagged';
+  if (P([null, null, null], [[0, 1, 0], [null, 0, null], [null, null, 0]]) !== '') return 'complete row summing to 1 flagged';
+  if (P([null, null, null], [[0, 0, 0], [null, 0, null], [null, null, 0]]) !== 'row0') return 'complete row summing to 0 not flagged';
+  if (P([null, null, null], [[0, 1, null], [null, 0, null], [null, null, 0]]) !== 'row0') return 'incomplete row already at 1 not flagged';
+  if (P([null, null, null], [[0, 0.5, null], [null, 0, null], [null, null, 0]]) !== 'row0') return 'single free transition not flagged';
+  return true;
+});
+rCheck('multigrainConstraintProblems agrees with multigrain\'s own graph_constraint() validation on 150 random constraint patterns (needs Rscript and MULTIGRAIN_R or an installed multigrain)', () => {
+  const cases = [];
+  for (let k = 0; k < 150; k++) {
+    const m = ri(2, 5), G = toG(randomGraphJSON(m, { allowLeaf: true, underWeight: rnd() < 0.3, underRow: rnd() < 0.3 })), fg = C.floatGraph(G);
+    const hyp = Array.from(fg.w).map(w => (rnd() < 0.5 ? w : null));
+    const trans = []; for (let i = 0; i < m; i++) { const r = []; for (let j = 0; j < m; j++) r.push(i === j ? 0 : (rnd() < 0.5 ? fg.g[i * m + j] : null)); trans.push(r); }
+    cases.push({ hyp, trans, app: C.multigrainConstraintProblems(hyp, trans, G.nodes.map(n => n.label)).length > 0 });
+  }
+  const dir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'mgs-')), f = require('path').join(dir, 'cases.json');
+  fs.writeFileSync(f, JSON.stringify(cases.map(c => ({ hyp: c.hyp, trans: c.trans }))));
+  const out = cp.execSync(`Rscript "${require('path').join(__dirname, 'multigrain-constraints-check.R')}" "${f}" "${mgR}"`, { encoding: 'utf8' }).split('\n').filter(l => l && !l.startsWith('#'));
+  if (out.length !== cases.length) return `R printed ${out.length} lines for ${cases.length} cases`;
+  for (let k = 0; k < cases.length; k++) {
+    const rErr = out[k].startsWith('ERROR');
+    if (rErr !== cases[k].app) return `case ${k} (hyp ${JSON.stringify(cases[k].hyp)}, trans ${JSON.stringify(cases[k].trans)}): app ${cases[k].app ? 'flags a problem' : 'sees no problem'}, multigrain ${out[k]}`;
+  }
+  return true;
+});
+rCheck('The written script runs end to end in a dry run with multigrain\'s own validators and sketchpad_json(); the JSON it writes reopens as the start graph (needs Rscript and MULTIGRAIN_R)', () => {
+  for (let k = 0; k < 6; k++) {
+    const m = ri(2, 5), G = toG(randomGraphJSON(m)), spec = specFor(G), fg = C.floatGraph(G);
+    if (k % 2 === 1 && m > 2) { spec.hyp = Array.from(fg.w); spec.trans = []; for (let i = 0; i < m; i++) { const r = []; for (let j = 0; j < m; j++) r.push(i === j ? 0 : fg.g[i * m + j]); spec.trans.push(r); }
+      if (C.multigrainConstraintProblems(spec.hyp, spec.trans, spec.labels).length) { spec.hyp = G.nodes.map(() => null); spec.trans = G.nodes.map((_, i) => G.nodes.map((_, j) => (i === j ? 0 : null))); } }
+    spec.descs[0] = 'Dose "1"'; spec.groups[0] = 'primary'; spec.file = 'out.json';
+    const dir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'mgs-')), sf = require('path').join(dir, 'optimise-graph.R');
+    fs.writeFileSync(sf, C.optimiseRScript(spec));
+    let out;
+    try { out = cp.execSync(`Rscript "${require('path').join(__dirname, 'multigrain-dry-run.R')}" "${sf}" "${mgR}"`, { encoding: 'utf8', cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] }); }
+    catch (e) { return `graph ${k}: dry run failed: ${(e.stderr || e.stdout || String(e)).slice(-400)}`; }
+    if (!out.includes('DRY RUN OK')) return `graph ${k}: ${out.slice(-300)}`;
+    const json = JSON.parse(fs.readFileSync(require('path').join(dir, 'out.json'), 'utf8'));
+    if (!C.isExchangeFormat(json)) return `graph ${k}: the file is not in the exchange format`;
+    const H = C.deserializeGraph(C.fromExchangeFormat(json, n => Array.from({ length: n }, (_, i) => ({ x: i * 100, y: 0 })), () => ''), false, 1).G, hg = C.floatGraph(H);
+    if (H.nodes.length !== m || H.nodes[0].desc !== 'Dose "1"' || H.nodes[0].group !== 'primary') return `graph ${k}: labels or groups lost`;
+    const blk = H.opt;
+    if (!blk || blk.gain !== spec.gainR || !blk.inputs || blk.inputs.nsim !== spec.nsim || blk.inputs.powerNominal.join() !== spec.powers.join() || !blk.start || blk.start.weights.length !== m || blk.optSource !== 'stub' || blk.graphValid.local !== true || blk.graphValid.global !== null || blk.expectedGain !== 0.5 || blk.localPower.length !== m) return `graph ${k}: optimisation block ${JSON.stringify(blk)}`;
+    for (let i = 0; i < m; i++) if (!near(hg.w[i], fg.w[i], 1e-12)) return `graph ${k}: weight ${i}`;
+    for (let i = 0; i < m * m; i++) if (!near(hg.g[i], fg.g[i], 1e-12)) return `graph ${k}: transition ${i}`;
+  }
+  return true;
+});
+
+/* ---------- optimisation block of the exchange format (multigrain stage, step 5) ---------- */
+const importX = o => C.deserializeGraph(C.fromExchangeFormat(o, n => Array.from({ length: n }, (_, i) => ({ x: i * 100, y: 0 })), () => ''), false, 1).G;
+check('Exchange format: the optimisation block is read field by field, garbage is left out, and multigrain\'s 0.001 weights become ε (other sources keep the number)', () => {
+  const base = () => ({ format: 'multiplicity-graph', version: 1, source: 'multigrain 1.0.0', alpha: 0.025, hypotheses: [{ name: 'H1', weight: 0.5 }, { name: 'H2', weight: 0.499 }, { name: 'H3', weight: 0.001 }], transitions: [[0, 0.999, 0.001], [1, 0, 0], [0.5, 0.5, 0]] });
+  const full = base();
+  full.optimisation = { package: 'multigrain 1.0.0', gain: '((r1 * r2) || r3)', expected_gain: 0.693, local_power: [0.7, 0.6, 0.5], expected_rejections: 1.8, disjunctive_power: 0.9, conjunctive_power: 0.3, opt_source: 'local', graph_valid: { local: true, global: null }, global_search: false, inputs: { power_nominal: [0.9, 0.8, 0.7], corr_matrix: [[1, 0.5, 0.2], [0.5, 1, 0.2], [0.2, 0.2, 1]], nsim: 1000000 }, start: { weights: [1, 0, 0], transitions: [[0, 1, 0], [0, 0, 1], [0, 0, 0]] } };
+  const x = C.fromExchangeFormat(full, n => Array.from({ length: n }, (_, i) => ({ x: i, y: 0 })), () => '');
+  if (x.optimisation !== full.optimisation) return 'the raw block is not passed through';
+  const b = C.readOptimisationBlock(x.optimisation, 3);
+  if (!b || b.gain !== '((r1 * r2) || r3)' || b.expectedGain !== 0.693 || b.localPower.join() !== '0.7,0.6,0.5' || b.optSource !== 'local' || b.graphValid.local !== true || b.graphValid.global !== null || b.globalSearch !== false) return 'block fields: ' + JSON.stringify(b);
+  if (!b.inputs || b.inputs.nsim !== 1000000 || b.inputs.powerNominal.join() !== '0.9,0.8,0.7' || b.inputs.corrMatrix[0][1] !== 0.5) return 'inputs: ' + JSON.stringify(b.inputs);
+  if (!b.start || b.start.weights.join() !== '1,0,0' || b.start.transitions[1][2] !== 1) return 'start: ' + JSON.stringify(b.start);
+  const G = importX(full);
+  const eps = G.edges.filter(e => e.expr === 'ε').map(e => e.from + '>' + e.to);
+  if (eps.length !== 1 || !near(C.Q.toNum(G.edges.find(e => e.expr === 'ε').g), 0.001, 1e-15)) return 'ε edge: ' + eps.join();
+  if (G.nodes[2].wexpr !== 'ε' || !near(C.Q.toNum(G.nodes[2].w), 0.001, 1e-15) || G.nodes[1].wexpr) return 'ε weight';
+  const other = base(); other.source = 'gMCP'; const H = importX(other);
+  if (H.edges.some(e => e.expr) || H.nodes.some(n => n.wexpr)) return 'ε applied for a non-multigrain source';
+  const junk = base(); junk.optimisation = { gain: 5, expected_gain: 'x', local_power: [1, 2], inputs: { power_nominal: 'no', nsim: '12' }, start: { weights: [1, 0, 0] }, graph_valid: 'yes' };
+  const jb = C.readOptimisationBlock(C.fromExchangeFormat(junk, n => Array.from({ length: n }, (_, i) => ({ x: i, y: 0 })), () => '').optimisation, 3);
+  if (!jb || jb.gain !== '' || jb.expectedGain !== null || jb.localPower !== null || jb.inputs.powerNominal !== null || jb.inputs.nsim !== 12 || jb.start !== null || jb.graphValid !== null) return 'garbage not left out: ' + JSON.stringify(jb);
+  const none = base(); if (C.fromExchangeFormat(none, n => Array.from({ length: n }, (_, i) => ({ x: i, y: 0 })), () => '').optimisation || importX(none).opt) return 'block invented';
+  if (!G.opt || G.opt.expectedGain !== 0.693 || G.opt.share) return 'G.opt from the exchange format';
+  return true;
+});
+
+/* ---------- sharing switch and SAP paragraph (multigrain stage, step 6) ---------- */
+check('Optimised graph: the SAP text describes the choice of the graph, gives the gain function only when sharing is on, says "derived" once the graph is edited; saved JSON and share links carry the block only when sharing is on, and reopen with it', () => {
+  const o = C.templateJSON('parallel');
+  o.optimisation = { package: 'multigrain 1.0.0', gain: '((r1 * r2) || (r3 * r4))', expected_gain: 0.693, local_power: [0.75, 0.72, 0.7, 0.65], opt_source: 'local', graph_valid: { local: true, global: null }, global_search: false, inputs: { power_nominal: [0.8, 0.8, 0.8, 0.8], corr_matrix: [[1, 0.5, 0.5, 0.5], [0.5, 1, 0.5, 0.5], [0.5, 0.5, 1, 0.5], [0.5, 0.5, 0.5, 1]], nsim: 1000000 }, start: { weights: [0.5, 0.5, 0, 0], transitions: [[0, 0, 0.5, 0.5], [0, 0, 0.5, 0.5], [0, 0, 0, 1], [0, 0, 1, 0]] } };
+  const G = toG(o);
+  if (!G.opt || G.opt.gain !== o.optimisation.gain || G.opt.share || G.opt.graphKey !== C.graphKey(G)) return 'G.opt not read: ' + JSON.stringify(G.opt);
+  let sap = C.sapText(G), para = sap.paragraphs.find(x => x.startsWith('Choice of the graph.'));
+  if (!para || !/chosen by gain-function optimisation \(Spiers et al\., 2026\) with the R package multigrain 1\.0\.0/.test(para) || !/80% power for H1/.test(para) || !/correlation of 0\.5 between every pair/.test(para) || !/1,000,000 simulated trials/.test(para) || !/expected gain of the chosen graph was 0\.693/.test(para)) return 'paragraph: ' + para;
+  if (/ψ\(r\) =/.test(para) || !/not reproduced here/.test(para)) return 'gain shown with sharing off';
+  if (!sap.refs.some(r => /Spiers ADV, Grayling/.test(r)) || !sap.refs.some(r => /multigrain: Optimise Graphical.*version 1\.0\.0/.test(r))) return 'references';
+  if (sap.tables.some(t => /Table \[X\.4\]/.test(t.title))) return 'X.4 shown for a single correlation';
+  G.opt.share = true;
+  sap = C.sapText(G); para = sap.paragraphs.find(x => x.startsWith('Choice of the graph.'));
+  if (!/ψ\(r\) = \(\(r1 \* r2\) \|\| \(r3 \* r4\)\), where r1, r2, \.\.\. indicate rejection of H1, H2, H3 and H4/.test(para)) return 'gain missing with sharing on: ' + para;
+  const saved = C.serializeGraph(G);
+  if (!saved.optimisation || saved.optimisation.gain !== G.opt.gain || saved.optimisation.share !== true || saved.optimisation.graph_key !== G.opt.graphKey) return 'saved block';
+  const back = toG(JSON.parse(JSON.stringify(saved)));
+  if (!back.opt || !back.opt.share || back.opt.gain !== G.opt.gain || back.opt.expectedGain !== 0.693 || !back.opt.start) return 'reopened block';
+  if (C.stripOptimisation(saved).optimisation) return 'strip';
+  let tok = C.encodeShare(G), dec = C.decodeShare(tok);
+  if (!dec.optimisation || dec.optimisation.gain !== G.opt.gain || !toG(dec).opt) return 'share link with sharing on';
+  G.opt.share = false; tok = C.encodeShare(G); dec = C.decodeShare(tok);
+  if (dec.optimisation || tok.includes('r1') || toG(dec).opt) return 'share link carries the block with sharing off';
+  G.nodes[0].w = C.Q.parse('1/4');
+  para = C.sapText(G).paragraphs.find(x => x.startsWith('Choice of the graph.'));
+  if (!/derived from one chosen by gain-function optimisation/.test(para) || !/edited by hand/.test(para)) return 'edited graph: ' + para;
+  const p2 = toG(o); p2.opt.inputs.corrMatrix[0][1] = p2.opt.inputs.corrMatrix[1][0] = 0.2;
+  const s2 = C.sapText(p2);
+  if (!s2.tables.some(t => /Table \[X\.4\]/.test(t.title)) || !/given in Table \[X\.4\]/.test(s2.paragraphs.find(x => x.startsWith('Choice of the graph.')))) return 'X.4 missing for pairwise correlations';
+  const plain = toG(C.templateJSON('parallel'));
+  if (plain.opt || C.sapText(plain).paragraphs.some(x => x.startsWith('Choice of the graph.')) || C.serializeGraph(plain).optimisation || C.decodeShare(C.encodeShare(plain)).optimisation) return 'block invented for an ordinary graph';
   return true;
 });
 

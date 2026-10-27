@@ -1,6 +1,6 @@
 # Multiplicity Graph Sketchpad User Guide
 
-Niamh Fitzgerald · version 1.2.0
+Niamh Fitzgerald · version 1.3.0
 
 The Sketchpad draws, tests and explains graphical multiple testing procedures (Bretz et al., 2009) in the browser. Nothing you enter leaves your computer. This guide covers how to use it, not the method.
 
@@ -87,6 +87,23 @@ The default is the weighted Bonferroni test, which is the one that can be steppe
 
 The Power tab estimates how often the graph rejects each hypothesis. Enter the power each test would have on its own at the full alpha, and the correlation between the test statistics (one value for every pair, or pair by pair). A note under the correlation box says what to enter for the common cases: two doses against one control, a full population and a subgroup, two endpoints on the same patients, and binary endpoints. The same note appears with the correlation matrix of the parametric test in the Test tab. If the correlations cannot all hold at once, a red message names the hypotheses involved as soon as you leave the box. A correlation entered as 1 is set to 0.999999 so that the simulation can run; the result text says how many pairs were changed. Define a success rule if you want one, such as "any of H1, H2". Run simulation gives the power for each hypothesis, the chance of at least one and of all rejections, and the expected number rejected. "Keep for comparison" stores a run so you can compare designs side by side. The matching graphicalMCP code is underneath. If you change the graph, the test or any simulation setting after a run, a notice asks you to run again.
 
+## Optimise with multigrain (advanced)
+
+The Optimise tab lets the multigrain R package choose the weights and transitions that give the most value from the trial. The search runs in R; the tab writes the script and reads the result back. Switch on advanced features to see the tab.
+
+1. **Power and correlation.** The same boxes as the Power tab; edit them in either tab.
+2. **Gain function.** Say what each set of rejected hypotheses is worth, in one of three ways:
+   - *Quick rules:* any of the ticked hypotheses, all of them, or average power. The ticks are shared with "Define success" in the Power tab.
+   - *Build from values:* tick the hypotheses that make up regulatory success (all or any of them), give each other hypothesis a score from 0 to 100, and answer the anchor question ("if regulatory success alone is worth 100, what is it worth with every other claim?"). The tab works out the gain function.
+   - *Write your own:* type it in multigrain's form, where `r1`, `r2`, ... mean "H1 rejected", "H2 rejected", ... with numbers, `+ - * /`, `&&` (and), `||` (or) and brackets; for example `(r1 && r2) * (0.7 + 0.3*r3)`. The buttons insert the hypotheses and operators. Anything multigrain cannot read gets a message with the place marked.
+   Below them: the gain function, a reading in words, and a table of the gain for every set of rejections (up to 8 hypotheses) so you can check it means what you intended. A gain must never be negative.
+3. **Fixed and free parts.** multigrain changes every weight and transition unless it is locked. "Lock cells in the Matrix tab" shows a padlock beside each weight and transition there; a closed lock keeps the current value. "Only optimise transitions that already exist" fixes the missing ones at 0. The tab lists what is free, locked and fixed, and flags anything multigrain would refuse (for example a fixed row that does not add up to 1, or a row with exactly one free transition) with one-click fixes.
+4. **Expected gain of this graph.** "Estimate expected gain" simulates the current graph and shows the mean gain with its standard error. The Power tab shows the same number with its results once a gain function exists.
+5. **Write the R script.** Choose the number of simulated trials, the threads, whether to run the global search first, whether to start from the graph on the canvas, and the file name the script will write. Copy or download the script, then run the whole of it in R with multigrain installed (`install.packages("multigrain")`; no Java needed). It prints the optimised graph and saves it as a file. The script contains the gain function, so share the saved graph rather than the script if the gain function is confidential.
+6. **Open the result.** Export tab, "Open a saved graph", and choose or paste the file the script wrote. The optimised graph appears on the canvas and the Optimise tab opens with a note: multigrain's expected gain on its own sample, a fresh estimate here with its standard error, the difference (flagged when it is larger than simulation error allows), multigrain's power by hypothesis, and where the solution came from. The starting graph is kept in the Compare tab as "Starting graph (multigrain)"; "Compare with the starting graph" shows the two side by side. Weights and transitions that multigrain set to 0.001 are shown as ε; hover over an ε label for the number. Dismiss hides the note.
+
+**Keeping the gain function private.** The gain function arrives with the result file. By default a graph you then save, share as a link or describe in the SAP text carries the graph alone; the SAP text says the graph was chosen by gain-function optimisation without giving the gain function. Tick "Include the gain function and multigrain's result" (in the Export tab's file, link and SAP views, or in the note) to include it. If you edit the graph after opening it, the SAP text says the graph was derived from the optimised one and asks you to state what changed.
+
 ## Compare two graphs
 
 The Compare tab puts the graph on the canvas (A) next to a second graph (B) and shows what differs.
@@ -102,7 +119,7 @@ When the graph or a setting changes after a comparison, a notice asks you to run
 ## Import
 
 - **R code or plain numbers:** More menu, "Import from R or a matrix". Paste a weight vector such as `c(1/2, 1/2, 0, 0)` and a matrix such as `matrix(c(...), nrow = 4, byrow = TRUE)`, or plain numbers with one matrix row per line. Names are optional.
-- **From multigrain:** in R, run `source("multigrain-to-sketchpad.R")` and then `sketchpad_json(g, names = ..., labels = ..., groups = ..., file = "graph.json")`, where `g` is a `graph_optimise()` result. Open the file in the Sketchpad under Export, "Open a saved graph". Labels become descriptions and groups get matching colours.
+- **From multigrain:** the easiest way is the Optimise tab, whose script writes the file itself. By hand: in R, run `source("multigrain-to-sketchpad.R")` and then `sketchpad_json(g, names = ..., labels = ..., groups = ..., file = "graph.json")`, where `g` is a `graph_optimise()` result; add `inputs = list(power_nominal = ..., corr_matrix = ..., nsim = ...)` and `start = list(hyp_weight = ..., trans_matrix = ...)` to carry the inputs and the starting graph. Open the file in the Sketchpad under Export, "Open a saved graph". Labels become descriptions and groups get matching colours.
 - **Saved files and share links:** the same "Open a saved graph" box takes a JSON file saved by the Sketchpad, a share link, or a share code.
 
 ## Export
@@ -116,6 +133,8 @@ All exports are in the Export tab. Pictures and TikZ show the graph as it is on 
 - **SAP / protocol text:** a multiplicity section in the usual SAP order: hypotheses, error rate and procedure, initial allocation, propagation, conclusions, interim analyses and reporting, plus technical details for the Simes and parametric tests. Below it are tables of the hypotheses and initial levels, the transition weights and, for the parametric test, the correlations, then a reference list. Fill in the [square-bracket placeholders] (for example the success criterion and the software), number the tables to match your document, and export the graph as a PNG or SVG for the figure. Copy tables pastes into Word as a table.
 - **Share link:** the whole graph is encoded in the link, so nothing is uploaded.
 - **Save as a file:** JSON that keeps weights, positions, colours, p-values and alpha.
+
+For a graph opened from a multigrain result, the file, link and SAP views have a tick box that decides whether the gain function and multigrain's numbers go with the graph (see Optimise with multigrain).
 
 Every export can be downloaded or copied.
 

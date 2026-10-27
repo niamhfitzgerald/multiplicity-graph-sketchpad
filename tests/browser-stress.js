@@ -372,18 +372,18 @@ async function step(name, fn) {
     if ((await ev(() => SIM.runs[0].name)) !== 'Design A') return 'rename';
     await page.fill('#sim-rho', '0.9'); await page.press('#sim-rho', 'Tab'); await sleep(100);
     if (!(await page.locator('.stale').count())) return 'stale note missing: ' + await ev(() => [SIM.result && SIM.result.sig === simSig() + testType() + G.test.upscale, SIM.rho, SIM.useMatrix].join());
-    await page.fill('[data-pw]', '150'); await page.press('[data-pw]', 'Tab'); await sleep(80);
+    await page.fill('#tab-power [data-pw]', '150'); await page.press('#tab-power [data-pw]', 'Tab'); await sleep(80);
     await page.click('[data-action="sim-run"]'); await sleep(100);
     if (!/percentage between 0 and 100/.test(await page.locator('#tab-power').innerText())) return 'bad power message';
-    await page.fill('[data-pw]', '80'); await page.press('[data-pw]', 'Tab'); await sleep(80);
+    await page.fill('#tab-power [data-pw]', '80'); await page.press('#tab-power [data-pw]', 'Tab'); await sleep(80);
     await page.fill('#sim-rho', '1.5'); await page.press('#sim-rho', 'Tab'); await sleep(80);
     await page.click('[data-action="sim-run"]'); await sleep(100);
     if (!/between −1 and 1/.test(await page.locator('#tab-power').innerText())) return 'bad rho message';
     await page.fill('#sim-rho', '0.5'); await page.press('#sim-rho', 'Tab'); await sleep(80);
     await openDet('det-corr'); await page.check('#sim-usematrix'); await sleep(80);
-    const sc = page.locator('[data-corr]').first(); await sc.fill('-0.99'); await sc.press('Tab');
-    const sc2 = page.locator('[data-corr]').nth(1); await sc2.fill('0.99'); await sc2.press('Tab');
-    const sc3 = page.locator('[data-corr]').nth(3); await sc3.fill('0.99'); await sc3.press('Tab'); await sleep(50);
+    const sc = page.locator('#tab-power [data-corr]').first(); await sc.fill('-0.99'); await sc.press('Tab');
+    const sc2 = page.locator('#tab-power [data-corr]').nth(1); await sc2.fill('0.99'); await sc2.press('Tab');
+    const sc3 = page.locator('#tab-power [data-corr]').nth(3); await sc3.fill('0.99'); await sc3.press('Tab'); await sleep(50);
     await page.click('[data-action="sim-run"]'); await sleep(150);
     if (!/positive definite/.test(await page.locator('#tab-power').innerText())) return 'non-PD message';
     await page.uncheck('#sim-usematrix'); await sleep(80);
@@ -405,6 +405,175 @@ async function step(name, fn) {
     if (!/Weighted Simes closed test/.test(await page.locator('#tab-power').innerText())) return 'simes power note';
     await page.click('[data-action="sim-clear"]'); await sleep(50); if ((await ev(() => SIM.runs.length)) !== 0) return 'clear runs';
     await page.click('#tabbtn-test'); await openDet('det-testtype'); await page.selectOption('#testType', 'bonferroni'); await sleep(100);
+  });
+
+  await step('Optimise tab: shared inputs, quick rules, build from values (p. 8 numbers), write your own, refusals, gain table, expected gain, Power tab shows the gain, simple mode hides it', async () => {
+    await ev(() => { loadGraph(templateJSON('parallel')); SIM.success = { ids: [], rule: 'any' }; SIM.rho = '0.5'; SIM.useMatrix = false; OPT.source = 'quick'; OPT.quick = 'any'; OPT.text = ''; OPT.values = { reg: [], rule: 'all', scores: {}, anchor: '150' }; OPT.result = null; renderAll(); });
+    await page.click('#tabbtn-optimise'); await sleep(100);
+    const txt = () => page.locator('#tab-optimise').innerText();
+    if (!/Tick at least one hypothesis/.test(await txt())) return 'no-tick message';
+    await page.locator('#tab-optimise [data-osucc]').nth(0).check(); await page.locator('#tab-optimise [data-osucc]').nth(1).check(); await sleep(100);
+    if ((await page.locator('#optExpr').innerText()) !== 'r1 || r2') return 'quick any: ' + await page.locator('#optExpr').innerText();
+    if (!(await page.locator('#tab-power [data-succ]').nth(1).isChecked())) return 'ticks not shared with the Power tab';
+    await page.click('#tab-optimise [data-oseg="quick"][data-val="all"]'); await sleep(100);
+    if ((await page.locator('#optExpr').innerText()) !== 'r1 && r2' || !/both H1 and H2 are rejected/.test(await txt())) return 'quick all';
+    await page.click('#tab-optimise [data-oseg="quick"][data-val="average"]'); await sleep(100);
+    if ((await page.locator('#optExpr').innerText()) !== '(r1 + r2 + r3 + r4) / 4') return 'average';
+    const ids = await ev(() => G.nodes.map(n => n.id));
+    await page.click('#tab-optimise [data-oseg="source"][data-val="values"]'); await sleep(100);
+    if (!/Tick the hypotheses that make up regulatory success/.test(await txt())) return 'values: no reg message';
+    await page.locator('#tab-optimise [data-oreg]').nth(0).check(); await sleep(100);
+    if (!/Give H2, H3, H4 a score/.test(await txt())) return 'values: score message';
+    for (const [k, v] of [[1, '90'], [2, '45'], [3, '0']]) { await page.fill('#opt-score-' + ids[k], v); await page.locator('#opt-score-' + ids[k]).dispatchEvent('change'); await sleep(60); }
+    if ((await page.locator('#optExpr').innerText()) !== 'r1 * (0.6667 + 0.2222*r2 + 0.1111*r3)') return 'osteoporosis gain: ' + await page.locator('#optExpr').innerText();
+    await page.fill('#opt-anchor', '90'); await page.locator('#opt-anchor').dispatchEvent('change'); await sleep(100);
+    if (!/100 or more/.test(await txt())) return 'anchor message';
+    await page.fill('#opt-anchor', '150'); await page.locator('#opt-anchor').dispatchEvent('change'); await sleep(100);
+    await page.click('#tab-optimise [data-oseg="source"][data-val="own"]'); await sleep(100);
+    if ((await page.locator('#opt-text').inputValue()) !== 'r1 * (0.6667 + 0.2222*r2 + 0.1111*r3)') return 'own box not prefilled';
+    await page.fill('#opt-text', 'r1 && (r2 + r3)'); await sleep(400);
+    if (!(await page.locator('#optExpr mark').count()) || !/can only join/.test(await txt())) return 'refusal not shown';
+    await page.fill('#opt-text', 'r1 - r2'); await sleep(400);
+    if (!/negative for some rejection sets/.test(await txt())) return 'negative warning';
+    await page.fill('#opt-text', 'r5'); await sleep(400);
+    if (!/r5 does not exist/.test(await txt())) return 'r5 message';
+    await page.fill('#opt-text', ''); await page.locator('#opt-text').focus(); await page.click('#tab-optimise [data-ins="r1"]'); await page.click('#tab-optimise [data-ins="||"]'); await page.click('#tab-optimise [data-ins="r2"]'); await sleep(400);
+    if ((await page.locator('#opt-text').inputValue()) !== 'r1 || r2') return 'insert buttons: ' + await page.locator('#opt-text').inputValue();
+    await page.fill('#opt-text', 'r1*r2 || r3*r4'); await sleep(400);
+    if (!/either \(both H1 and H2 are rejected\) or \(both H3 and H4 are rejected\)/.test(await txt())) return 'reading: ' + (await txt()).match(/In words: [^\n]*/);
+    await openDet('det-gaintable'); if ((await page.locator('#det-gaintable tbody tr').count()) !== 16) return 'gain table rows';
+    await page.selectOption('#opt-n', '2000'); await page.click('[data-action="opt-run"]'); await page.waitForFunction(() => OPT.result && !OPT.running, null, { timeout: 20000 }); await sleep(100);
+    const r = await ev(() => { const t = OPT.result.tally; return { n: t.n, g: t.gain / t.n }; });
+    if (r.n !== 2000 || !(r.g > 0.3 && r.g < 0.9)) return 'expected gain result ' + JSON.stringify(r);
+    if (!/Expected gain\n0\.\d{3} ± 0\.\d{3}/.test(await txt())) return 'result text';
+    await page.fill('#opt-sim-rho', '0.2'); await page.locator('#opt-sim-rho').dispatchEvent('change'); await sleep(100);
+    if (!(await page.locator('#tab-optimise .stale').count())) return 'stale note';
+    await page.click('#tabbtn-power'); await sleep(60);
+    if ((await page.locator('#sim-rho').inputValue()) !== '0.2') return 'rho not shared';
+    await page.selectOption('#sim-n', '2000'); await page.click('[data-action="sim-run"]'); await page.waitForFunction(() => SIM.result && !SIM.running, null, { timeout: 20000 }); await sleep(100);
+    if (!/Expected gain\n0\.\d{3} ± 0\.\d{3} gain function from the Optimise tab/.test(await page.locator('#tab-power').innerText())) return 'Power tab gain missing';
+    await page.fill('#sim-rho', '0.5'); await page.locator('#sim-rho').dispatchEvent('change'); await sleep(100);
+    await page.click('#tabbtn-optimise'); await sleep(60);
+    if ((await page.locator('#opt-sim-rho').inputValue()) !== '0.5') return 'rho edit in the Power tab not shown';
+    await page.click('#moreMenu summary'); await page.uncheck('#advToggle'); await page.keyboard.press('Escape'); await sleep(100);
+    if (await page.locator('#tabbtn-optimise').isVisible() || (await ev(() => activeTab)) !== 'graph') return 'simple mode';
+    await page.click('#moreMenu summary'); await page.check('#advToggle'); await page.keyboard.press('Escape'); await sleep(100);
+    await ev(() => { OPT.source = 'quick'; OPT.text = ''; SIM.success = { ids: [], rule: 'any' }; SIM.n = 10000; renderAll(); });
+  });
+
+  await step('Optimise tab, fixed and free parts: locks in the Matrix view, existing-edges shortcut, summary, constraint problems with one-click fixes, entangled graph note', async () => {
+    await ev(() => { loadGraph(templateJSON('parallel')); OPT.lockW.clear(); OPT.lockG.clear(); OPT.existingOnly = false; OPT.showLocks = false; renderAll(); });
+    await page.click('#tabbtn-optimise'); await sleep(100);
+    const txt = () => page.locator('#tab-optimise').innerText();
+    if (!/Free\n4 of 4 weights, 12 of 12 transitions\nLocked\nnone/.test(await txt())) return 'default summary: ' + (await txt()).match(/Free\n[^\n]*\nLocked\n[^\n]*/);
+    await page.click('[data-action="opt-show-locks"]'); await sleep(100);
+    if ((await ev(() => activeTab)) !== 'matrix' || !(await page.locator('#mx-locks').isChecked()) || (await page.locator('#tab-matrix .lock').count()) !== 16) return 'locks not shown in the Matrix tab';
+    const ids = await ev(() => G.nodes.map(n => n.id));
+    await page.click(`#tab-matrix [data-lockw="${ids[0]}"]`); await page.click(`#tab-matrix [data-lockg="${ids[0]}>${ids[2]}"]`); await sleep(100);
+    if ((await page.locator('#tab-matrix .lock[aria-pressed="true"]').count()) !== 2 || (await page.locator('#tab-matrix input.locked').count()) !== 2) return 'lock toggles';
+    await page.click('#tabbtn-optimise'); await sleep(60);
+    if (!/Free\n3 of 4 weights, 11 of 12 transitions\nLocked\nw\(H1\) = 1\/2; H1 → H3: 1\/2/.test(await txt())) return 'summary after locks: ' + (await txt()).match(/Free\n[^\n]*\nLocked\n[^\n]*/);
+    await page.check('#opt-existing'); await sleep(100);
+    if (!/5 of 12 transitions/.test(await txt()) || !/Fixed at 0\n6 missing transitions/.test(await txt())) return 'existing-only summary';
+    await page.click('#tabbtn-matrix'); await sleep(60);
+    if ((await page.locator('#tab-matrix .lock:disabled').count()) !== 6 || (await page.locator('#tab-matrix .lock[aria-pressed="true"]').count()) !== 8) return 'forced locks in the matrix';
+    await page.click('#tabbtn-optimise'); await page.uncheck('#opt-existing'); await sleep(60); await page.click('[data-action="opt-lock-w"]'); await sleep(60);
+    if (/✕/.test(await txt())) return 'problem shown with all weights locked at a sum of 1: ' + ((await txt()).match(/✕[^\n]*/g) || []).join(' | ');
+    await ev(() => { nodeById(G.nodes[0].id).w = Q.parse('1/4'); renderAll(); }); await sleep(60);
+    if (!/add up to 0\.75, not 1/.test(await txt())) return 'weight-sum problem: ' + ((await txt()).match(/✕[^\n]*/) || 'none');
+    await page.click('[data-action="opt-unlock-w"]'); await sleep(60);
+    if (/✕/.test(await txt()) || !/Free\n4 of 4 weights/.test(await txt())) return 'unlock weights fix';
+    await page.click('[data-action="opt-lock-g"]'); await sleep(60);
+    if (!/0 of 12 transitions/.test(await txt()) || /✕/.test(await txt())) return 'lock all transitions';
+    await ev(() => { setEdgeWeight(G.nodes[2].id, G.nodes[3].id, Q.parse('1/2')); renderAll(); }); await sleep(60);
+    if (!/Every transition from H3 is fixed, but the row adds up to 0\.5, not 1/.test(await txt())) return 'row problem: ' + ((await txt()).match(/✕[^\n]*/) || 'none');
+    await page.click('[data-action^="opt-free-row:"]'); await sleep(60);
+    if (/✕/.test(await txt())) return 'row fix';
+    await ev(() => { const ids = G.nodes.map(n => n.id); nodeById(ids[0]).w = Q.parse('1/2'); OPT.lockG.clear(); OPT.lockW.clear(); OPT.lockW.add(ids[0]); OPT.lockW.add(ids[1]); renderAll(); }); await sleep(60);
+    if (!/locked weights already add up to 1/.test(await txt())) return 'incomplete weights at 1: ' + ((await txt()).match(/✕[^\n]*/) || 'none');
+    await page.click('[data-action="opt-lock-w"]'); await sleep(60); if (/✕/.test(await txt())) return 'lock the free weights too';
+    await ev(() => { OPT.lockW.clear(); OPT.freeRows.clear(); OPT.existingOnly = true; renderAll(); }); await sleep(60);
+    if (!/Only one transition from H3 is free/.test(await txt()) || (await page.locator('#tab-optimise .msg').count()) !== 2) return 'single free transition (existing-only on parallel gatekeeping): ' + ((await txt()).match(/✕[^\n]*/g) || ['none']).join(' | ');
+    await page.click('[data-action^="opt-free-row:"]'); await page.click('[data-action^="opt-free-row:"]'); await sleep(60);
+    if (/✕/.test(await txt()) || !/rows kept free: H3, H4/.test(await txt())) return 'free-row fixes: ' + ((await txt()).match(/✕[^\n]*/g) || ['none']).join(' | ');
+    await ev(() => { OPT.existingOnly = false; OPT.freeRows.clear(); const ids = G.nodes.map(n => n.id); for (const n of G.nodes) OPT.lockW.add(n.id); for (const a of G.nodes) for (const b of G.nodes) if (a !== b) OPT.lockG.add(gKey(a.id, b.id)); renderAll(); }); await sleep(60);
+    if (!/nothing for multigrain to optimise/.test(await txt())) return 'nothing free';
+    await page.click('[data-action="opt-unlock-all"]'); await sleep(60);
+    if ((await ev(() => OPT.lockW.size + OPT.lockG.size)) !== 0) return 'unlock all';
+    await ev(() => { loadGraph(entangledTemplateJSON('maurerFig2')); renderAll(); }); await sleep(60);
+    if (!/multigrain optimises one graph, not an entangled graph/.test(await txt())) return 'entangled note';
+    await page.click('#tabbtn-matrix'); await sleep(60);
+    if (await page.locator('#mx-locks').count()) return 'locks offered for an entangled graph';
+    await ev(() => { loadGraph(templateJSON('parallel')); OPT.existingOnly = false; OPT.showLocks = false; OPT.freeRows.clear(); renderAll(); });
+  });
+
+  await step('Optimise tab, R script: options, copy, the script text follows the inputs, the gain and the locks; refused without a gain or with a constraint problem', async () => {
+    await ev(() => { loadGraph(templateJSON('parallel')); OPT.lockW.clear(); OPT.lockG.clear(); OPT.existingOnly = false; OPT.freeRows.clear(); OPT.source = 'quick'; OPT.quick = 'any'; OPT.text = ''; SIM.success = { ids: [], rule: 'any' }; SIM.rho = '0.5'; SIM.useMatrix = false; OPT.script = { nsim: 100000, global: true, threads: 1, start: true, file: 'optimised-graph.json' }; renderAll(); });
+    await page.click('#tabbtn-optimise'); await sleep(100);
+    const txt = () => page.locator('#tab-optimise').innerText();
+    if (!/Give a gain function first/.test(await txt()) || (await page.locator('#optScript').count())) return 'script offered without a gain';
+    await ev(() => { OPT.source = 'own'; OPT.text = 'r1*r2 || r3*r4'; renderOptimisePanel(); }); await sleep(60);
+    let sc = await page.locator('#optScript').innerText();
+    for (const t of ['library(multigrain)', 'set.seed(2009)', 'power_nominal <- c(0.8, 0.8, 0.8, 0.8)', 'nsim <- 100000', 'trial_success("((r1 * r2) || (r3 * r4))")', 'graph_constraint_free(4, names = hyp_names)', 'start_graph <- list(', 'hyp_weight = c(0.5, 0.5, 0, 0)', 'start_graph = list(start_graph)', 'global_search = TRUE', 'num_threads = 1L', 'inputs = list(power_nominal = power_nominal, corr_matrix = corr_matrix, nsim = nsim)', 'start = start_graph,', 'file = "optimised-graph.json"', 'sketchpad_json <- function']) if (!sc.includes(t)) return 'script missing: ' + t;
+    await page.selectOption('#opt-snsim', '1000000'); await page.fill('#opt-threads', '4'); await page.locator('#opt-threads').dispatchEvent('change'); await page.uncheck('#opt-global'); await sleep(60); await page.uncheck('#opt-start'); await sleep(60); await page.fill('#opt-file', 'my/graph.json'); await page.locator('#opt-file').dispatchEvent('change'); await sleep(100);
+    sc = await page.locator('#optScript').innerText();
+    for (const t of ['nsim <- 1000000', 'num_threads = 4L', 'global_search = FALSE', 'file = "mygraph.json"']) if (!sc.includes(t)) return 'option not applied: ' + t;
+    if (sc.includes('start_graph')) return 'start graph still written';
+    await page.fill('#tab-optimise #opt-sp-' + (await ev(() => G.nodes[0].id)), '90'); await page.locator('#tab-optimise [data-pw]').first().dispatchEvent('change'); await sleep(100);
+    if (!(await page.locator('#optScript').innerText()).includes('power_nominal <- c(0.9, 0.8, 0.8, 0.8)')) return 'power not applied';
+    await ev(() => { const ids = G.nodes.map(n => n.id); OPT.lockW.add(ids[0]); for (const j of [1, 2, 3]) OPT.lockG.add(gKey(ids[0], ids[j])); renderAll(); }); await sleep(60);
+    sc = await page.locator('#optScript').innerText();
+    if (!sc.includes('hyp_constraint = c(0.5, NA, NA, NA)') || !/trans_constraint = matrix\(c\(\n\s+0, 0, 0\.5, 0\.5,\n\s+NA, 0, NA, NA,/.test(sc)) return 'constraint not written: ' + sc.slice(sc.indexOf('gc <-'), sc.indexOf('gc <-') + 200);
+    await ev(() => { const ids = G.nodes.map(n => n.id); OPT.lockW.add(ids[1]); renderAll(); }); await sleep(60);
+    if ((await page.locator('#optScript').count()) || !/Fix the fixed and free parts first/.test(await txt())) return 'script offered with a constraint problem';
+    await ev(() => { OPT.lockW.clear(); OPT.lockG.clear(); renderAll(); }); await sleep(60);
+    await page.click('[data-action="opt-copy-script"]'); await sleep(100);
+    const bt = await page.locator('[data-action="opt-copy-script"]').innerText(); if (!/Copied|Selected/.test(bt)) return 'copy button: ' + bt;
+    await ev(() => { OPT.source = 'quick'; OPT.text = ''; OPT.script = { nsim: 100000, global: true, threads: 1, start: true, file: 'optimised-graph.json' }; SIM.power = {}; renderAll(); });
+  });
+
+  await step('Optimise tab, result from multigrain: opening a file with the optimisation block shows the note, takes over the gain and inputs, estimates afresh, keeps the starting graph once in Compare, shows 0.001 as ε with the number on hover', async () => {
+    const json = { format: 'multiplicity-graph', version: 1, source: 'multigrain 1.0.0', alpha: 0.025,
+      hypotheses: [{ name: 'H1', weight: 0.5, label: 'Dose 1, primary', group: 'primary' }, { name: 'H2', weight: 0.3782 }, { name: 'H3', weight: 0.1218 }, { name: 'H4', weight: 0 }],
+      transitions: [[0, 0, 0.5, 0.5], [0.547, 0, 0.452, 0.001], [0, 0, 0, 1], [0.4578, 0.5422, 0, 0]],
+      optimisation: { package: 'multigrain 1.0.0', gain: '((r1 * r2) || (r3 * r4))', expected_gain: 0.693, local_power: [0.748, 0.72, 0.697, 0.65], expected_rejections: 2.81, disjunctive_power: 0.869, conjunctive_power: 0.531, opt_source: 'local', graph_valid: { local: true, global: null }, global_search: false,
+        inputs: { power_nominal: [0.8, 0.8, 0.8, 0.8], corr_matrix: [[1, 0.5, 0.5, 0.5], [0.5, 1, 0.5, 0.5], [0.5, 0.5, 1, 0.5], [0.5, 0.5, 0.5, 1]], nsim: 1000000 },
+        start: { weights: [0.5, 0.5, 0, 0], transitions: [[0, 0, 0.5, 0.5], [0, 0, 0.5, 0.5], [0, 0, 0, 1], [0, 0, 1, 0]] } } };
+    await ev(() => { KEPT = []; saveKept(); OPT.imported = null; OPT.result = null; SIM.n = 2000; loadGraph(templateJSON('holm')); renderAll(); setTab('export'); showExport('load'); });
+    for (let k = 0; k < 2; k++) { await ev(() => { setTab('export'); showExport('load'); }); await page.fill('#loadText', JSON.stringify(json)); await page.click('[data-action="load-text"]'); await page.waitForFunction(() => OPT.result && !OPT.running, null, { timeout: 30000 }); await sleep(100); }
+    if ((await ev(() => activeTab)) !== 'optimise') return 'did not open the Optimise tab';
+    if ((await ev(() => [OPT.source, OPT.text, SIM.rho, SIM.useMatrix, G.nodes.map(n => SIM.power[n.id]).join()].join('|'))) !== 'own|((r1 * r2) || (r3 * r4))|0.5|false|80,80,80,80') return 'gain or inputs not taken over: ' + await ev(() => [OPT.source, OPT.text, SIM.rho, SIM.useMatrix, G.nodes.map(n => SIM.power[n.id]).join()].join('|'));
+    const t = await page.locator('#tab-optimise').innerText();
+    if (!/Optimised with multigrain 1\.0\.0/.test(t) || !/multigrain 0\.693 on its own sample \(1,000,000 trials\)/.test(t) || !/Fresh sample here: 0\.\d{3} ± 0\.\d{3} \(2,000 trials/.test(t) || !/Difference [+-]0\.\d{3}: within simulation error/.test(t)) return 'note text: ' + t.slice(0, 600);
+    if (!/H1 74\.8%, H2 72\.0%, H3 69\.7%, H4 65\.0%; any 86\.9%, all 53\.1%, expected number 2\.81/.test(t) || !/from the local search \(global search off\); valid graph: local yes, global not run/.test(t)) return 'powers or solution line';
+    if ((await ev(() => KEPT.length)) !== 1 || (await ev(() => KEPT[0].name)) !== 'Starting graph (multigrain)' || (await ev(() => CMP.with)) !== 'kept:0') return 'starting graph not kept once: ' + await ev(() => KEPT.map(k => k.name).join());
+    const eps = await ev(() => G.edges.filter(e => e.expr === 'ε').map(e => nodeById(e.from).label + '>' + nodeById(e.to).label + '=' + fmt(e.g)).join());
+    if (eps !== 'H2>H4=0.001') return 'ε edge: ' + eps;
+    if ((await ev(() => { const x = document.querySelector('.elabel title'); return x ? x.textContent : ''; })) !== 'ε = 0.001') return 'hover title';
+    await page.click('[data-action="opt-compare-start"]'); await sleep(150);
+    if ((await ev(() => activeTab)) !== 'compare' || !/Starting graph \(multigrain\)/.test(await page.locator('#tab-compare').innerText())) return 'compare with the starting graph';
+    await page.click('#tabbtn-optimise'); await ev(() => { nodeById(G.nodes[1].id).w = Q.parse('1/3'); renderAll(); }); await sleep(80);
+    if (!/has changed since it was opened/.test(await page.locator('#tab-optimise').innerText())) return 'changed note';
+    await ev(() => { undo(); });
+    await page.click('[data-action="opt-dismiss"]'); await sleep(60);
+    if (/Optimised with multigrain/.test(await page.locator('#tab-optimise').innerText())) return 'dismiss';
+    await ev(() => { OPT.imported = { sig: simSig(), when: '', keptIndex: -1, package: 'multigrain 1.0.0', gain: G.opt.gain }; });
+    await page.click('#tabbtn-export'); await page.click('[data-export="sap"]'); await sleep(120);
+    if ((await page.locator('#tab-export [data-optshare]').count()) !== 1) return 'sharing switch missing in the SAP view';
+    let st = await page.locator('#sapText').innerText();
+    if (!/Choice of the graph\. The initial weights and transition weights were chosen by gain-function optimisation/.test(st) || /ψ\(r\)/.test(st)) return 'SAP text with sharing off: ' + (st.match(/Choice of the graph\.[^\n]{0,120}/) || 'no paragraph');
+    await page.check('#tab-export [data-optshare]'); await sleep(120);
+    st = await page.locator('#sapText').innerText(); if (!/ψ\(r\) = \(\(r1 \* r2\) \|\| \(r3 \* r4\)\)/.test(st)) return 'SAP text with sharing on';
+    await page.click('[data-export="json"]'); await sleep(100);
+    if (!(await page.locator('#tab-export [data-optshare]').isChecked()) || !JSON.parse(await page.locator('#exportCode').innerText()).optimisation) return 'JSON with sharing on';
+    await page.uncheck('#tab-export [data-optshare]'); await sleep(120);
+    if (JSON.parse(await page.locator('#exportCode').innerText()).optimisation) return 'JSON with sharing off';
+    await page.click('[data-export="link"]'); await sleep(100);
+    if ((await page.locator('#exportCode').innerText()).includes('r1')) return 'link with sharing off';
+    await page.click('#tabbtn-optimise'); await sleep(60);
+    if ((await page.locator('#tab-optimise [data-optshare]').count()) !== 1) return 'switch missing in the Optimise note';
+    await page.evaluate(() => { OPT.imported = null; });
+    await ev(() => { KEPT = []; saveKept(); CMP.with = ''; OPT.source = 'quick'; OPT.text = ''; OPT.result = null; SIM.power = {}; SIM.n = 10000; loadGraph(templateJSON('parallel')); renderAll(); });
   });
 
   await step('Export tab: every export renders, download buttons, copy, SAP tables, load JSON / share link / share code / exchange format / garbage', async () => {
@@ -510,7 +679,7 @@ async function step(name, fn) {
     await page.keyboard.press('?'); await sleep(50); if (await page.locator('#modal').isHidden()) return '? shortcut';
     await page.click('#modal', { position: { x: 5, y: 5 } }); if (!(await page.locator('#modal').isHidden())) return 'backdrop close';
     await page.click('#moreMenu summary'); await page.click('#selftestBtn'); await sleep(3000);
-    const st = await page.locator('#modalBody p').first().innerText(); const mm = /(\d+) of (\d+) checks passed/.exec(st); if (!mm || mm[1] !== mm[2] || +mm[2] < 86) return 'self-test: ' + st;
+    const st = await page.locator('#modalBody p').first().innerText(); const mm = /(\d+) of (\d+) checks passed/.exec(st); if (!mm || mm[1] !== mm[2] || +mm[2] < 110) return 'self-test: ' + st;
     await page.click('#modalClose');
   });
 
@@ -679,7 +848,7 @@ async function step(name, fn) {
     if (await page.locator('#simCorrMsg').count()) return 'message shown for valid correlations';
     await openDet('det-corr'); await page.check('#sim-usematrix'); await sleep(100);
     const fill = async (sel, v) => { const c = page.locator(sel); await c.fill(v); await c.press('Tab'); await sleep(120); };
-    await fill(`[data-corr="${K.k01}"]`, '0.9'); await fill(`[data-corr="${K.k02}"]`, '0.9'); await fill(`[data-corr="${K.k12}"]`, '-0.9');
+    await fill(`#tab-power [data-corr="${K.k01}"]`, '0.9'); await fill(`#tab-power [data-corr="${K.k02}"]`, '0.9'); await fill(`#tab-power [data-corr="${K.k12}"]`, '-0.9');
     let msg = await page.locator('#simCorrMsg').count() ? await page.locator('#simCorrMsg').innerText() : '';
     if (!/between H1, H2 and H3 cannot all hold/.test(msg)) return 'Power tab live message: ' + msg;
     await page.click('#tabbtn-test'); await sleep(150);
@@ -689,7 +858,7 @@ async function step(name, fn) {
     w = (await page.locator('#tab-test [data-warn="closed"]').allInnerTexts()).join(' | ');
     if (/Negative correlation/.test(w)) return 'Simes within groups should ignore pairs across groups: ' + w;
     await page.click('#tabbtn-power'); await sleep(100);
-    await fill(`[data-corr="${K.k12}"]`, '0.5'); await fill(`[data-corr="${K.k02}"]`, '0.2'); await fill(`[data-corr="${K.k01}"]`, '-0.3');
+    await fill(`#tab-power [data-corr="${K.k12}"]`, '0.5'); await fill(`#tab-power [data-corr="${K.k02}"]`, '0.2'); await fill(`#tab-power [data-corr="${K.k01}"]`, '-0.3');
     if (await page.locator('#simCorrMsg').count()) return 'message left after fixing';
     await page.click('#tabbtn-test'); await sleep(150);
     w = (await page.locator('#tab-test [data-warn="closed"]').allInnerTexts()).join(' | ');

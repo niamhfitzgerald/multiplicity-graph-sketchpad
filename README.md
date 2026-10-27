@@ -18,6 +18,7 @@ Created by Niamh Fitzgerald.
 - Power by simulation, with runs kept for comparison and the matching graphicalMCP code.
 - Compare two graphs: keep a copy, change it, and see both pictures, the weights and transitions that differ, the test result on the same p-values, and the power on the same simulated trials with the difference and its standard error.
 - Entangled graphs (Maurer and Bretz, 2013): several component graphs on the same hypotheses with weights c, edited one at a time and overlaid in an All view; templates for the paper's Figs. 2, 4(b) and 5, parallel gatekeeping with truncated Holm (Xi and Bretz, 2019), truncated Holm for any m and at least k of m; a default-graph view of any graph as fixed sequences with weights (Burman, Sonesson and Guilbaud, 2009).
+- Optimise with multigrain (Spiers et al., 2026): a gain function window (quick rules, elicitation from scores, or typed), locks for fixed parts, a complete R script for the package, and an import of the result with a fresh estimate of the expected gain.
 - Export a PNG, SVG, TikZ, beamer step-by-step frames, R code for graphicalMCP and gMCP, SAP or protocol text with tables, a JSON file or a share link.
 - Plain-language mode for discussing a design with clinicians, and a presentation mode.
 
@@ -30,10 +31,11 @@ Created by Niamh Fitzgerald.
 | `src/core.js` | Engine: exact rational arithmetic, graph update, closed tests, parsers, exporters, self-tests. No DOM access. |
 | `src/ui.js` | Canvas, panels, events. |
 | `src/build.py` | Joins the three sources into `src/multiplicity-graph-sketchpad.html`. Copy that file to `index.html` after building. |
-| `tests/runtests.js` | Runs the 46 built-in self-tests in Node. |
+| `tests/runtests.js` | Runs the 110 built-in self-tests in Node. |
 | `tests/stress.js` | Engine stress test: random graphs, all test types, independent reference implementations, empirical familywise error. About five minutes. |
 | `tests/browser-stress.js` | Playwright test that drives every control of the built page. |
-| `R/` | Validation scripts against graphicalMCP and gMCP, and `sketchpad_json()` for writing the app's exchange format from R. |
+| `tests/multigrain-constraints-check.R`, `tests/multigrain-dry-run.R` | Checks of the Optimise tab against multigrain's own validation code; run by the stress test when R and multigrain (or `MULTIGRAIN_R`, a clone of the package source) are available. |
+| `R/` | Validation scripts against graphicalMCP and gMCP, and `sketchpad_json()` for writing the app's exchange format from a multigrain result. |
 | `docs/` | User guide and change log. |
 
 ## Building and testing
@@ -49,6 +51,13 @@ npm test                         # self-tests, engine stress test, browser test
 ```
 
 `browser-stress.js` uses the Playwright-managed Chromium; set `SKETCHPAD_CHROME` to use another Chromium build.
+
+Two checks in `stress.js` call R: with multigrain installed they use the package; otherwise set `MULTIGRAIN_R` to the `R/` folder of a clone of https://github.com/cran/multigrain (they also need the cli, rlang, vctrs, purrr, glue and jsonlite packages). Without R they pass with a note. The two R scripts can also be run on their own:
+
+```sh
+Rscript tests/multigrain-constraints-check.R cases.json      # cases.json: [{"hyp": [...], "trans": [[...]]}, ...], null = free
+Rscript tests/multigrain-dry-run.R optimise-graph.R          # a script written by the Optimise tab
+```
 
 ## Releasing a new version
 
@@ -68,7 +77,7 @@ The built-in self-test (More menu, or the "debug" button in the footer) runs 57 
 
 ## Citation
 
-Fitzgerald N (2026). Multiplicity Graph Sketchpad, version 1.2.0. https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad. See `CITATION.cff`.
+Fitzgerald N (2026). Multiplicity Graph Sketchpad, version 1.3.0. https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad. See `CITATION.cff`.
 
 ## Licence
 
