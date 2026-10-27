@@ -31,7 +31,7 @@ Created by Niamh Fitzgerald.
 | `src/core.js` | Engine: exact rational arithmetic, graph update, closed tests, parsers, exporters, self-tests. No DOM access. |
 | `src/ui.js` | Canvas, panels, events. |
 | `src/build.py` | Joins the three sources into `src/multiplicity-graph-sketchpad.html`. Copy that file to `index.html` after building. |
-| `tests/runtests.js` | Runs the 110 built-in self-tests in Node. |
+| `tests/runtests.js` | Runs the 111 built-in self-tests in Node. |
 | `tests/stress.js` | Engine stress test: random graphs, all test types, independent reference implementations, empirical familywise error. About five minutes. |
 | `tests/browser-stress.js` | Playwright test that drives every control of the built page. |
 | `tests/plain-capture.js`, `tests/make-plain-snapshot.js`, `tests/plain-off-1.3.0.json` | Plain-language checks for the browser test: the 1.3.0 text (with Advanced features on) that the page must show with Plain language off, and the words that must not appear with it on. |
@@ -67,7 +67,7 @@ To release a new version: change `APP_VERSION` and `APP_DATE` in `src/core.js`, 
 
 ## Validation
 
-The built-in self-test (More menu, or the "debug" button in the footer) runs 57 checks, including worked examples from Bretz et al. (2009, 2011), Bretz, Maurer and Hommel (2011), Wiens and Dmitrienko (2005), Hommel, Bretz and Maurer (2007), Genz and Bretz (2009), and the gMCP and graphicalMCP vignettes. Results have been cross-checked against the graphicalMCP R package for Bonferroni, Simes and parametric tests (scripts in `R/`). The stress tests check the engine against independent implementations and the empirical familywise error rate under the global null.
+The built-in self-test (More menu, or the "debug" button in the footer) runs 111 checks, including worked examples from Bretz et al. (2009, 2011), Bretz, Maurer and Hommel (2011), Wiens and Dmitrienko (2005), Hommel, Bretz and Maurer (2007), Hommel and Bretz (2008), Genz and Bretz (2009), and the gMCP and graphicalMCP vignettes. Results have been cross-checked against the graphicalMCP R package for Bonferroni, Simes and parametric tests (scripts in `R/`). The stress tests check the engine against independent implementations and the empirical familywise error rate under the global null.
 
 ## Limitations
 
@@ -79,7 +79,7 @@ The built-in self-test (More menu, or the "debug" button in the footer) runs 57 
 
 ## Citation
 
-Fitzgerald N (2026). Multiplicity Graph Sketchpad, version 1.3.2. https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad. See `CITATION.cff`.
+Fitzgerald N (2026). Multiplicity Graph Sketchpad, version 1.3.3. https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad. See `CITATION.cff`.
 
 ## Licence
 

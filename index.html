@@ -590,7 +590,7 @@ table.t td:first-child { white-space: nowrap; }
 <script>
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.3.2';
+const APP_VERSION = '1.3.3';
 const APP_DATE = '2026-10-27';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
@@ -3774,6 +3774,31 @@ function runLiteratureSelfTests() {
     const pf = id => ({ a: 0.044, b: 0.003 })[id];
     const r1 = runProcedure(plain, pf, 0.05).order.join(), r2 = runProcedure(impr, pf, 0.05).order.sort().join();
     return (r1 === 'b' && r2 === 'a,b') || `plain ${r1}, improved ${r2}`;
+  });
+  check('Hommel and Bretz (2008) section 4, Table 1 (p. 662) and the numerical example (p. 662): fallback(3) with weights 1/3 has the printed intersection weights for all seven index sets ({1,2}, {1} and {2} not exhausting alpha); improved fallback I has them divided by their sum (the Wiens and Dmitrienko improvement, WD); alpha 0.05, p = (0.02, 0.015, 0.06) rejects H2 only and p = (0.06, 0.015, 0.02) rejects H2 and H3 for both, while Holm rejects two in both; for n = 2 (pp. 661 to 662) fallback(2) with w = (1/2, 1/2), p = (0.04, 0.02) rejects H2 only and weighted Holm (= WD) both', () => {
+    const Gf = load(templateJSON('fallback')), Gi = load(templateJSON('improvedFallbackI'));
+    /* the weights of an index set are the state after rejecting the hypotheses outside it; exact rationals */
+    const wOf = (G, keep) => { let st = stateFromGraph(G); G.nodes.forEach((n, i) => { if (!keep.includes(i)) st = rejectNode(st, n.id); }); return keep.map(i => Q.exact(st.w.get(G.nodes[i].id))).join(' '); };
+    /* Table 1 with w1 = w2 = w3 = 1/3: index set -> weights of its members in order */
+    const table = [[[0, 1, 2], '1/3 1/3 1/3'], [[0, 1], '1/3 1/3'], [[0, 2], '1/3 2/3'], [[1, 2], '2/3 1/3'], [[0], '1/3'], [[1], '2/3'], [[2], '1']];
+    for (const [keep, want] of table) { const got = wOf(Gf, keep); if (got !== want) return `fallback {${keep.map(i => i + 1).join(',')}}: ${got}, Table 1 ${want}`; }
+    /* WD: each row of Table 1 divided by its sum */
+    const wd = [[[0, 1, 2], '1/3 1/3 1/3'], [[0, 1], '1/2 1/2'], [[0, 2], '1/3 2/3'], [[1, 2], '2/3 1/3'], [[0], '1'], [[1], '1'], [[2], '1']];
+    for (const [keep, want] of wd) { const got = wOf(Gi, keep); if (got !== want) return `WD {${keep.map(i => i + 1).join(',')}}: ${got}, want ${want}`; }
+    if (isAlphaExhaustive(Gf) === true || isAlphaExhaustive(Gi) !== true) return 'exhaustiveness: fallback ' + isAlphaExhaustive(Gf) + ', WD ' + isAlphaExhaustive(Gi);
+    /* the numerical example: p(1) = 0.015 is p2; p2 < p1 < p3, then p2 < p3 < p1 */
+    const Gh = load(generatedTemplate('holm', 3));
+    for (const [p, want] of [[[0.02, 0.015, 0.06], 'H2'], [[0.06, 0.015, 0.02], 'H2,H3']]) {
+      const rf = labels(Gf, runProcedure(stateFromGraph(Gf), pOfG(Gf, p), 0.05).order);
+      const ri = labels(Gi, runProcedure(stateFromGraph(Gi), pOfG(Gi, p), 0.05).order);
+      const ci = closedTest(floatGraph(Gi), p, 0.05, 'bonferroni', { upscale: false }).rejected.map((r, i) => r ? Gi.nodes[i].label : '').filter(Boolean).sort().join(',');
+      const rh = runProcedure(stateFromGraph(Gh), pOfG(Gh, p), 0.05).order.length;
+      if (rf !== want || ri !== want || ci !== want || rh !== 2) return `p = (${p.join(', ')}): fallback ${rf}, WD ${ri}, WD closed ${ci}, Holm rejects ${rh}`;
+    }
+    /* n = 2: weighted Holm rejects H1 when p2 <= w2 alpha and w1 alpha < p1 <= alpha; the fallback does not */
+    const f2 = load(generatedTemplate('fallback', 2)), h2 = load(generatedTemplate('holm', 2));
+    const r2f = labels(f2, runProcedure(stateFromGraph(f2), pOfG(f2, [0.04, 0.02]), 0.05).order), r2h = labels(h2, runProcedure(stateFromGraph(h2), pOfG(h2, [0.04, 0.02]), 0.05).order);
+    return (r2f === 'H2' && r2h === 'H1,H2') || `n = 2: fallback ${r2f}, weighted Holm ${r2h}`;
   });
   check('Bretz et al. (2009) Fig. 11: improved fallback II passes H2\'s level to H1 first, and H3 gets everything once H1 and H2 are both rejected', () => {
     const G = load(templateJSON('improvedFallbackII')), [h1, h2, h3] = G.nodes.map(n => n.id);

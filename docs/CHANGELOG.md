@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.3 (2026-10-27)
+
+One new literature self-test, planned for 1.3.1 and held back for the paper.
+
+- Hommel and Bretz (2008), Biometrical Journal 50:657-666, section 4: Table 1 (p. 662), the weights of the fallback procedure for every intersection hypothesis with three hypotheses, including the three index sets that do not exhaust alpha; the Wiens and Dmitrienko improvement (improved fallback I) as Table 1 divided by its row sums; the numerical example (p. 662) at alpha 0.05 with p = (0.02, 0.015, 0.06) and (0.06, 0.015, 0.02), which the fallback and its improvement answer with H2 alone and then with H2 and H3 while Holm rejects two in both; and the two-hypothesis statement (pp. 661 to 662) that weighted Holm rejects H1 where the fallback does not. All exact. Self-tests: 111.
+- `R/validate-hommel-bretz-2008.R`: the same checks in graphicalMCP for a machine with the package, printing each value beside the paper's.
+- No change to the page itself.
+
 ## 1.3.2 (2026-10-27)
 
 One switch instead of two, after a review of 1.3.0. The Advanced features box is gone and everything shows by default. Plain language is now the clinician view, on every tab.
