@@ -889,7 +889,10 @@ const haveR = (() => { try { cp.execSync('Rscript --version', { stdio: 'ignore' 
 /* MULTIGRAIN_R: the R/ folder of the multigrain 1.0.0 source (a clone of https://github.com/cran/multigrain), used when the
    package itself is not installed. Checks that need R pass with a note when R or the source is missing. */
 const mgR = process.env.MULTIGRAIN_R || '';
-const rCheck = (name, fn) => check(name, () => (haveR && (mgR || process.env.MULTIGRAIN_INSTALLED) ? fn() : true));
+/* With multigrain installed (Niamh's Mac) the checks use the package itself: the constraint check calls its graph_constraint()
+   and the script check runs the written script for real (a small local search). */
+const mgInstalled = haveR && (() => { try { return cp.execSync('Rscript -e "cat(requireNamespace(\'multigrain\', quietly = TRUE))"', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).includes('TRUE'); } catch (e) { return false; } })();
+const rCheck = (name, fn) => check(name, () => (haveR && (mgR || mgInstalled) ? fn() : true));
 function specFor(G, opts = {}) {
   const m = G.nodes.length, fg = C.floatGraph(G);
   const g = []; for (let i = 0; i < m; i++) g.push(Array.from(fg.g.slice(i * m, i * m + m)));
@@ -954,7 +957,7 @@ rCheck('multigrainConstraintProblems agrees with multigrain\'s own graph_constra
   }
   const dir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'mgs-')), f = require('path').join(dir, 'cases.json');
   fs.writeFileSync(f, JSON.stringify(cases.map(c => ({ hyp: c.hyp, trans: c.trans }))));
-  const out = cp.execSync(`Rscript "${require('path').join(__dirname, 'multigrain-constraints-check.R')}" "${f}" "${mgR}"`, { encoding: 'utf8' }).split('\n').filter(l => l && !l.startsWith('#'));
+  const out = cp.execSync(`Rscript "${require('path').join(__dirname, 'multigrain-constraints-check.R')}" "${f}" "${mgR}"`, { encoding: 'utf8', timeout: 600000 }).split('\n').filter(l => l && !l.startsWith('#'));
   if (out.length !== cases.length) return `R printed ${out.length} lines for ${cases.length} cases`;
   for (let k = 0; k < cases.length; k++) {
     const rErr = out[k].startsWith('ERROR');
@@ -962,26 +965,37 @@ rCheck('multigrainConstraintProblems agrees with multigrain\'s own graph_constra
   }
   return true;
 });
-rCheck('The written script runs end to end in a dry run with multigrain\'s own validators and sketchpad_json(); the JSON it writes reopens as the start graph (needs Rscript and MULTIGRAIN_R)', () => {
-  for (let k = 0; k < 6; k++) {
+rCheck('The written script runs end to end (for real with multigrain installed, otherwise in a dry run with multigrain\'s own validators) and sketchpad_json() writes a file that reopens with the optimisation block (needs Rscript and multigrain or MULTIGRAIN_R)', () => {
+  const real = mgInstalled && !mgR;
+  for (let k = 0; k < (real ? 3 : 6); k++) {
     const m = ri(2, 5), G = toG(randomGraphJSON(m)), spec = specFor(G), fg = C.floatGraph(G);
     if (k % 2 === 1 && m > 2) { spec.hyp = Array.from(fg.w); spec.trans = []; for (let i = 0; i < m; i++) { const r = []; for (let j = 0; j < m; j++) r.push(i === j ? 0 : fg.g[i * m + j]); spec.trans.push(r); }
       if (C.multigrainConstraintProblems(spec.hyp, spec.trans, spec.labels).length) { spec.hyp = G.nodes.map(() => null); spec.trans = G.nodes.map((_, i) => G.nodes.map((_, j) => (i === j ? 0 : null))); } }
     spec.descs[0] = 'Dose "1"'; spec.groups[0] = 'primary'; spec.file = 'out.json';
+    if (real) { spec.globalSearch = false; spec.nsim = 2000; }
     const dir = fs.mkdtempSync(require('path').join(os.tmpdir(), 'mgs-')), sf = require('path').join(dir, 'optimise-graph.R');
     fs.writeFileSync(sf, C.optimiseRScript(spec));
     let out;
-    try { out = cp.execSync(`Rscript "${require('path').join(__dirname, 'multigrain-dry-run.R')}" "${sf}" "${mgR}"`, { encoding: 'utf8', cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] }); }
-    catch (e) { return `graph ${k}: dry run failed: ${(e.stderr || e.stdout || String(e)).slice(-400)}`; }
-    if (!out.includes('DRY RUN OK')) return `graph ${k}: ${out.slice(-300)}`;
+    try { out = cp.execSync(real ? `Rscript "${sf}"` : `Rscript "${require('path').join(__dirname, 'multigrain-dry-run.R')}" "${sf}" "${mgR}"`, { encoding: 'utf8', cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], timeout: 600000 }); }
+    catch (e) { return `graph ${k}: ${real ? 'the script failed in R' : 'dry run failed'}: ${(e.stderr || e.stdout || String(e)).slice(-400)}`; }
+    if (!real && !out.includes('DRY RUN OK')) return `graph ${k}: ${out.slice(-300)}`;
     const json = JSON.parse(fs.readFileSync(require('path').join(dir, 'out.json'), 'utf8'));
     if (!C.isExchangeFormat(json)) return `graph ${k}: the file is not in the exchange format`;
     const H = C.deserializeGraph(C.fromExchangeFormat(json, n => Array.from({ length: n }, (_, i) => ({ x: i * 100, y: 0 })), () => ''), false, 1).G, hg = C.floatGraph(H);
     if (H.nodes.length !== m || H.nodes[0].desc !== 'Dose "1"' || H.nodes[0].group !== 'primary') return `graph ${k}: labels or groups lost`;
     const blk = H.opt;
-    if (!blk || blk.gain !== spec.gainR || !blk.inputs || blk.inputs.nsim !== spec.nsim || blk.inputs.powerNominal.join() !== spec.powers.join() || !blk.start || blk.start.weights.length !== m || blk.optSource !== 'stub' || blk.graphValid.local !== true || blk.graphValid.global !== null || blk.expectedGain !== 0.5 || blk.localPower.length !== m) return `graph ${k}: optimisation block ${JSON.stringify(blk)}`;
-    for (let i = 0; i < m; i++) if (!near(hg.w[i], fg.w[i], 1e-12)) return `graph ${k}: weight ${i}`;
-    for (let i = 0; i < m * m; i++) if (!near(hg.g[i], fg.g[i], 1e-12)) return `graph ${k}: transition ${i}`;
+    if (!blk || blk.gain !== spec.gainR || !blk.inputs || blk.inputs.nsim !== spec.nsim || blk.inputs.powerNominal.join() !== spec.powers.join() || !blk.start || blk.start.weights.length !== m || !blk.graphValid || blk.localPower.length !== m) return `graph ${k}: optimisation block ${JSON.stringify(blk)}`;
+    if (real) {
+      /* A real run: the result is a valid graph (weights and rows at most 1), multigrain's gain is a probability-scale value and the
+         start graph in the block is the one given; the optimised graph itself differs from the start */
+      if (blk.optSource !== 'local' || blk.graphValid.local !== true || blk.graphValid.global !== null || !(blk.expectedGain >= 0 && blk.expectedGain <= 1 + 1e-9)) return `graph ${k}: real run block ${JSON.stringify(blk)}`;
+      for (let i = 0; i < m; i++) if (!near(blk.start.weights[i], fg.w[i], 1e-12)) return `graph ${k}: start weight ${i}`;
+      if (C.validateGraph(H, x => String(C.Q.toNum(x))).some(v => v.level === 'error')) return `graph ${k}: the optimised graph is not valid`;
+    } else {
+      if (blk.optSource !== 'stub' || blk.graphValid.local !== true || blk.graphValid.global !== null || blk.expectedGain !== 0.5) return `graph ${k}: stub block ${JSON.stringify(blk)}`;
+      for (let i = 0; i < m; i++) if (!near(hg.w[i], fg.w[i], 1e-12)) return `graph ${k}: weight ${i}`;
+      for (let i = 0; i < m * m; i++) if (!near(hg.g[i], fg.g[i], 1e-12)) return `graph ${k}: transition ${i}`;
+    }
   }
   return true;
 });
