@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.3.1 (2026-10-27)
+
+Plain-language mode in clinician words, after the clinician test pack (15 October) and the pilot on 1.1.5 (22 October). With Plain language off, every word on the page is as in 1.3.0. The Hommel and Bretz (2008) section 4 self-test, planned for this release, moves to the next one.
+
+- With Plain language ticked and the Bonferroni step-through: one phrase throughout, "claimed" (or "claimed as successes"), and each hypothesis's "share" of the allowance as a percentage. This covers the Test tab (the line above the table, the table, the notes under it, the result card), "What would it take?", the What-if line, the labels under the circles, the hint over the drawing, the messages when a circle is clicked too early, the presentation captions and the toolbar. The table becomes Question, p-value, Share at the start or Share now, and Result; the weight column is hidden. The plain-language box says "claimed as successes" instead of "confirmed as successes".
+- The step log becomes "Show the sums (for the statistician)", closed by default, with the same sums inside. A "Show the sums" button under "What has happened so far" opens it.
+- What-if buttons read "If it succeeds", and "Wait…" while a share moves, so a quick second click is not taken for a fault.
+- Run test shows "Running the test: step 2 of 3." while it runs.
+- A tip in the plain-language box asks for descriptions while every description is empty.
+- Toolbar: "Allowance" for α (the percentage is in the hover text) and "one direction" or "both directions" for one-sided or two-sided p-values. The approved "= 2.5%" read-out was left out: the toolbar would wrap onto two rows on most laptop screens. The Test tab and the result card give the percentage.
+- Ticking Plain language now also redraws the drawing, the hint, the presentation caption and the toolbar; before, they kept the old words until the next click.
+- Closed tests (Simes, Simes within groups, parametric), the Advanced-only sections and the Graph tab keep their statistical words. The closed-test sentences in the plain-language box say "claimed" and "passes the check".
+- Browser suite: 40 checks (two new). `tests/plain-off-1.3.0.json` holds the 1.3.0 text of the Test tab, drawing, hint, toolbar and presentation mode for the clinician set-up (two doses, two endpoints; p = 0.004, 0.009, 0.011, 0.03), saved before any change by `tests/make-plain-snapshot.js`. One check compares the page with Plain language off against it; the other finds no "rejected", "level", α, ≤ or one-sided p with Plain language on, and checks "Show the sums", "Wait…", the step count and the tip. `tests/plain-capture.js` drives both. Self-tests: 110. Engine stress suite: 46.
+
 ## 1.3.0 (2026-10-27)
 
 Optimise with multigrain (Spiers, Grayling, Wheeler and Mander, 2026, arXiv:2609.19994; the multigrain R package 1.0.0), stage 6, from `plans/multigrain-plan-2026-10-21.md`. Route A: the app writes an R script, the user runs it, the app opens the result. Advanced features only.

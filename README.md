@@ -34,6 +34,7 @@ Created by Niamh Fitzgerald.
 | `tests/runtests.js` | Runs the 110 built-in self-tests in Node. |
 | `tests/stress.js` | Engine stress test: random graphs, all test types, independent reference implementations, empirical familywise error. About five minutes. |
 | `tests/browser-stress.js` | Playwright test that drives every control of the built page. |
+| `tests/plain-capture.js`, `tests/make-plain-snapshot.js`, `tests/plain-off-1.3.0.json` | Plain-language checks for the browser test: the 1.3.0 text with Plain language off, and the words that must not appear with it on. |
 | `tests/multigrain-constraints-check.R`, `tests/multigrain-dry-run.R` | Checks of the Optimise tab against multigrain's own validation code; run by the stress test when R and multigrain (or `MULTIGRAIN_R`, a clone of the package source) are available. |
 | `R/` | Validation scripts against graphicalMCP and gMCP, and `sketchpad_json()` for writing the app's exchange format from a multigrain result. |
 | `docs/` | User guide and change log. |
@@ -77,7 +78,7 @@ The built-in self-test (More menu, or the "debug" button in the footer) runs 57 
 
 ## Citation
 
-Fitzgerald N (2026). Multiplicity Graph Sketchpad, version 1.3.0. https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad. See `CITATION.cff`.
+Fitzgerald N (2026). Multiplicity Graph Sketchpad, version 1.3.1. https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad. See `CITATION.cff`.
 
 ## Licence
 

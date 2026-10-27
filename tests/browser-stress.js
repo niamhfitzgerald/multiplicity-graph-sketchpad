@@ -727,7 +727,7 @@ async function step(name, fn) {
     if (!/The trial asks 4 questions/.test(t) || !/at least one/.test(t)) return 'plain design text: ' + t.slice(0, 200);
     await page.click('[data-action="run"]'); await page.waitForFunction(() => T && T.done && !T.running, null, { timeout: 15000 }); await sleep(200);
     const t2 = await page.locator('#tab-test .plain').innerText();
-    if (!/Result:/.test(t2) || !/confirmed/.test(t2)) return 'plain result: ' + t2.slice(-300);
+    if (!/Result:/.test(t2) || !/claimed as successes/.test(t2)) return 'plain result: ' + t2.slice(-300);
     await page.click('[data-action="exit-test"]'); await page.uncheck('#plainToggle');
   });
 
@@ -1163,6 +1163,58 @@ async function step(name, fn) {
     if (r.isTop) return 'isTop in frame';
     if (!/share code/i.test(r.txt)) return 'share code text: ' + r.txt;
     await p2.close();
+  });
+
+  /* Plain language (1.3.1). Each check runs in a fresh browser context, so settings from the steps above do not carry over. */
+  const { capturePlain, oldWordsIn } = require('./plain-capture');
+  const freshPage = async () => {
+    const c = await b.newContext({ viewport: { width: 1400, height: 900 } }); c.setDefaultTimeout(8000);
+    const p = await c.newPage();
+    p.on('pageerror', e => errors.push('plain pageerror: ' + e.message));
+    await p.goto(FILE); await p.waitForTimeout(700);
+    return { c, p };
+  };
+  await step('Plain language off: the Test tab, drawing, hint, toolbar and presentation mode show exactly the 1.3.0 text (clinician set-up)', async () => {
+    const want = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, 'plain-off-1.3.0.json'), 'utf8')).text;
+    const { c, p } = await freshPage();
+    const got = await capturePlain(p, false);
+    await c.close();
+    for (const k of Object.keys(want)) {
+      const a = JSON.stringify(want[k]), g = JSON.stringify(got[k]);
+      if (a !== g) { let i = 0; while (i < a.length && a[i] === g[i]) i++; return `${k} differs at ${i}: 1.3.0 "${a.slice(Math.max(0, i - 40), i + 60)}" now "${(g || '').slice(Math.max(0, i - 40), i + 60)}"`; }
+    }
+  });
+  await step('Plain language on: no "rejected", "level", α, ≤ or other statistician words in the clinician set-up; the sums are behind "Show the sums"; What-if buttons read "Wait…" while a share moves; "step 2 of 3" while Run test runs; the description tip', async () => {
+    const { c, p } = await freshPage();
+    const got = await capturePlain(p, true);
+    const hits = oldWordsIn(got);
+    let sums = '';
+    /* What-if: while a share moves, every button reads "Wait…" and is disabled; then "If it succeeds" again */
+    await p.click('#tabbtn-test'); await p.click('[data-action="mode-whatif"]'); await p.waitForTimeout(150);
+    const firstId = await p.evaluate(() => G.nodes[0].id);
+    await p.click(`[data-action="reject"][data-id="${firstId}"]`); await p.waitForTimeout(250);
+    const during = await p.evaluate(() => [...document.querySelectorAll('#tab-test [data-action="reject"]')].map(x => x.textContent + (x.disabled ? '/off' : '/on')));
+    for (let i = 0; i < 200 && await p.evaluate(() => animating); i++) await p.waitForTimeout(50);
+    const after = await p.evaluate(() => [...document.querySelectorAll('#tab-test [data-action="reject"]')].map(x => x.textContent + (x.disabled ? '/off' : '/on')));
+    if (!during.length || during.some(x => x !== 'Wait…/off')) sums += 'during the move: ' + during.join(', ') + '. ';
+    if (!after.length || after.some(x => x !== 'If it succeeds/on')) sums += 'after the move: ' + after.join(', ') + '. ';
+    await p.click('[data-action="mode-p"]'); await p.waitForTimeout(150);
+    /* Run test shows "step k of 3" while it runs, and the line goes when it ends */
+    await p.click('[data-action="run"]');
+    const seen = new Set();
+    for (let i = 0; i < 200 && await p.evaluate(() => animating || (T && T.running)); i++) { const t = await p.evaluate(() => { const e = document.querySelector('[data-progress="run"]'); return e ? e.textContent : ''; }); if (t) seen.add(t); await p.waitForTimeout(40); }
+    if (![...seen].some(t => /step 2 of 3/.test(t)) || [...seen].some(t => !/^Running the test: step [123] of 3\.$/.test(t))) sums += 'progress lines: ' + [...seen].join(' | ') + '. ';
+    if (await p.locator('[data-progress="run"]').count()) sums += 'progress line left after the run. ';
+    const d = p.locator('#det-sums');
+    if (!(await d.count())) sums += 'no "Show the sums" section';
+    else if (await d.evaluate(x => x.open)) sums += '"Show the sums" is open by default';
+    else { await p.click('[data-action="show-sums"]'); await p.waitForTimeout(400); if (!(await d.evaluate(x => x.open))) sums += 'the Show the sums button did not open it'; const t = await d.innerText(); if (!/Rejected H1: p = 0\.004 ≤ 1\/2 × 0\.025 = 0\.0125\./.test(t)) sums += 'sums text: ' + t.slice(0, 200); }
+    /* the description tip shows while every description is empty, and goes once one is filled in */
+    if (!(await p.locator('#tab-test [data-hint="desc"]').count())) sums += 'no description tip. ';
+    await p.evaluate(() => { G.nodes[0].desc = 'dose 1, main outcome'; renderAll(); }); await p.waitForTimeout(100);
+    if (await p.locator('#tab-test [data-hint="desc"]').count()) sums += 'description tip still shown with a description. ';
+    await c.close();
+    if (hits.length || sums) return `${hits.length} old word${hits.length === 1 ? '' : 's'} left${hits.length ? ': ' + hits.slice(0, 6).join('; ') : ''}${sums ? '. ' + sums : ''}`;
   });
 
   for (const r of results) console.log((r.ok ? 'PASS ' : 'FAIL ') + r.name + ` (${r.ms} ms)` + (r.ok ? '' : '\n      ' + r.detail));

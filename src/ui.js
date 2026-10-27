@@ -397,32 +397,33 @@ function renderCanvas() {
     const flash = T && T.flashNodes && T.flashNodes.has(n.id);
     const wt = n.wvec ? `(${n.wvec.map(q => fmt(q)).join(', ')})` : (mode !== 'test' && !n.rejected && (nodeById(n.id) || {}).wexpr) ? exprDisplay(nodeById(n.id).wexpr) : fmt(n.w);
     let aria = n.wvec ? `${n.label}, weights by component ${wt}` : `${n.label}, weight ${wt}`;
-    if (n.rejected) aria += ', rejected';
+    const pl = plainWords();
+    if (n.rejected) aria += pl ? ', claimed' : ', rejected';
     let extra = '';
     if (n.rejected) extra += `<line class="strike" x1="${(-n.rx * 0.6).toFixed(1)}" y1="-9" x2="${(n.rx * 0.6).toFixed(1)}" y2="-9"/>`;
     if (errNodes.has(n.id)) extra += `<g class="badge" transform="translate(${(n.rx * 0.78).toFixed(1)},${(-n.ry * 0.8).toFixed(1)})"><circle r="9"/><text y="4">!</text></g>`;
     if (mode === 'test' && T) {
       const y1 = n.ry + 17;
-      if (n.rejected && !n.pending) extra += `<text class="ncap rej" y="${y1}">\u2713 Rejected${T.closed ? '' : ` (step ${n.step})`}</text>`;
+      if (n.rejected && !n.pending) extra += pl ? `<text class="ncap rej" y="${y1}">\u2713 Claimed (step ${n.step})</text>` : `<text class="ncap rej" y="${y1}">\u2713 Rejected${T.closed ? '' : ` (step ${n.step})`}</text>`;
       else if (T.closed) { const p = parseP(n.p); extra += `<text class="ncap" y="${y1}">${ctRunning ? 'testing\u2026' : '\u2715 not rejected'}</text><text class="ncap" y="${y1 + 16}">p = ${fmtNum(p)}</text>`; }
       else if (!n.pending) {
         const p = parseP(n.p);
         const lvl = Q.toNum(n.w) * G.alpha;
         const can = !manual && isBonf() && T.st.ids.includes(n.id) && isRejectable(T.st, n.id, pOf, G.alpha);
-        if (can) { cls.push('can-reject'); aria += ', can be rejected now'; }
-        aria += `, local level ${fmtNum(lvl)}`;
-        extra += `<text class="ncap lvl" y="${y1}">level ${fmtNum(lvl)}</text>`;
+        if (can) { cls.push('can-reject'); aria += pl ? ', can be claimed now' : ', can be rejected now'; }
+        aria += pl ? `, share ${pctWords(lvl)}` : `, local level ${fmtNum(lvl)}`;
+        extra += pl ? `<text class="ncap lvl" y="${y1}">share ${pctWords(lvl)}</text>` : `<text class="ncap lvl" y="${y1}">level ${fmtNum(lvl)}</text>`;
         if (!manual) {
           if (p == null || Number.isNaN(p)) extra += `<text class="ncap" y="${y1 + 16}">no p-value</text>`;
-          else if (can) extra += `<text class="ncap ok" y="${y1 + 16}">p = ${fmtNum(p)} \u2713 can reject</text>`;
-          else extra += `<text class="ncap" y="${y1 + 16}">p = ${fmtNum(p)}, above level</text>`;
+          else if (can) extra += `<text class="ncap ok" y="${y1 + 16}">p = ${fmtNum(p)} \u2713 ${pl ? 'can claim' : 'can reject'}</text>`;
+          else extra += `<text class="ncap" y="${y1 + 16}">p = ${fmtNum(p)}, ${pl ? 'above its share' : 'above level'}</text>`;
         }
       }
     }
     if (witActive() && !n.rejected) {
       const yw = n.ry + 17 + (mode === 'test' ? 32 : 0);
-      if (wit.target === n.id) extra += `<text class="ncap lvl" y="${yw}" style="fill:var(--accent)">\u2192 level would be ${fmtNum(wit.level)}</text>`;
-      else if (wit.set.includes(n.id)) extra += `<text class="ncap lvl" y="${yw}" style="fill:var(--flow)">if rejected</text>`;
+      if (wit.target === n.id) extra += `<text class="ncap lvl" y="${yw}" style="fill:var(--accent)">\u2192 ${pl ? `share would be ${pctWords(wit.level)}` : `level would be ${fmtNum(wit.level)}`}</text>`;
+      else if (wit.set.includes(n.id)) extra += `<text class="ncap lvl" y="${yw}" style="fill:var(--flow)">${pl ? 'if it succeeds' : 'if rejected'}</text>`;
     }
     const hx = ((n.rx + 6.5) * Math.SQRT1_2).toFixed(1), hy = (-(n.ry + 6.5) * Math.SQRT1_2).toFixed(1);
     P.push(`<g class="${cls.join(' ')}" data-node="${n.id}" transform="translate(${n.x.toFixed(1)},${n.y.toFixed(1)})" tabindex="0" role="button" aria-label="${esc(aria)}">` +
@@ -460,17 +461,18 @@ function hintText() {
     if (T && T.message) return T.message;
     if (T && T.closed) return `Closed test (${TEST_TYPES[testType()]}): rejected hypotheses are greyed out. Reset or Back to Design to change anything.`;
     if (!isBonf() && !manual) return `${TEST_TYPES[testType()]} test: press Run test in the Test panel. Step-by-step rejection applies to the Bonferroni test only.`;
-    if (manual) return 'What if mode: click any hypothesis to reject it and watch where its alpha goes. No p-values needed.';
+    const pl = plainWords();
+    if (manual) return pl ? 'What if mode: click any question to suppose it succeeds and watch where its share goes. No p-values needed.' : 'What if mode: click any hypothesis to reject it and watch where its alpha goes. No p-values needed.';
     if (T && (T.done || !T.st.ids.length)) return 'Test finished. Step back or Reset to try a different order; the final result is always the same.';
-    if (T && !rejectableIds(T.st, pOf, G.alpha).length) return 'No hypothesis can be rejected yet. Enter p-values in the Test panel, or switch on What if mode.';
-    return 'Hypotheses outlined in green can be rejected now. Click one to reject it, in any order, or press Run test.';
+    if (T && !rejectableIds(T.st, pOf, G.alpha).length) return pl ? 'No question can be claimed yet. Enter p-values in the Test panel, or switch on What if mode.' : 'No hypothesis can be rejected yet. Enter p-values in the Test panel, or switch on What if mode.';
+    return pl ? 'Questions outlined in green can be claimed now. Click one to claim it, in any order, or press Run test.' : 'Hypotheses outlined in green can be rejected now. Click one to reject it, in any order, or press Run test.';
   }
   if (!hints || !G.nodes.length) return '';
   if (inAllView()) return `All ${G.ent.comps.length} component graphs shown together, with the weights listed by component at each hypothesis. Pick a graph in the bar above to edit its weights and transitions.`;
   if (inline) return 'Type a number such as 0.5 or 1/2, then press Enter. Esc cancels.';
   if (sel && sel.type === 'node') return 'Drag the blue dot onto another hypothesis to add a transition (or click the dot, then the target). Double-click to rename or change the weight.';
   if (sel && sel.type === 'edge') return 'Click the weight label again to change it. Drag the label to bend the arrow. Delete removes it.';
-  return G.nodes.some(n => n.p) ? 'Double-click empty space to add a hypothesis; drag the blue dot to connect two. Press Test to see what gets rejected.' : 'Double-click empty space to add a hypothesis; drag the blue dot to connect two. Then enter p-values in the Test tab.';
+  return G.nodes.some(n => n.p) ? `Double-click empty space to add a hypothesis; drag the blue dot to connect two. Press Test to see what gets ${plainWords() ? 'claimed' : 'rejected'}.` : 'Double-click empty space to add a hypothesis; drag the blue dot to connect two. Then enter p-values in the Test tab.';
 }
 function updateHint() {
   const chip = $('hintChip');
@@ -1104,7 +1106,8 @@ async function runAllSteps() {
   if (!isBonf()) { runClosed(); return; }
   if (mode !== 'test') setMode('test');
   if (!T || animating || hasErrors() || manual) return;
-  T.running = true; renderTestPanel();
+  /* runTotal: how many rejections this run will make, for the plain-language "Step 2 of 3" line (1.3.1) */
+  T.running = true; T.runTotal = T.step + runProcedure(T.st, pOf, G.alpha).order.length; renderTestPanel();
   while (T && !T.done && await stepOnce(true)) await sleep(reduced() ? 0 : 140);
   if (T) { T.running = false; renderTestPanel(); updateToolbar(); }
 }
@@ -1129,6 +1132,7 @@ function tryReject(id) {
   const n = nodeById(id), p = parseP(n.p), lvl = Q.toNum(T.st.w.get(id) || Q.ZERO) * G.alpha;
   if (isRejectable(T.st, id, pOf, G.alpha)) { doReject(id, { p, level: lvl, how: 'click' }, false); return; }
   if (p == null || Number.isNaN(p)) flashMessage(`${n.label} has no p-value yet. Enter one in the Test panel, or switch on What if.`);
+  else if (plainWords()) flashMessage(lvl === 0 ? `${n.label} cannot be claimed yet: it has no share at the moment. It only gets one when a question that hands its share on to ${n.label} succeeds.` : `${n.label} cannot be claimed yet: its p-value ${fmtNum(p)} is bigger than its share of ${pctWords(lvl)}. See "What would it take?" in the Test panel.`);
   else if (lvl === 0) flashMessage(`${n.label} can't be rejected yet: it has no alpha at the moment (level 0). It only gets some when a hypothesis that passes alpha to it is rejected.`);
   else flashMessage(`${n.label} can't be rejected yet: p = ${fmtNum(p)} is above its current level ${fmtNum(lvl)}. See "What would it take?" in the Test panel.`);
 }
@@ -1347,18 +1351,23 @@ function orderSection() {
     ${orderRuns.length > 1 ? `<p class="${same ? 'ok-text' : 'err-text'}">${same ? '✓ Same result every time.' : '✕ The results differ.'}</p>` : ''}
     <div class="row-actions"><button class="btn small" data-action="try-order">Try another order</button></div>`, `${orderRuns.length} tried`);
 }
+/* Plain language rewords the Test tab, the drawing, the hint and presentation mode for the Bonferroni step-through.
+   Closed tests (Simes, parametric) keep the statistician's words. With plain off nothing changes from 1.3.0. */
+function plainWords() { return plain && isBonf(); }
 function plainName(id, full) { const n = nodeById(id); if (!n) return '?'; return full && n.desc ? `${n.label} (${n.desc})` : n.label; }
 function plainSection() {
   if (!G.nodes.length) return '';
   const inTest = mode === 'test' && T;
   let body = plainGraphText(G, plainName).map(t => `<p>${esc(t)}</p>`).join('');
+  /* without descriptions the questions are only H1, H2, ...: say where to name them (1.3.1) */
+  if (G.nodes.every(n => !(n.desc || '').trim())) body = '<p class="small muted" data-hint="desc">Tip: give each question a description in the Graph tab, such as "dose 1, main outcome", so this text can name it.</p>' + body;
   if (inTest) {
     const steps = T.log.filter(l => l.data);
-    if (steps.length) body += `<p><b>What has happened so far</b></p><ol class="log">${steps.map(l => `<li>${esc(plainStepText(l.data, G.alpha))}</li>`).join('')}</ol>`;
+    if (steps.length) body += `<p><b>What has happened so far</b></p><ol class="log">${steps.map(l => `<li>${esc(plainStepText(l.data, G.alpha))}</li>`).join('')}</ol>${plainWords() ? '<div class="row-actions"><button class="btn small" data-action="show-sums">Show the sums</button></div>' : ''}`;
     const open = T.st.ids;
     if (T.closed) {
       const name = TEST_TYPES[testType()];
-      body += `<p><b>How this was checked</b></p><p>${esc(ctRunning ? 'The closed test is still being worked out.' : `Every combination of questions was checked with the ${name} test, and a question is confirmed only when every combination that includes it is rejected. The shares shown are the starting shares; they are not compared with the p-values one question at a time, so the step-by-step picture does not apply here.`)}</p>`;
+      body += `<p><b>How this was checked</b></p><p>${esc(ctRunning ? 'The closed test is still being worked out.' : `Every combination of questions was checked with the ${name} test, and a question is claimed only when every combination that includes it passes the check. The shares shown are the starting shares; they are not compared with the p-values one question at a time, so the step-by-step picture does not apply here.`)}</p>`;
     } else if (open.length && !(T.done && !open.length)) {
       const lines = open.map(id => {
         const n = nodeById(id), lvl = Q.toNum(T.st.w.get(id) || Q.ZERO) * G.alpha, p = parseP(n.p);
@@ -1377,7 +1386,7 @@ function plainSection() {
     }
     if (T.done || !open.length) {
       const rej = G.nodes.filter(n => T.rejected.has(n.id)).map(n => n.label), not = G.nodes.filter(n => !T.rejected.has(n.id)).map(n => n.label);
-      body += `<p><b>Result:</b> ${rej.length ? `${joinWords(rej)} ${rej.length > 1 ? 'are' : 'is'} confirmed as ${rej.length > 1 ? 'successes' : 'a success'}` : 'no question is confirmed'}${not.length ? `; ${joinWords(not)} ${not.length > 1 ? 'are' : 'is'} not` : ''}.</p>`;
+      body += `<p><b>Result:</b> ${rej.length ? `${joinWords(rej)} ${rej.length > 1 ? 'are' : 'is'} claimed as ${rej.length > 1 ? 'successes' : 'a success'}` : 'no question is claimed'}${not.length ? `; ${joinWords(not)} ${not.length > 1 ? 'are' : 'is'} not` : ''}.</p>`;
     }
   }
   return `<div class="plain">${body}</div>`;
@@ -1389,49 +1398,68 @@ function witSection() {
   const lab = id => (nodeById(id) || {}).label || '?';
   const list = ids => { const l = ids.map(lab); return l.length <= 1 ? l.join('') : l.slice(0, -1).join(', ') + ' and ' + l[l.length - 1]; };
   const m = st.ids.length;
-  const intro = '<p class="small muted">For each open hypothesis: its level now, the highest level it could reach, and the smallest sets of other rejections that would make it rejectable with its p-value.</p>';
-  if (m - 1 > 13) return det('det-wit', 'What would it take?', intro + `<p class="small">With ${m} hypotheses still open there are too many combinations to check (more than 8,000 per hypothesis). This view works for up to 14 open hypotheses.</p>`);
-  if (m - 1 > 10 && !witForce) return det('det-wit', 'What would it take?', intro + `<p class="small">With ${m} hypotheses still open there are ${(2 ** (m - 1)).toLocaleString('en-GB')} sets to check for each one, which may take a few seconds.</p><div class="row-actions"><button class="btn small" data-action="wit-force">Work it out anyway</button></div>`);
+  /* pl: plain language (1.3.1); every 1.3.0 sentence is kept unchanged in the other branch */
+  const pl = plainWords(), pc = x => pctWords(x);
+  const intro = pl ? '<p class="small muted">For each question not yet claimed: its share now, the most it could ever hold, and which other successes would let it be claimed with its p-value.</p>'
+    : '<p class="small muted">For each open hypothesis: its level now, the highest level it could reach, and the smallest sets of other rejections that would make it rejectable with its p-value.</p>';
+  if (m - 1 > 13) return det('det-wit', 'What would it take?', intro + (pl ? `<p class="small">With ${m} questions still open there are too many combinations to check (more than 8,000 per question). This view works for up to 14 open questions.</p>`
+    : `<p class="small">With ${m} hypotheses still open there are too many combinations to check (more than 8,000 per hypothesis). This view works for up to 14 open hypotheses.</p>`));
+  if (m - 1 > 10 && !witForce) return det('det-wit', 'What would it take?', intro + `<p class="small">With ${m} ${pl ? 'questions' : 'hypotheses'} still open there are ${(2 ** (m - 1)).toLocaleString('en-GB')} sets to check for each one, which may take a few seconds.</p><div class="row-actions"><button class="btn small" data-action="wit-force">Work it out anyway</button></div>`);
   const final = manual ? null : new Set(runProcedure(st, pOf, G.alpha).order);
+  const succeed = set => (set.length > 1 ? 'succeed' : 'succeeds');
   const cards = st.ids.map(id => {
     const r = whatWouldItTake(st, id, pOf, G.alpha, 13);
     const p = r.p, hasP = p != null && Number.isFinite(p);
-    const nowTxt = `level now <b>${fmtNum(r.now.level)}</b>${hasP ? `, p = <b>${fmtNum(p)}</b>` : ', no p-value'}`;
-    const bestTxt = r.best.set.length === 0 ? 'It is already at its highest possible level.' : `Highest level it could reach: <b>${fmtNum(r.best.level)}</b>, if ${list(r.best.set)} ${r.best.set.length > 1 ? 'are' : 'is'} rejected.`;
+    const nowTxt = pl ? `share now <b>${pc(r.now.level)}</b>${hasP ? `, p-value <b>${fmtNum(p)}</b>` : ', no p-value'}`
+      : `level now <b>${fmtNum(r.now.level)}</b>${hasP ? `, p = <b>${fmtNum(p)}</b>` : ', no p-value'}`;
+    const bestTxt = pl ? (r.best.set.length === 0 ? 'It already holds the most it can.' : `The most it could ever hold: <b>${pc(r.best.level)}</b>, if ${list(r.best.set)} ${r.best.set.length > 2 ? 'all succeed' : r.best.set.length === 2 ? 'both succeed' : 'succeeds'}.`)
+      : r.best.set.length === 0 ? 'It is already at its highest possible level.' : `Highest level it could reach: <b>${fmtNum(r.best.level)}</b>, if ${list(r.best.set)} ${r.best.set.length > 1 ? 'are' : 'is'} rejected.`;
     const showBtn = (set, label, level) => `<button class="btn small" data-action="wit-show" data-target="${id}" data-set="${set.join(',')}" data-level="${level}">${label}</button>`;
+    const showWide = pl ? 'Show on the drawing' : 'Show on canvas';
     let body = '';
     if (!hasP) {
-      body = `<p class="small">It would need p ≤ ${fmtNum(r.now.level)} now${r.best.set.length ? `, or p ≤ ${fmtNum(r.best.level)} at best` : ''}. ${bestTxt}</p>`;
-      if (r.best.set.length) body += `<div class="row-actions">${showBtn(r.best.set, 'Show on canvas', r.best.level)}</div>`;
+      body = pl ? `<p class="small">It would need a p-value no bigger than its share: ${pc(r.now.level)} now${r.best.set.length ? `, or ${pc(r.best.level)} at most` : ''}. ${bestTxt}</p>`
+        : `<p class="small">It would need p ≤ ${fmtNum(r.now.level)} now${r.best.set.length ? `, or p ≤ ${fmtNum(r.best.level)} at best` : ''}. ${bestTxt}</p>`;
+      if (r.best.set.length) body += `<div class="row-actions">${showBtn(r.best.set, showWide, r.best.level)}</div>`;
     } else if (isRejectable(st, id, pOf, G.alpha)) {
-      body = `<p class="small ok-text">✓ Can be rejected now: p = ${fmtNum(p)} ≤ level ${fmtNum(r.now.level)}.</p>`;
+      body = pl ? `<p class="small ok-text">✓ Can be claimed now: its p-value ${fmtNum(p)} is within its share of ${pc(r.now.level)}.</p>`
+        : `<p class="small ok-text">✓ Can be rejected now: p = ${fmtNum(p)} ≤ level ${fmtNum(r.now.level)}.</p>`;
     } else if (r.minimal.length) {
       const shown = r.minimal.slice(0, 6);
       const items = shown.map(x => {
         const blocked = final ? x.set.filter(j => !final.has(j)) : [];
         let note = '';
-        if (final) note = blocked.length ? `<span class="muted">but ${list(blocked)} ${blocked.length > 1 ? 'are' : 'is'} not rejected with these p-values</span>` : '<span class="ok-text">✓ possible with these p-values</span>';
-        return `<li>If ${list(x.set)} ${x.set.length > 1 ? 'are' : 'is'} rejected, its level becomes <b>${fmtNum(x.level)}</b>, so p = ${fmtNum(p)} is enough. ${note} ${showBtn(x.set, 'Show', x.level)}</li>`;
+        if (final) note = pl ? (blocked.length ? `<span class="muted">but ${list(blocked)} ${blocked.length > 1 ? 'do' : 'does'} not succeed with these p-values</span>` : '<span class="ok-text">✓ This happens with these p-values</span>')
+          : blocked.length ? `<span class="muted">but ${list(blocked)} ${blocked.length > 1 ? 'are' : 'is'} not rejected with these p-values</span>` : '<span class="ok-text">✓ possible with these p-values</span>';
+        return pl ? `<li>${list(x.set)} ${succeed(x.set)} first. Its share then becomes <b>${pc(x.level)}</b>, which is enough. ${note} ${showBtn(x.set, 'Show', x.level)}</li>`
+          : `<li>If ${list(x.set)} ${x.set.length > 1 ? 'are' : 'is'} rejected, its level becomes <b>${fmtNum(x.level)}</b>, so p = ${fmtNum(p)} is enough. ${note} ${showBtn(x.set, 'Show', x.level)}</li>`;
       }).join('');
-      body = `<p class="small">Not rejectable yet: p = ${fmtNum(p)} is above its level ${fmtNum(r.now.level)}. It becomes rejectable if:</p><ul class="tips">${items}</ul>${r.minimal.length > 6 ? `<p class="small muted">and ${r.minimal.length - 6} more set${r.minimal.length - 6 > 1 ? 's' : ''}.</p>` : ''}`;
-      if (final) body += final.has(id) ? `<p class="small ok-text">✓ With these p-values this does happen: ${lab(id)} ends up rejected.</p>` : `<p class="small err-text">✕ With these p-values none of these sets is fully rejected, so ${lab(id)} stays unrejected.</p>`;
+      const more = r.minimal.length - 6;
+      body = pl ? `<p class="small">Cannot be claimed yet: its p-value ${fmtNum(p)} is bigger than its share of ${pc(r.now.level)}. It could be claimed if:</p><ul class="tips">${items}</ul>${more > 0 ? `<p class="small muted">and ${more} more way${more > 1 ? 's' : ''}.</p>` : ''}`
+        : `<p class="small">Not rejectable yet: p = ${fmtNum(p)} is above its level ${fmtNum(r.now.level)}. It becomes rejectable if:</p><ul class="tips">${items}</ul>${r.minimal.length > 6 ? `<p class="small muted">and ${r.minimal.length - 6} more set${r.minimal.length - 6 > 1 ? 's' : ''}.</p>` : ''}`;
+      if (final) body += pl ? (final.has(id) ? `<p class="small ok-text">✓ With these p-values this does happen: ${lab(id)} is claimed.</p>` : `<p class="small err-text">✕ With these p-values none of these happens, so ${lab(id)} is not claimed.</p>`)
+        : final.has(id) ? `<p class="small ok-text">✓ With these p-values this does happen: ${lab(id)} ends up rejected.</p>` : `<p class="small err-text">✕ With these p-values none of these sets is fully rejected, so ${lab(id)} stays unrejected.</p>`;
     } else {
-      body = `<p class="small">No set of other rejections gets its level up to p = ${fmtNum(p)}. ${bestTxt}${r.best.set.length ? ` It would need p ≤ ${fmtNum(r.best.level)} even then.` : ''}</p>`;
-      if (r.best.set.length) body += `<div class="row-actions">${showBtn(r.best.set, 'Show on canvas', r.best.level)}</div>`;
+      body = pl ? `<p class="small">No other successes could raise its share enough for its p-value of ${fmtNum(p)}. ${bestTxt}</p>`
+        : `<p class="small">No set of other rejections gets its level up to p = ${fmtNum(p)}. ${bestTxt}${r.best.set.length ? ` It would need p ≤ ${fmtNum(r.best.level)} even then.` : ''}</p>`;
+      if (r.best.set.length) body += `<div class="row-actions">${showBtn(r.best.set, showWide, r.best.level)}</div>`;
     }
     return `<div class="wit-card"><p><b>${esc(lab(id))}</b> <span class="small muted">${nowTxt}</span></p>${body}${hasP && !isRejectable(st, id, pOf, G.alpha) && r.minimal.length && r.best.set.length ? `<p class="small muted">${bestTxt}</p>` : ''}</div>`;
   }).join('');
   const hide = witActive() ? '<div class="row-actions"><button class="btn small" data-action="wit-hide">Clear highlight</button></div>' : '';
-  return det('det-wit', 'What would it take?', intro + hide + cards + (mode !== 'test' ? '<p class="small muted">Shown for the initial graph. In Test mode it follows the current step.</p>' : ''), `${m} open`);
+  return det('det-wit', 'What would it take?', intro + hide + cards + (mode !== 'test' ? (pl ? '<p class="small muted">Shown for the start of the trial. Once testing starts, it follows each step.</p>' : '<p class="small muted">Shown for the initial graph. In Test mode it follows the current step.</p>') : ''), `${m} open`);
 }
 function renderTestPanel() {
   const el = $('tab-test');
   preserveFocus(el, () => {
     const errs = hasErrors();
     const inTest = mode === 'test' && T;
+    /* Plain language rewords the Bonferroni step-through only; closed tests keep the statistician's words (1.3.1) */
+    const pl = plainWords();
     let h = `<div class="row-actions" style="justify-content:space-between;align-items:center"><h2>Test the graph</h2><label class="chk" title="Describe the graph and each step in everyday words"><input type="checkbox" id="plainToggle" ${plain ? 'checked' : ''}> Plain language</label></div>`;
     if (plain) h += plainSection();
-    if (!inTest) h += `<p class="small muted">Enter a p-value for each hypothesis, then run the test at &alpha; = ${fmtNum(G.alpha)}${isBonf() ? ', or step through it yourself' : ''}.</p>`;
+    if (!inTest) h += pl ? `<p class="small muted">Enter a p-value for each question, then press Run test, or step through it yourself. The trial's allowance is ${pctWords(G.alpha)}.</p>`
+      : `<p class="small muted">Enter a p-value for each hypothesis, then run the test at &alpha; = ${fmtNum(G.alpha)}${isBonf() ? ', or step through it yourself' : ''}.</p>`;
     if (!isBonf() && !advanced) h += `<p class="small muted">Test: ${TEST_TYPES[testType()]} (change it under advanced features).</p>`;
     if (!isBonf() && !(inTest && manual)) h += closedWarnings();
     if (errs) h += '<div class="blocked" role="alert">✕ Fix the errors shown under the canvas before testing.</div>';
@@ -1440,32 +1468,36 @@ function renderTestPanel() {
       h += ctRunning ? `<p class="progress" id="ctProgress">Working out the closed test…</p>` : '';
     } else if (inTest) {
       h += `<div class="seg" role="group" aria-label="How hypotheses are rejected"><button data-action="mode-p" aria-pressed="${!manual}" ${busy ? 'disabled' : ''}>Use p-values</button><button data-action="mode-whatif" aria-pressed="${manual}" ${busy ? 'disabled' : ''}>What if (no p-values)</button></div>
-        <p class="small muted">${manual ? 'Click any hypothesis on the canvas, or Reject below, to see where its alpha goes. p-values are ignored.' : 'Hypotheses outlined in green can be rejected now. Reject them in any order by clicking them, or let Run test choose.'}</p>`;
+        <p class="small muted">${manual ? (pl ? 'Click any question on the drawing, or press "If it succeeds" below, to see where its share goes. p-values are ignored here.' : 'Click any hypothesis on the canvas, or Reject below, to see where its alpha goes. p-values are ignored.') : pl ? 'Questions outlined in green can be claimed now. Claim them in any order by clicking them, or let Run test choose.' : 'Hypotheses outlined in green can be rejected now. Reject them in any order by clicking them, or let Run test choose.'}</p>`;
     }
     const rejectable = inTest && !manual && !errs && !T.closed && isBonf() ? new Set(rejectableIds(T.st, pOf, G.alpha)) : new Set();
     const rows = G.nodes.map(n => {
       let w = n.w, status = '';
       if (inTest) {
         const r = T.rejected.get(n.id);
-        if (r) { w = r.w; status = `<span class="status-cell rej">✓ Rejected${T.closed ? '' : ` (${r.step})`}</span>`; }
+        if (r) { w = r.w; status = pl ? `<span class="status-cell rej">✓ Claimed (step ${r.step})</span>` : `<span class="status-cell rej">✓ Rejected${T.closed ? '' : ` (${r.step})`}</span>`; }
         else if (T.closed) { status = ctRunning ? '<span class="muted">…</span>' : '<span class="status-cell">✕ Not rejected</span>'; }
         else {
           w = T.st.w.get(n.id) || Q.ZERO;
-          if (manual) status = `<button class="btn small" data-action="reject" data-id="${n.id}" ${busy ? 'disabled' : ''}>Reject</button>`;
-          else if (rejectable.has(n.id)) status = `<button class="btn small primary" data-action="reject" data-id="${n.id}" ${busy ? 'disabled' : ''} aria-label="Reject ${esc(n.label)}">Reject</button>`;
-          else status = T.done ? '<span class="status-cell">✕ Not rejected</span>' : '<span class="muted">Not yet</span>';
+          /* plain language: "If it succeeds", and "Wait…" while a share is moving, so a quick second click is not mistaken for a fault */
+          if (manual) status = pl ? `<button class="btn small" data-action="reject" data-id="${n.id}" ${busy ? 'disabled' : ''} aria-label="Suppose ${esc(n.label)} succeeds">${busy ? 'Wait…' : 'If it succeeds'}</button>` : `<button class="btn small" data-action="reject" data-id="${n.id}" ${busy ? 'disabled' : ''}>Reject</button>`;
+          else if (rejectable.has(n.id)) status = pl ? `<button class="btn small primary" data-action="reject" data-id="${n.id}" ${busy ? 'disabled' : ''} aria-label="Claim ${esc(n.label)}">Claim</button>` : `<button class="btn small primary" data-action="reject" data-id="${n.id}" ${busy ? 'disabled' : ''} aria-label="Reject ${esc(n.label)}">Reject</button>`;
+          else status = T.done ? (pl ? '<span class="status-cell">✕ Not claimed</span>' : '<span class="status-cell">✕ Not rejected</span>') : '<span class="muted">Not yet</span>';
         }
       }
       const p = parseP(n.p);
       const bad = Number.isNaN(p);
-      return `<tr><th scope="row">${esc(n.label)}</th><td><input id="tp-${n.id}" data-p="${n.id}" value="${esc(n.p || '')}" class="${bad ? 'bad' : ''}" inputmode="decimal" autocomplete="off" aria-label="p-value for ${esc(n.label)}" placeholder="p"></td><td>${esc(fmt(w))}</td><td>${fmtNum(Q.toNum(w) * G.alpha)}</td>${inTest ? `<td>${status}</td>` : ''}</tr>`;
+      const lvl = Q.toNum(w) * G.alpha;
+      /* plain language: no weight column, the share as a percentage */
+      return `<tr><th scope="row">${esc(n.label)}</th><td><input id="tp-${n.id}" data-p="${n.id}" value="${esc(n.p || '')}" class="${bad ? 'bad' : ''}" inputmode="decimal" autocomplete="off" aria-label="p-value for ${esc(n.label)}" placeholder="p"></td>${pl ? '' : `<td>${esc(fmt(w))}</td>`}<td>${pl ? pctWords(lvl) : fmtNum(lvl)}</td>${inTest ? `<td>${status}</td>` : ''}</tr>`;
     }).join('');
-    if (G.nodes.length) h += `<table class="t"><thead><tr><th scope="col">Hyp.</th><th scope="col">p-value</th><th scope="col">${inTest ? 'Weight now' : 'Weight'}</th><th scope="col">${inTest ? 'Level now' : 'Level'}</th>${inTest ? '<th scope="col">Status</th>' : ''}</tr></thead><tbody>${rows}</tbody></table>`;
+    if (G.nodes.length) h += pl ? `<table class="t"><thead><tr><th scope="col">Question</th><th scope="col">p-value</th><th scope="col">${inTest ? 'Share now' : 'Share at the start'}</th>${inTest ? '<th scope="col">Result</th>' : ''}</tr></thead><tbody>${rows}</tbody></table>`
+      : `<table class="t"><thead><tr><th scope="col">Hyp.</th><th scope="col">p-value</th><th scope="col">${inTest ? 'Weight now' : 'Weight'}</th><th scope="col">${inTest ? 'Level now' : 'Level'}</th>${inTest ? '<th scope="col">Status</th>' : ''}</tr></thead><tbody>${rows}</tbody></table>`;
     const badP = G.nodes.filter(n => Number.isNaN(parseP(n.p)));
     if (badP.length) h += `<p class="err-text">✕ ${badP.map(n => esc(n.label)).join(', ')}: a p-value must be a number between 0 and 1.</p>`;
     const missing = G.nodes.filter(n => parseP(n.p) == null);
-    if (!manual && missing.length && missing.length < G.nodes.length) h += `<p class="small muted">No p-value yet for ${missing.map(n => esc(n.label)).join(', ')}; ${missing.length > 1 ? 'they' : 'it'} will not be rejected.</p>`;
-    if (isBonf() && !manual) h += '<p class="small muted">A hypothesis is rejected when its p-value is at or below its level (Bretz et al., 2009, Algorithm 1).</p>';
+    if (!manual && missing.length && missing.length < G.nodes.length) h += `<p class="small muted">No p-value yet for ${missing.map(n => esc(n.label)).join(', ')}; ${missing.length > 1 ? 'they' : 'it'} ${pl ? 'cannot be claimed' : 'will not be rejected'}.</p>`;
+    if (isBonf() && !manual) h += pl ? '<p class="small muted">A question is claimed when its p-value is no bigger than its share at the time.</p>' : '<p class="small muted">A hypothesis is rejected when its p-value is at or below its level (Bretz et al., 2009, Algorithm 1).</p>';
     if (!inTest) {
       const can = G.nodes.length && !errs && G.nodes.some(n => { const p = parseP(n.p); return p != null && !Number.isNaN(p); });
       h += `<div class="row-actions"><button class="btn primary" data-action="run" ${can ? '' : 'disabled'}>Run test</button>${isBonf() ? `<button class="btn" data-action="enter-test" ${G.nodes.length && !errs ? '' : 'disabled'}>Step through it</button><button class="btn" data-action="mode-whatif" ${G.nodes.length && !errs ? '' : 'disabled'}>What if (no p-values)</button>` : `<button class="btn" data-action="mode-whatif" ${G.nodes.length && !errs ? '' : 'disabled'}>What if (Bonferroni graph)</button>`}</div>`;
@@ -1483,16 +1515,21 @@ function renderTestPanel() {
         <button class="btn" data-action="reset" ${busy ? 'disabled' : ''}>Reset</button>
         <button class="btn" data-action="exit-test" ${busy ? 'disabled' : ''}>Back to Design</button>
       </div>`;
+      if (pl && !manual && T.running && T.runTotal) h += `<p class="small muted" role="status" data-progress="run">Running the test: step ${Math.max(1, Math.min(T.runTotal, T.step + (animating ? 1 : 0)))} of ${T.runTotal}.</p>`;
       if (done && !manual && !ctRunning) {
         const rej = G.nodes.filter(n => T.rejected.has(n.id)), not = G.nodes.filter(n => !T.rejected.has(n.id));
-        h += `<div class="result-card" role="status"><b>Result at &alpha; = ${fmtNum(G.alpha)}</b>
+        h += pl ? `<div class="result-card" role="status"><b>Result (allowance ${pctWords(G.alpha)})</b>
+          <span class="r-ok">✓ Claimed as successes: ${rej.length ? rej.map(n => esc(n.label)).join(', ') : 'none'}</span>
+          <span class="r-no">✕ Not claimed: ${not.length ? not.map(n => esc(n.label)).join(', ') : 'none'}</span></div>`
+          : `<div class="result-card" role="status"><b>Result at &alpha; = ${fmtNum(G.alpha)}</b>
           <span class="r-ok">✓ Rejected: ${rej.length ? rej.map(n => esc(n.label)).join(', ') : 'none'}</span>
           <span class="r-no">✕ Not rejected: ${not.length ? not.map(n => esc(n.label)).join(', ') : 'none'}</span></div>`;
       }
       if (advanced) h += testTypeSection();
       if (T.closed) h += closedSection(true);
       else { if (advanced) h += orderSection(); h += witSection(); }
-      if (T.log.length) h += det('det-steps', 'Step log', `<ol class="log">${T.log.map(l => l.stop ? `<li class="stop">${esc(l.text)}</li>` : `<li>${esc(l.text)}${l.gave ? `<br><span class="small">${esc(l.gave)}</span>` : ''}${l.now ? `<br><span class="muted small">${esc(l.now)}</span>` : ''}</li>`).join('')}</ol>`, `${T.step} step${T.step === 1 ? '' : 's'}`);
+      /* plain language: the same step log, closed by default, for a statistician sitting beside the clinician */
+      if (T.log.length) h += det(pl ? 'det-sums' : 'det-steps', pl ? 'Show the sums (for the statistician)' : 'Step log', `<ol class="log">${T.log.map(l => l.stop ? `<li class="stop">${esc(l.text)}</li>` : `<li>${esc(l.text)}${l.gave ? `<br><span class="small">${esc(l.gave)}</span>` : ''}${l.now ? `<br><span class="muted small">${esc(l.now)}</span>` : ''}</li>`).join('')}</ol>`, `${T.step} step${T.step === 1 ? '' : 's'}`);
       if (advanced) h += det('det-teach', 'Teaching tips', `<p class="small muted">The Matrix tab shows the current weights and transition matrix after each step. Step back and Redo (or Ctrl+Z and Ctrl+Y) move through the steps.</p>`);
     }
     if (advanced) h += det('det-paste', 'Paste all p-values at once', `<p class="small muted">In order (${G.nodes.map(n => esc(n.label)).join(', ')}), as <code>c(0.01, 0.02, ...)</code> or separated by commas or spaces.</p>
@@ -2049,9 +2086,18 @@ function exitPresent() {
 function presentCaption() {
   if (!T) return '';
   const last = T.log.length ? T.log[T.log.length - 1] : null;
+  const pl = plainWords();
+  if (last && pl && last.stop) {
+    /* plain language: the end of the test without "rejected" or "local level" */
+    const left = T.st.ids.map(id => nodeById(id));
+    if (!left.length) return 'Finished: every question is claimed.';
+    const noP = left.filter(n => parseP(n.p) == null || Number.isNaN(parseP(n.p)));
+    return `Finished: no question left can be claimed. Not claimed: ${joinWords(left.map(n => n.label))}.` + (noP.length ? ` No p-value for ${joinWords(noP.map(n => n.label))}.` : '');
+  }
   if (last) return plain && last.data ? plainStepText(last.data, G.alpha) : (last.stop ? last.text : last.text + (last.gave ? ' ' + last.gave : ''));
   const R = rejectableIds(T.st, pOf, G.alpha).map(id => nodeById(id).label);
-  if (manual) return 'What if mode: click any hypothesis to reject it.';
+  if (manual) return pl ? 'What if mode: click any question to suppose it succeeds.' : 'What if mode: click any hypothesis to reject it.';
+  if (pl) return R.length ? `Each question is checked against its share. ${joinWords(R)} can be claimed now: press Next, or click one.` : 'No question can be claimed with these p-values.';
   return R.length ? `Each hypothesis is tested at its level (weight × α). ${joinWords(R)} can be rejected now: press Next, or click one.` : 'No hypothesis can be rejected with these p-values.';
 }
 function updatePresentBar() {
@@ -2601,6 +2647,13 @@ function updateToolbar() {
   if (document.activeElement !== a) { a.value = fmtNum(G.alpha, 12); a.classList.remove('bad'); }
   const sd = $('sidedSelect');
   if (sd && sd.value !== (G.sided === 'two' ? 'two' : 'one')) sd.value = G.sided === 'two' ? 'two' : 'one';
+  /* plain language: "Allowance", and the p-value directions in words (1.3.1). The toolbar has almost no spare width at
+     1280 to 1600 pixels, so the percentage is given in the Test tab rather than here. */
+  const pl = plainWords();
+  $('alphaLabel').textContent = pl ? 'Allowance' : '\u03b1 =';
+  $('alphaLabel').title = pl ? `The trial's allowance for wrongly claiming at least one success: ${pctWords(G.alpha)}` : 'Significance level';
+  a.setAttribute('aria-label', pl ? "The trial's allowance, as a decimal" : 'Significance level alpha');
+  if (sd) { sd.options[0].textContent = pl ? 'one direction' : 'one-sided p'; sd.options[1].textContent = pl ? 'both directions' : 'two-sided p'; sd.title = pl ? 'Whether the p-values you enter test for an effect in one direction (one-sided) or in both directions (two-sided).' : 'Whether the p-values you enter are one-sided or two-sided. The parametric test needs one-sided p-values; the SAP text says which you chose.'; }
 }
 /* Template picker entries marked data-adv are shown in advanced mode only. They are taken out of the select in simple
    mode and put back in their place in advanced mode (CSS display: none on an option is ignored by Safari). */
@@ -3150,7 +3203,7 @@ $('tab-test').addEventListener('change', e => {
     if (!(x >= -1 && x <= 1)) { t.classList.add('bad'); return; }
     checkpoint(); G.test.corr[t.dataset.tcorr] = x; CT = null; deferChange();
   } else if (t.id === 'plainToggle') {
-    plain = t.checked; store.set('mgs-plain', plain ? '1' : '0'); renderTestPanel(); renderGraphPanel();
+    plain = t.checked; store.set('mgs-plain', plain ? '1' : '0'); renderTestPanel(); renderGraphPanel(); renderCanvas(); updatePresentBar(); updateToolbar();
   } else if (t.id === 'manualToggle') {
     manual = t.checked;
     renderCanvas(); renderTestPanel();
@@ -3176,6 +3229,7 @@ $('tab-test').addEventListener('click', e => {
   else if (act === 'wit-show') { wit = { target: b.dataset.target, set: b.dataset.set ? b.dataset.set.split(',') : [], level: +b.dataset.level, step: T ? T.step : -1, sig: testSig() }; renderCanvas(); renderTestPanel(); }
   else if (act === 'wit-hide') { wit = null; renderCanvas(); renderTestPanel(); }
   else if (act === 'wit-force') { witForce = true; renderTestPanel(); }
+  else if (act === 'show-sums') { const d = $('det-sums'); if (d) { d.open = true; openDetails.add('det-sums'); d.scrollIntoView({ block: 'nearest', behavior: reduced() ? 'auto' : 'smooth' }); } }
   else if (act === 'try-order') { T = newTest(); renderAll(); flashMessage('Now reject the green hypotheses in a different order by clicking them. The result will be the same.'); }
   else if (act === 'paste-p') {
     const msg = $('pasteMsg');

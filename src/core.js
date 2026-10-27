@@ -1,6 +1,6 @@
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.3.1';
 const APP_DATE = '2026-10-27';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
@@ -2508,8 +2508,8 @@ function plainGraphText(G, nameOf) {
       out.push(t + (passes.length ? ' ' + passes.join(' ') : ''));
     });
     if (!closed) out.push('Handing allowance on is what lets a question with a very small p-value be claimed later, even though it started with no share. The order in which successes are found makes no difference to the final answer.');
-    else if (tt === 'parametric') out.push('These shares are not compared with the p-values one question at a time. Instead every combination of questions is checked together, using how strongly the test results are correlated to make the shares go further, and a question is confirmed only when every combination that includes it is rejected. This needs the stated correlations to be right and the p-values to be one-sided.');
-    else out.push('These shares are not compared with the p-values one question at a time. Instead every combination of questions is checked together with a Simes test, which can confirm a combination when all of its p-values are fairly small even if none is below its own share, and a question is confirmed only when every combination that includes it is rejected. This relies on the test results not being negatively related to one another.');
+    else if (tt === 'parametric') out.push('These shares are not compared with the p-values one question at a time. Instead every combination of questions is checked together, using how strongly the test results are correlated to make the shares go further, and a question is claimed only when every combination that includes it passes the check. This needs the stated correlations to be right and the p-values to be one-sided.');
+    else out.push('These shares are not compared with the p-values one question at a time. Instead every combination of questions is checked together with a Simes test, which can confirm a combination when all of its p-values are fairly small even if none is below its own share, and a question is claimed only when every combination that includes it passes the check. This relies on the test results not being negatively related to one another.');
     return out;
   }
   out.push(`The trial asks ${m} question${m > 1 ? 's' : ''} (${joinWords(G.nodes.map(n => nameOf(n.id, true)))}). It is allowed a ${pctWords(G.alpha)} chance of wrongly claiming at least one success across all of them. That allowance is shared out${closed ? ' as described below.' : ', and a question can only be claimed as a success if its p-value is no bigger than its share at the time.'}`);
@@ -2526,8 +2526,8 @@ function plainGraphText(G, nameOf) {
   });
   out.push(...passes);
   if (!closed) out.push('Handing allowance on is what lets a question with a very small p-value be claimed later, even though it started with no share. The order in which successes are found makes no difference to the final answer.');
-  else if (tt === 'parametric') out.push('These shares are not compared with the p-values one question at a time. Instead every combination of questions is checked together, using how strongly the test results are correlated to make the shares go further, and a question is confirmed only when every combination that includes it is rejected. This needs the stated correlations to be right and the p-values to be one-sided.');
-  else out.push('These shares are not compared with the p-values one question at a time. Instead every combination of questions is checked together with a Simes test, which can confirm a combination when all of its p-values are fairly small even if none is below its own share, and a question is confirmed only when every combination that includes it is rejected. This relies on the test results not being negatively related to one another.');
+  else if (tt === 'parametric') out.push('These shares are not compared with the p-values one question at a time. Instead every combination of questions is checked together, using how strongly the test results are correlated to make the shares go further, and a question is claimed only when every combination that includes it passes the check. This needs the stated correlations to be right and the p-values to be one-sided.');
+  else out.push('These shares are not compared with the p-values one question at a time. Instead every combination of questions is checked together with a Simes test, which can confirm a combination when all of its p-values are fairly small even if none is below its own share, and a question is claimed only when every combination that includes it passes the check. This relies on the test results not being negatively related to one another.');
   return out;
 }
 /* One sentence per rejection. step: {label, p, level, manual, gave: [[toLabel, amountQ]], now: [[label, levelNumber]]} */
