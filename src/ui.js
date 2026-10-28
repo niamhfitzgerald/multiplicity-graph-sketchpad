@@ -61,6 +61,7 @@ let witForce = false; // user asked to enumerate a large graph anyway
 let plain = false;    // the clinician view: everyday words (plainWords), and the statistician's tabs, templates and sections hidden (body.clinician)
 let presenting = false;
 let allView = false;  // entangled graphs: show every component overlaid (read-only) instead of the active one
+let sideBySide = false; // entangled graphs: the SVG, TikZ and beamer exports draw the component graphs side by side (Fig. 2 style)
 const hist = { past: [], future: [] };
 const SIM = { power: {}, rho: '0.5', useMatrix: false, corr: {}, n: 10000, success: { ids: [], rule: 'any' }, running: null, result: null, runs: [], error: '' };
 /* Optimise tab (multigrain stage): the gain function and its expected gain for the current graph. Session state only;
@@ -2162,13 +2163,16 @@ $('presentBar').addEventListener('click', e => {
 });
 
 /* ---------- step-by-step beamer export ---------- */
-function stepFrames() {
-  /* Use the steps taken in Test mode if there are any; otherwise run the procedure on the p-values. */
+function stepFrames(panels) {
+  /* Use the steps taken in Test mode if there are any; otherwise run the procedure on the p-values.
+     panels: an entangled graph drawn as side-by-side panels at every step instead of the All view */
   const states = [];
   let st = stateFromGraph(G), rejected = new Map(), caps = [];
   /* entangled graph: every frame is the All view (vector of component weights, one line style per component) */
   const rejVec = new Map();
   const bendsOf = st.ent ? st.ent.comps.map((_, k) => new Map(entViewGraph(G, k).edges.map(e => [gKey(e.from, e.to), e.bend]))) : null;
+  /* rejected hypotheses with the component weights they had when rejected, for the panels */
+  const rejWithVec = rej => new Map([...rej].map(([id, k]) => [id, { step: k, wvec: rejVec.get(id) }]));
   const entVM = (s, rej) => {
     const nodes = G.nodes.map(n => {
       const v = { id: n.id, label: n.label, x: n.x, y: n.y, rx: nodeRx(n.label), ry: NODE_R, p: n.p, group: n.group || '', color: n.color || '', w: s.w.get(n.id) || Q.ZERO, rejected: rej.has(n.id) };
@@ -2193,7 +2197,7 @@ function stepFrames() {
         nodes: G.nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y, rx: nodeRx(n.label), ry: NODE_R, p: n.p, group: n.group || '', color: n.color || '', w: n.w, rejected: rj.has(n.id) })),
         edges: [...s.g.entries()].filter(([, g]) => !Q.isZero(g)).map(([k, g]) => { const [a, b] = k.split('>'); const o = edgeOf(a, b); return { from: a, to: b, g, bend: o ? o.bend : null, text: fmt(g) }; })
       };
-      return { vm, layout: layoutEdges(vm), caption, alpha: G.alpha };
+      return Object.assign({ vm, layout: layoutEdges(vm), caption, alpha: G.alpha }, panels && s.ent ? { panels: componentPanels(G, s, rejWithVec(rj), fmt) } : {});
     });
   }
   const steps = (mode === 'test' && T && T.log.some(l => l.data)) ? T.log.filter(l => l.data) : null;
@@ -2228,16 +2232,17 @@ function stepFrames() {
       edges: [...s.g.entries()].filter(([, g]) => !Q.isZero(g)).map(([k, g]) => { const [a, b] = k.split('>'); const o = edgeOf(a, b); return { from: a, to: b, g, bend: o ? o.bend : null, text: fmt(g) }; })
     };
     if (!s.ent) for (const n of vm.nodes) if (n.rejected) { const r = G.nodes.find(x => x.id === n.id); n.w = r ? r.w : Q.ZERO; }
-    return { vm, layout: layoutEdges(vm), caption, alpha: G.alpha };
+    return Object.assign({ vm, layout: layoutEdges(vm), caption, alpha: G.alpha }, panels && s.ent ? { panels: componentPanels(G, s, rejWithVec(rej), fmt) } : {});
   });
 }
 
 /* ---------- export panel ---------- */
 function initExportPanel() {
   $('tab-export').innerHTML = `<h2>Export and share</h2>
-  <p class="small muted">Pictures and TikZ show the graph as it is on the canvas, including any test progress. R code describes the initial graph.</p>
+  <p class="small muted">Pictures and TikZ show the graph as it is on the canvas, including any test progress. R code describes the initial graph.<span id="sbsNote" hidden> For an entangled graph, "Graphs side by side" draws each component graph on its own, as Maurer and Bretz (2013) do in their Fig. 2.</span></p>
   <div class="export-grid">
     <button class="btn" data-export="png">Picture (PNG)</button>
+    <button class="btn" data-export="sbs" hidden>Graphs side by side (PNG)</button>
     <button class="btn" data-export="link">Share link</button>
     <button class="btn" data-export="json">Save as a file</button>
     <button class="btn" data-export="load">Open a saved graph</button>
@@ -2250,6 +2255,7 @@ function initExportPanel() {
     <button class="btn" data-export="tikz">LaTeX (TikZ)</button>
     <button class="btn" data-export="svg">Vector picture (SVG)</button>
   </div>
+  <label class="chk" id="sbsRow" hidden><input type="checkbox" id="sbsToggle"> Draw the component graphs side by side (Maurer and Bretz 2013, Fig. 2) in the SVG, TikZ and beamer exports</label>
   <h3>For R</h3>
   <div class="export-grid">
     <button class="btn" data-export="graphicalmcp">graphicalMCP</button>
@@ -2258,6 +2264,20 @@ function initExportPanel() {
   </div>
   <p class="small muted clinician-only">LaTeX, R code and SAP text are for the statistician. Untick Plain language to see them.</p>
   <div id="exportOut" class="form" aria-live="polite"></div>`;
+}
+/* The side-by-side button, note and tick box show for an entangled graph only */
+function updateExportPanel() {
+  const ent = isEntangled(G), b = document.querySelector('#tab-export [data-export="sbs"]');
+  if (b) b.hidden = !ent;
+  const r = $('sbsRow'); if (r) r.hidden = !ent;
+  const n = $('sbsNote'); if (n) n.hidden = !ent;
+  const t = $('sbsToggle'); if (t) t.checked = sideBySide;
+}
+/* The component graphs of the entangled graph on the canvas as side-by-side panels: the stored design graph with its
+   symbolic labels, or in Test mode each component's current graph with the rejected hypotheses greyed */
+function currentPanels() {
+  const inTest = mode === 'test' && T;
+  return componentPanels(G, inTest ? T.st : null, inTest ? T.rejected : null, fmt);
 }
 const SAVE_OK = ['png', 'svg', 'json', 'txt', 'md', 'html', 'csv'];
 function canDownload(file) {
@@ -2324,22 +2344,25 @@ async function showExport(kind) {
   if (!out) return;
   if (!G.nodes.length && kind !== 'load') { out.innerHTML = '<p class="muted">Add some hypotheses first.</p>'; return; }
   const { vm, layout } = currentPicture();
+  /* an entangled graph drawn as side-by-side panels: always for the "Graphs side by side" button, and for SVG, TikZ and beamer with the box ticked */
+  const sbs = isEntangled(G) && (kind === 'sbs' || (sideBySide && (kind === 'svg' || kind === 'tikz' || kind === 'beamer')));
+  const sbsDesc = 'Each component graph drawn on its own with the hypotheses in the same places, its name and share c underneath, in the style of Maurer and Bretz (2013), Fig. 2.';
   if (kind === 'svg') {
-    exportPayload = exportSVG(vm, layout, fmt);
-    out.innerHTML = codeBlock('SVG picture', 'White background, no interface chrome. Scales to any size.', exportPayload, 'multiplicity-graph.svg', 'image/svg+xml');
-  } else if (kind === 'png') {
-    const s = exportSVG(vm, layout, fmt);
+    exportPayload = sbs ? exportSVGPanels(currentPanels(), fmt) : exportSVG(vm, layout, fmt);
+    out.innerHTML = codeBlock('SVG picture', (sbs ? sbsDesc + ' ' : '') + 'White background, no interface chrome. Scales to any size.', exportPayload, sbs ? 'multiplicity-graph-components.svg' : 'multiplicity-graph.svg', 'image/svg+xml');
+  } else if (kind === 'png' || kind === 'sbs') {
+    const s = sbs ? exportSVGPanels(currentPanels(), fmt) : exportSVG(vm, layout, fmt);
     try {
       const url = await svgToPng(s);
       exportPayload = url;
-      const dl = canDownload('x.png');
-      out.innerHTML = `<h3>PNG picture</h3><p class="small muted">Twice screen resolution, white background.${dl ? '' : ' Right-click (or long-press) the picture to save or copy it.'}</p>
-        <img class="preview-img" id="pngPreview" alt="The graph as a PNG picture" src="${url}">
-        ${dl ? '<div class="row-actions"><button class="btn primary" data-action="download-png">Download multiplicity-graph.png</button></div>' : ''}`;
+      const dl = canDownload('x.png'), file = sbs ? 'multiplicity-graph-components.png' : 'multiplicity-graph.png';
+      out.innerHTML = `<h3>${sbs ? 'PNG picture: the component graphs side by side' : 'PNG picture'}</h3><p class="small muted">${sbs ? sbsDesc + ' ' : ''}Twice screen resolution, white background.${dl ? '' : ' Right-click (or long-press) the picture to save or copy it.'}</p>
+        <img class="preview-img" id="pngPreview" alt="${sbs ? 'The component graphs side by side as a PNG picture' : 'The graph as a PNG picture'}" src="${url}">
+        ${dl ? `<div class="row-actions"><button class="btn primary" data-action="download-png" data-file="${file}">Download ${file}</button></div>` : ''}`;
     } catch (err) { out.innerHTML = `<p class="err-text">✕ ${esc(err.message)}</p>`; }
   } else if (kind === 'tikz') {
-    exportPayload = exportTikZ(vm, layout);
-    out.innerHTML = codeBlock('TikZ', 'Same positions and curvature as the canvas (1 cm = 60 px). Paste into a LaTeX or beamer document.' + (vm.all ? ' All view: one line style per component and a key below the picture.' : ''), exportPayload, 'multiplicity-graph.tex', 'text/x-tex');
+    exportPayload = sbs ? exportTikZPanels(currentPanels()).text : exportTikZ(vm, layout);
+    out.innerHTML = codeBlock('TikZ', (sbs ? sbsDesc + ' One scope per panel. ' : '') + 'Same positions and curvature as the canvas (1 cm = 60 px). Paste into a LaTeX or beamer document.' + (!sbs && vm.all ? ' All view: one line style per component and a key below the picture.' : ''), exportPayload, sbs ? 'multiplicity-graph-components.tex' : 'multiplicity-graph.tex', 'text/x-tex');
   } else if (kind === 'graphicalmcp') {
     exportPayload = exportGraphicalMCP(G);
     out.innerHTML = codeBlock('R code for graphicalMCP', isEntangled(G) ? 'graphicalMCP has no entangled graph object. The code builds each component and gives the intersection weights of the whole procedure, with a Bonferroni closed test by hand when every hypothesis has a p-value.' : 'Initial graph, plus the test call when every hypothesis has a p-value. For the parametric test each block of known correlations becomes a test group; for Simes within groups, read the note in the code, since graphicalMCP\'s grouped Simes test is stronger than the Sketchpad\'s.', exportPayload, 'multiplicity-graph.R', 'text/plain');
@@ -2359,9 +2382,9 @@ async function showExport(kind) {
       out.innerHTML = codeBlock('Share code', 'The whole graph is stored in this code, so nothing is uploaded. Add it to the end of this page\'s link (no spaces) to share the graph, or paste it into "Open a saved graph".', exportPayload, null);
     }
   } else if (kind === 'beamer') {
-    const frames = stepFrames();
+    const frames = stepFrames(sbs);
     exportPayload = exportBeamer(frames, 'Graphical multiple testing procedure');
-    out.innerHTML = codeBlock('Beamer frame, one overlay per rejection', `${frames.length} overlay${frames.length === 1 ? '' : 's'}: the initial graph${frames.length > 1 ? ` and ${frames.length - 1} rejection${frames.length > 2 ? 's' : ''}` : ''}. ${mode === 'test' && T && T.closed ? 'A closed test has no rejection order, so the second overlay shows the final result.' : mode === 'test' && T && T.step ? 'Follows the steps you have taken in Test mode.' : 'Follows the automatic run of the Bonferroni graph on the entered p-values.'} Works with the Metropolis theme; add the \\usetikzlibrary line to the preamble.`, exportPayload, 'multiplicity-graph-steps.tex', 'text/x-tex');
+    out.innerHTML = codeBlock('Beamer frame, one overlay per rejection', `${sbs ? sbsDesc + ' Every overlay is the panel set at that step, with each component graph\'s own level under its hypotheses. ' : ''}${frames.length} overlay${frames.length === 1 ? '' : 's'}: the initial graph${frames.length > 1 ? ` and ${frames.length - 1} rejection${frames.length > 2 ? 's' : ''}` : ''}. ${mode === 'test' && T && T.closed ? 'A closed test has no rejection order, so the second overlay shows the final result.' : mode === 'test' && T && T.step ? 'Follows the steps you have taken in Test mode.' : 'Follows the automatic run of the Bonferroni graph on the entered p-values.'} Works with the Metropolis theme; add the \\usetikzlibrary line to the preamble.`, exportPayload, sbs ? 'multiplicity-graph-components-steps.tex' : 'multiplicity-graph-steps.tex', 'text/x-tex');
   } else if (kind === 'sap') {
     const sap = sapText(G);
     const textAll = sapPlainText(sap) + '\n\n' + sap.tables.map(tableToTSV).join('\n\n') + '\n\n' + sapRefsText(sap);
@@ -2757,6 +2780,7 @@ function renderAll() {
   renderStatus();
   updateToolbar();
   updatePresentBar();
+  updateExportPanel();
   if (activeTab === 'export' && exportView && exportView !== 'load') showExport(exportView);
 }
 function setSel(s) {
@@ -3395,7 +3419,7 @@ $('tab-export').addEventListener('click', e => {
   else if (act === 'copy-sap-tables') copyRich(sapText(G).tables.map(tableToTSV).join('\n\n'), sapText(G).tables.map(tableToHTML).join(''), b, 'sapTable0');
   else if (act === 'copy-sap-all') copyRich(exportPayload, sapHTML, b, 'sapText');
   else if (act === 'download') download(b.dataset.file, b.dataset.mime, exportPayload, b);
-  else if (act === 'download-png') download('multiplicity-graph.png', 'image/png', dataUrlToBlob(exportPayload), b);
+  else if (act === 'download-png') download(b.dataset.file || 'multiplicity-graph.png', 'image/png', dataUrlToBlob(exportPayload), b);
   else if (act === 'load-text') loadFromText($('loadText').value);
 });
 document.addEventListener('change', e => {
@@ -3406,6 +3430,11 @@ document.addEventListener('change', e => {
   if (activeTab === 'optimise') renderOptimisePanel();
 });
 $('tab-export').addEventListener('change', e => {
+  if (e.target.id === 'sbsToggle') {
+    sideBySide = e.target.checked;
+    if (exportView === 'svg' || exportView === 'tikz' || exportView === 'beamer') showExport(exportView);
+    return;
+  }
   if (e.target.id !== 'loadFile') return;
   const f = e.target.files && e.target.files[0];
   if (!f) return;

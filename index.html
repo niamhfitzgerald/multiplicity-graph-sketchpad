@@ -593,7 +593,7 @@ table.t td:first-child { white-space: nowrap; }
 <script>
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.3.5';
+const APP_VERSION = '1.3.6';
 const APP_DATE = '2026-10-28';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
@@ -1780,28 +1780,31 @@ function groupBoxes(vm, pad = 22) {
     return { group: g, x: x1, y: y1, w: x2 - x1, h: y2 - y1, color: colored ? colored.color : '' };
   });
 }
-function exportTikZ(vm, layout, opts = {}) {
-  const S = 60; // pixels per cm
-  const xs = vm.nodes.map(n => n.x), ys = vm.nodes.map(n => n.y);
-  const x0 = opts.x0 != null ? opts.x0 : Math.min(...xs), y0 = opts.y0 != null ? opts.y0 : Math.min(...ys);
-  const cx = x => ((x - x0) / S).toFixed(2), cy = y => (-(y - y0) / S).toFixed(2);
-  const id = n => 'n' + (vm.nodes.indexOf(n) + 1);
-  const L = [];
-  const boxes = opts.bands === false ? [] : groupBoxes(vm);
-  if (!opts.inner) L.push(`% Needs: \\usepackage{tikz} and \\usetikzlibrary{arrows.meta, shapes.geometric${boxes.length ? ', backgrounds' : ''}}`);
-  L.push('\\begin{tikzpicture}[');
+const TIKZ_S = 60; // pixels per cm
+/* The style lines of a picture; withComp adds one line style per component (All view and side-by-side panels) */
+function tikzStyles(withComp) {
+  const L = ['\\begin{tikzpicture}['];
   L.push('  hyp/.style={circle, draw, thick, minimum size=1.2cm, inner sep=1pt, outer sep=0pt, align=center, font=\\small},');
   L.push('  hypwide/.style={ellipse, draw, thick, inner sep=1pt, outer sep=0pt, align=center, font=\\small},');
   L.push('  rejected/.style={draw=gray, dashed, text=gray},');
   L.push('  trans/.style={-{Stealth[length=2.2mm]}, semithick},');
-  L.push('  wt/.style={fill=white, draw, rounded corners=1pt, inner sep=1.5pt, font=\\scriptsize}' + (vm.all ? ',' : ''));
-  if (vm.all) {
-    /* entangled graph, All view: one line style per component (Maurer and Bretz, 2013, Fig. 3, p. 1747) */
+  L.push('  wt/.style={fill=white, draw, rounded corners=1pt, inner sep=1.5pt, font=\\scriptsize}' + (withComp ? ',' : ''));
+  if (withComp) {
+    /* entangled graph: one line style per component (Maurer and Bretz, 2013, Fig. 2, p. 1746, and Fig. 3, p. 1747) */
     L.push('  comp1/.style={dashed},');
     L.push('  comp2/.style={dotted, line cap=round},');
     L.push('  comp3/.style={dash pattern=on 5pt off 2pt on 1pt off 2pt}');
   }
   L.push(']');
+  return L;
+}
+/* The bands, nodes, edges, key and level captions of one picture. cx, cy map pixels to cm. opts.cScale (a Q):
+   the level under a node is c x w x alpha, the component's own level in a side-by-side panel (Algorithm 1, p. 1743). */
+function tikzBody(vm, layout, opts, cx, cy) {
+  const S = TIKZ_S;
+  const id = n => 'n' + (vm.nodes.indexOf(n) + 1);
+  const L = [];
+  const boxes = opts.bands === false ? [] : groupBoxes(vm);
   const cols = [...new Set(vm.nodes.filter(n => n.color && !n.rejected).map(n => n.color.toUpperCase()))];
   cols.forEach((c, i) => L.push(`\\definecolor{hypfill${String.fromCharCode(65 + i)}}{HTML}{${c.slice(1)}}`));
   if (boxes.length) {
@@ -1820,10 +1823,11 @@ function exportTikZ(vm, layout, opts = {}) {
     else if (n.color) { const k = cols.indexOf(n.color.toUpperCase()); style += `, fill=hypfill${String.fromCharCode(65 + k)}${textOnColor(n.color) === '#ffffff' ? ', text=white' : ''}`; }
     L.push(`\\node[${style}] (${id(n)}) at (${cx(n.x)}, ${cy(n.y)}) {${texLabel(n.label)}\\\\ ${n.wvec ? texVec(n.wvec) : n.wexpr && !n.rejected ? exprTeX(n.wexpr) : texNum(n.w)}};${n.rejected ? ' % rejected' : ''}`);
   }
+  const compOf = e => (vm.all && e.comp != null ? e.comp : vm.comp != null ? vm.comp : 0);
   for (const e of layout) {
     const A = id(e.a), B = id(e.b);
     const lab = `node[wt, pos=${e.label.t.toFixed(2)}] {${e.expr ? exprTeX(e.expr) : texNum(e.g)}}`;
-    const st = 'trans' + (vm.all && e.comp % 4 ? `, comp${e.comp % 4}` : '');
+    const st = 'trans' + (compOf(e) % 4 ? `, comp${compOf(e) % 4}` : '');
     if (e.straight) L.push(`\\draw[${st}] (${A}) -- ${lab} (${B});`);
     else {
       const c1 = { x: e.s.x + 2 / 3 * (e.c.x - e.s.x), y: e.s.y + 2 / 3 * (e.c.y - e.s.y) };
@@ -1841,27 +1845,82 @@ function exportTikZ(vm, layout, opts = {}) {
   }
   if (opts.levels && opts.alpha != null) {
     for (const n of vm.nodes) {
+      const lv = opts.cScale ? Q.toNum(Q.mul(n.w, opts.cScale)) * opts.alpha : Q.toNum(n.w) * opts.alpha;
       if (n.rejected) L.push(`\\node[below=1pt of ${id(n)}, font=\\scriptsize, text=gray, fill=white, inner sep=1pt] {rejected};`);
-      else L.push(`\\node[below=1pt of ${id(n)}, font=\\scriptsize, align=center, fill=white, inner sep=1pt] {level $${fmtNum(Q.toNum(n.w) * opts.alpha)}$${n.p != null && Number.isFinite(parseP(n.p)) ? `\\\\ $p = ${fmtNum(parseP(n.p))}$` : ''}};`);
+      else L.push(`\\node[below=1pt of ${id(n)}, font=\\scriptsize, align=center, fill=white, inner sep=1pt] {level $${fmtNum(lv)}$${n.p != null && Number.isFinite(parseP(n.p)) ? `\\\\ $p = ${fmtNum(parseP(n.p))}$` : ''}};`);
     }
   }
+  return L;
+}
+function exportTikZ(vm, layout, opts = {}) {
+  const S = TIKZ_S;
+  const xs = vm.nodes.map(n => n.x), ys = vm.nodes.map(n => n.y);
+  const x0 = opts.x0 != null ? opts.x0 : Math.min(...xs), y0 = opts.y0 != null ? opts.y0 : Math.min(...ys);
+  const cx = x => ((x - x0) / S).toFixed(2), cy = y => (-(y - y0) / S).toFixed(2);
+  const L = [];
+  const boxes = opts.bands === false ? [] : groupBoxes(vm);
+  if (!opts.inner) L.push(`% Needs: \\usepackage{tikz} and \\usetikzlibrary{arrows.meta, shapes.geometric${boxes.length ? ', backgrounds' : ''}}`);
+  L.push(...tikzStyles(!!vm.all));
+  L.push(...tikzBody(vm, layout, opts, cx, cy));
   L.push('\\end{tikzpicture}');
   return L.join('\n') + '\n';
 }
-/* Beamer frame with one overlay per step. frames: [{vm, layout, caption}] */
+/* The component graphs side by side (Fig. 2, p. 1746): one tikzpicture, one scope per panel with a name prefix so
+   node names stay unique, and the component's name and c under each panel. opts.box: a common box across several
+   pictures (the beamer overlays), so the panels keep their places from frame to frame. */
+function exportTikZPanels(panels, opts = {}) {
+  const S = TIKZ_S, gap = 0.8, labelCm = 0.55;
+  const P = panelPlaces(panels, 0, 0);
+  const box = opts.box || P.box;
+  const bw = (box.maxX - box.minX) / S, bh = (box.maxY - box.minY) / S + (opts.levels ? 0.6 : 0);
+  const cols = P.cols;
+  const L = [];
+  const bands = panels.some(p => groupBoxes(p.vm).length);
+  if (!opts.inner) L.push(`% Needs: \\usepackage{tikz} and \\usetikzlibrary{arrows.meta, shapes.geometric, positioning${bands ? ', backgrounds' : ''}}`);
+  if (!opts.inner) L.push(`% The component graphs of an entangled graph drawn side by side (Maurer and Bretz, 2013, Fig. 2).`);
+  L.push(...tikzStyles(true));
+  panels.forEach((p, k) => {
+    const dx = (k % cols) * (bw + gap), dy = -Math.floor(k / cols) * (bh + labelCm + gap);
+    const cx = x => ((x - box.minX) / S).toFixed(2), cy = y => (-(y - box.minY) / S).toFixed(2);
+    L.push(`\\begin{scope}[xshift=${dx.toFixed(2)}cm, yshift=${dy.toFixed(2)}cm, name prefix=g${k + 1}-]`);
+    L.push(...tikzBody(p.vm, p.layout, Object.assign({}, opts, { cScale: p.c }), cx, cy));
+    L.push(`\\node[font=\\small\\bfseries, anchor=north] at (${(bw / 2).toFixed(2)}, ${(-bh - 0.2).toFixed(2)}) {Graph ${k + 1}${p.c ? ` ($c = ${texNum(p.c).slice(1, -1)}$)` : ''}};`);
+    L.push('\\end{scope}');
+  });
+  L.push('\\end{tikzpicture}');
+  const rows = Math.ceil(panels.length / cols);
+  return { text: L.join('\n') + '\n', widthCm: cols * bw + (cols - 1) * gap, heightCm: rows * (bh + labelCm + 0.45) + (rows - 1) * gap, box };
+}
+/* Beamer frame with one overlay per step. frames: [{vm, layout, caption, alpha}], or [{panels, caption, alpha}]
+   for an entangled graph drawn side by side (every overlay is the panel set at that step, the panels keeping
+   their places; a picture too wide or too tall for the frame is scaled down with \resizebox). */
 function exportBeamer(frames, title) {
-  const allX = frames.flatMap(f => f.vm.nodes.map(n => n.x)), allY = frames.flatMap(f => f.vm.nodes.map(n => n.y));
-  const x0 = Math.min(...allX), y0 = Math.min(...allY);
   const L = [];
   L.push('% Needs in the preamble: \\usepackage{tikz} \\usetikzlibrary{arrows.meta, shapes.geometric, positioning, backgrounds}');
   L.push('% One overlay per step: use the arrow keys in the PDF viewer to step through the rejections.');
   L.push(`\\begin{frame}{${texEscape(title)}}`);
   L.push('\\centering');
-  frames.forEach((f, k) => {
-    L.push(`\\only<${k + 1}>{%`);
-    L.push(exportTikZ(f.vm, f.layout, { inner: true, x0, y0, levels: true, alpha: f.alpha }).trimEnd());
-    L.push('}');
-  });
+  if (frames.some(f => f.panels)) {
+    const box = panelPlaces(frames.flatMap(f => f.panels), 0, 0).box;
+    frames.forEach((f, k) => {
+      const r = exportTikZPanels(f.panels, { inner: true, levels: true, alpha: f.alpha, box });
+      /* fit the picture into the frame: about 11 cm wide and 6.2 cm tall under a Metropolis frame title with the caption below */
+      const scale = Math.min(1, 11 / r.widthCm, 6.2 / r.heightCm);
+      L.push(`\\only<${k + 1}>{%`);
+      if (scale < 1) L.push(`\\resizebox{${(r.widthCm * scale).toFixed(2)}cm}{!}{%`);
+      L.push(r.text.trimEnd());
+      if (scale < 1) L.push('}');
+      L.push('}');
+    });
+  } else {
+    const allX = frames.flatMap(f => f.vm.nodes.map(n => n.x)), allY = frames.flatMap(f => f.vm.nodes.map(n => n.y));
+    const x0 = Math.min(...allX), y0 = Math.min(...allY);
+    frames.forEach((f, k) => {
+      L.push(`\\only<${k + 1}>{%`);
+      L.push(exportTikZ(f.vm, f.layout, { inner: true, x0, y0, levels: true, alpha: f.alpha }).trimEnd());
+      L.push('}');
+    });
+  }
   L.push('\\par\\vspace{0.5em}');
   frames.forEach((f, k) => L.push(`\\only<${k + 1}>{\\small ${texEscape(f.caption)}}`));
   L.push('\\end{frame}');
@@ -1873,7 +1932,8 @@ function svgLabelText(label, x, y, size, attrs) {
   if (lp) return `<text x="${x}" y="${y}" font-size="${size}" ${attrs}>${xmlEsc(lp.base)}<tspan font-size="${(size * 0.7).toFixed(1)}" dy="${(size * 0.28).toFixed(1)}">${xmlEsc(lp.sub)}</tspan></text>`;
   return `<text x="${x}" y="${y}" font-size="${size - 2}" ${attrs}>${xmlEsc(label)}</text>`;
 }
-function exportSVG(vm, layout, fmt) {
+/* Unpadded bounds of a picture: nodes, group bands, every curve and its label, and the All view's key */
+function svgBounds(vm, layout) {
   const pts = [];
   for (const n of vm.nodes) pts.push([n.x - n.rx, n.y - n.ry], [n.x + n.rx, n.y + n.ry]);
   for (const b of groupBoxes(vm)) pts.push([b.x, b.y], [b.x + b.w, b.y + b.h]);
@@ -1884,25 +1944,26 @@ function exportSVG(vm, layout, fmt) {
   const key = vm.all ? { x: Math.min(...vm.nodes.map(n => n.x - n.rx)), y: Math.max(...vm.nodes.map(n => n.y + n.ry + (n.capH || 0))) + 30 } : null;
   if (key) { pts.push([key.x, key.y - 8], [key.x + 160, key.y + 18 * vm.n]); }
   if (!pts.length) pts.push([0, 0], [100, 100]);
-  const pad = 24;
-  const minX = Math.min(...pts.map(p => p[0])) - pad, minY = Math.min(...pts.map(p => p[1])) - pad;
-  const W = Math.max(...pts.map(p => p[0])) + pad - minX, H = Math.max(...pts.map(p => p[1])) + pad - minY;
-  const ink = '#1b1f23', grey = '#9aa0a6', font = 'Helvetica, Arial, sans-serif';
+  return { key, minX: Math.min(...pts.map(p => p[0])), minY: Math.min(...pts.map(p => p[1])), maxX: Math.max(...pts.map(p => p[0])), maxY: Math.max(...pts.map(p => p[1])) };
+}
+const SVG_INK = '#1b1f23', SVG_GREY = '#9aa0a6', SVG_FONT = 'Helvetica, Arial, sans-serif';
+const SVG_DASH = ['', ' stroke-dasharray="9 5"', ' stroke-dasharray="2.5 4" stroke-linecap="round"', ' stroke-dasharray="10 4 2.5 4"'];
+const SVG_LDASH = ['', ' stroke-dasharray="4 3"', ' stroke-dasharray="1.5 3"', ' stroke-dasharray="5 3 1.5 3"'];
+/* The elements of a picture (no <svg> wrapper, no background). vm.all: the All view, one line style per
+   component (e.comp); vm.comp: one component drawn on its own in that component's line style (a side-by-side panel). */
+function svgBody(vm, layout, fmt, key) {
+  const ink = SVG_INK, grey = SVG_GREY;
   const o = [];
-  o.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(W)}" height="${Math.ceil(H)}" viewBox="${minX.toFixed(1)} ${minY.toFixed(1)} ${W.toFixed(1)} ${H.toFixed(1)}" font-family="${font}">`);
-  o.push(`<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="${ink}"/></marker></defs>`);
-  o.push(`<rect x="${minX.toFixed(1)}" y="${minY.toFixed(1)}" width="${W.toFixed(1)}" height="${H.toFixed(1)}" fill="#ffffff"/>`);
   for (const b of groupBoxes(vm)) {
     o.push(`<rect x="${b.x.toFixed(1)}" y="${b.y.toFixed(1)}" width="${b.w.toFixed(1)}" height="${b.h.toFixed(1)}" rx="10" fill="${b.color || '#e9ebee'}" fill-opacity="${b.color ? 0.35 : 0.6}" stroke="${b.color || '#c4c9d0'}" stroke-opacity="0.7"/>`);
     o.push(`<text x="${(b.x + 10).toFixed(1)}" y="${(b.y + 16).toFixed(1)}" font-size="12" letter-spacing="1" fill="#5a6470">${xmlEsc(String(b.group).toUpperCase())}</text>`);
   }
-  const DASH = ['', ' stroke-dasharray="9 5"', ' stroke-dasharray="2.5 4" stroke-linecap="round"', ' stroke-dasharray="10 4 2.5 4"'];
-  const LDASH = ['', ' stroke-dasharray="4 3"', ' stroke-dasharray="1.5 3"', ' stroke-dasharray="5 3 1.5 3"'];
-  const dashOf = e => (vm.all && e.comp != null ? DASH[e.comp % 4] : '');
+  const compOf = e => (vm.all && e.comp != null ? e.comp : vm.comp != null ? vm.comp : null);
+  const dashOf = e => (compOf(e) != null ? SVG_DASH[compOf(e) % 4] : '');
   for (const e of layout) o.push(`<path d="${e.d}" fill="none" stroke="${ink}" stroke-width="1.6"${dashOf(e)} marker-end="url(#ah)"/>`);
   for (const e of layout) {
     const l = e.label;
-    o.push(`<rect x="${l.r.x.toFixed(1)}" y="${l.r.y.toFixed(1)}" width="${l.w.toFixed(1)}" height="${l.h}" rx="3" fill="#ffffff" stroke="${ink}" stroke-width="0.8"${vm.all && e.comp != null ? LDASH[e.comp % 4] : ''}/>`);
+    o.push(`<rect x="${l.r.x.toFixed(1)}" y="${l.r.y.toFixed(1)}" width="${l.w.toFixed(1)}" height="${l.h}" rx="3" fill="#ffffff" stroke="${ink}" stroke-width="0.8"${compOf(e) != null ? SVG_LDASH[compOf(e) % 4] : ''}/>`);
     o.push(`<text x="${l.x.toFixed(1)}" y="${(l.y + 4.3).toFixed(1)}" font-size="12.5" text-anchor="middle" fill="${ink}">${xmlEsc(e.text)}</text>`);
   }
   for (const n of vm.nodes) {
@@ -1916,10 +1977,80 @@ function exportSVG(vm, layout, fmt) {
   if (key) {
     for (let k = 0; k < vm.n; k++) {
       const y = key.y + 18 * k;
-      o.push(`<line x1="${key.x.toFixed(1)}" y1="${y}" x2="${(key.x + 34).toFixed(1)}" y2="${y}" stroke="${ink}" stroke-width="1.6"${DASH[k % 4]}/>`);
+      o.push(`<line x1="${key.x.toFixed(1)}" y1="${y}" x2="${(key.x + 34).toFixed(1)}" y2="${y}" stroke="${ink}" stroke-width="1.6"${SVG_DASH[k % 4]}/>`);
       o.push(`<text x="${(key.x + 42).toFixed(1)}" y="${y + 4}" font-size="12" fill="${ink}">Graph ${k + 1}${vm.c ? ` (c = ${fmt(vm.c[k])})` : ''}</text>`);
     }
   }
+  return o;
+}
+const svgArrowDef = () => `<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="${SVG_INK}"/></marker></defs>`;
+function exportSVG(vm, layout, fmt) {
+  const b = svgBounds(vm, layout);
+  const pad = 24;
+  const minX = b.minX - pad, minY = b.minY - pad;
+  const W = b.maxX + pad - minX, H = b.maxY + pad - minY;
+  const o = [];
+  o.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(W)}" height="${Math.ceil(H)}" viewBox="${minX.toFixed(1)} ${minY.toFixed(1)} ${W.toFixed(1)} ${H.toFixed(1)}" font-family="${SVG_FONT}">`);
+  o.push(svgArrowDef());
+  o.push(`<rect x="${minX.toFixed(1)}" y="${minY.toFixed(1)}" width="${W.toFixed(1)}" height="${H.toFixed(1)}" fill="#ffffff"/>`);
+  o.push(...svgBody(vm, layout, fmt, b.key));
+  o.push('</svg>');
+  return o.join('\n');
+}
+
+/* ---------- Side by side: the component graphs of an entangled graph as separate panels ----------
+   Maurer and Bretz (2013), Fig. 2, p. 1746, draws the two component graphs next to each other with the
+   hypotheses in the same places; Fig. 3, p. 1747, overlays them (the app's All view). Here every component is
+   drawn as an ordinary graph in that component's line style, with its name and share c under the panel. */
+/* Panels in a row: two or three side by side; four as a 2 x 2 grid; more in rows of three */
+function panelColumns(n) { return n <= 3 ? n : n === 4 ? 2 : 3; }
+/* One view model per component, nodes in the shared positions. G: the entangled graph. st: an entangled state
+   (stateFromGraph, or the test's current state) for the current weights and transitions; null for the stored
+   design graph with its symbolic labels. rejected: Map id -> { wvec } (or any Map or Set of ids) for the
+   hypotheses already rejected; a rejected hypothesis shows the component weight it had when rejected (wvec[k])
+   when given. Returns [{ vm, layout, title, c }]. */
+function componentPanels(G, st, rejected, fmt, capH) {
+  entSync(G);
+  const rej = rejected || new Map();
+  const info = id => (rej.has(id) && typeof rej.get === 'function' ? rej.get(id) : null);
+  return G.ent.comps.map((_, k) => {
+    const v = entViewGraph(G, k), cs = st ? st.ent.comps[k] : null;
+    const nodes = v.nodes.map(n => {
+      const r = info(n.id), isRej = rej.has(n.id);
+      const w = isRej && r && r.wvec ? (r.wvec[k] || Q.ZERO) : cs ? (cs.w.get(n.id) || Q.ZERO) : n.w;
+      return { id: n.id, label: n.label, x: n.x, y: n.y, rx: nodeRx(n.label), ry: NODE_R, p: n.p, color: n.color || '', group: n.group || '', wexpr: st ? '' : (n.wexpr || ''), w, rejected: isRej, capH: capH || 0 };
+    });
+    const edges = cs
+      ? [...cs.g.entries()].filter(([, g]) => !Q.isZero(g)).map(([key, g]) => { const [a, b] = key.split('>'); const o = v.edges.find(e => e.from === a && e.to === b); return { from: a, to: b, g, bend: o ? o.bend : null, text: fmt(g) }; })
+      : v.edges.map(e => ({ from: e.from, to: e.to, g: e.g, bend: e.bend, expr: e.expr, text: e.expr ? exprDisplay(e.expr) : fmt(e.g) }));
+    const vm = { nodes, edges, comp: k };
+    return { vm, layout: layoutEdges(vm), title: `Graph ${k + 1} (c = ${fmt(G.ent.c[k])})`, c: G.ent.c[k] };
+  });
+}
+/* The common box of a set of panels (so every panel is the same size) and where each panel goes */
+function panelPlaces(panels, gap, labelH) {
+  const bs = panels.map(p => svgBounds(p.vm, p.layout));
+  const box = { minX: Math.min(...bs.map(b => b.minX)), minY: Math.min(...bs.map(b => b.minY)), maxX: Math.max(...bs.map(b => b.maxX)), maxY: Math.max(...bs.map(b => b.maxY)) };
+  const pad = 24, pw = box.maxX - box.minX + 2 * pad, ph = box.maxY - box.minY + 2 * pad;
+  const cols = panelColumns(panels.length), rows = Math.ceil(panels.length / cols);
+  const at = panels.map((_, k) => ({ dx: (k % cols) * (pw + gap), dy: Math.floor(k / cols) * (ph + labelH + gap) }));
+  return { box, pad, pw, ph, cols, rows, at, W: cols * pw + (cols - 1) * gap, H: rows * (ph + labelH) + (rows - 1) * gap };
+}
+/* One SVG with every panel: the picture of each component translated into place and its title underneath */
+function exportSVGPanels(panels, fmt) {
+  const gap = 48, labelH = 28;
+  const P = panelPlaces(panels, gap, labelH);
+  const o = [];
+  o.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(P.W)}" height="${Math.ceil(P.H)}" viewBox="0 0 ${P.W.toFixed(1)} ${P.H.toFixed(1)}" font-family="${SVG_FONT}">`);
+  o.push(svgArrowDef());
+  o.push(`<rect x="0" y="0" width="${P.W.toFixed(1)}" height="${P.H.toFixed(1)}" fill="#ffffff"/>`);
+  panels.forEach((p, k) => {
+    const { dx, dy } = P.at[k];
+    o.push(`<g transform="translate(${(dx + P.pad - P.box.minX).toFixed(1)}, ${(dy + P.pad - P.box.minY).toFixed(1)})">`);
+    o.push(...svgBody(p.vm, p.layout, fmt, null));
+    o.push('</g>');
+    o.push(`<text x="${(dx + P.pw / 2).toFixed(1)}" y="${(dy + P.ph + 18).toFixed(1)}" font-size="14" font-weight="700" text-anchor="middle" fill="${SVG_INK}">${xmlEsc(p.title)}</text>`);
+  });
   o.push('</svg>');
   return o.join('\n');
 }
@@ -4756,6 +4887,63 @@ function runEntangledSelfTests() {
     if (!/appears twice/.test(bad || '')) return 'duplicate not refused';
     return true;
   });
+  /* Side by side (Maurer and Bretz, 2013, Fig. 2, p. 1746): one panel per component with the hypotheses in the same places */
+  const fq = q => Q.fmt(q);
+  const panelNodes = svg => [...svg.matchAll(/<g transform="translate\(([-\d.]+), ([-\d.]+)\)">([\s\S]*?)<\/g>/g)].map(m => ({ dx: +m[1], dy: +m[2], ellipses: [...m[3].matchAll(/<ellipse cx="([-\d.]+)" cy="([-\d.]+)"/g)].map(e => [+e[1], +e[2]]), edges: (m[3].match(/marker-end/g) || []).length, dashed: (m[3].match(/<path [^>]*stroke-dasharray="9 5"/g) || []).length, weights: [...m[3].matchAll(/<text x="[-\d.]+" y="[-\d.]+" font-size="1[13]" text-anchor="middle" fill="#[0-9a-f]+">([^<]*)<\/text>/g)].map(e => e[1]), grey: (m[3].match(/stroke="#9aa0a6" stroke-width="1.8"/g) || []).length }));
+  check('Side by side, Fig. 2 (p. 1746): the SVG has two panels, every hypothesis of panel 2 at panel 1\'s place plus one offset, five transitions each (panel 2 dashed), the weights (1, 0, 0, 0, 0) and (0, 1, 0, 0, 0), labels "Graph 1 (c = 1/2)" and "Graph 2 (c = 1/2)"; the TikZ has two scopes with a name prefix and unique node names', () => {
+    const G = F(), panels = componentPanels(G, null, null, fq);
+    if (panels.length !== 2 || panels[0].title !== 'Graph 1 (c = 1/2)' || panels[1].title !== 'Graph 2 (c = 1/2)') return 'titles ' + panels.map(p => p.title).join(' | ');
+    const svg = exportSVGPanels(panels, fq), P = panelNodes(svg);
+    if (P.length !== 2) return 'panels in the SVG: ' + P.length;
+    if (P[0].ellipses.length !== 5 || P[1].ellipses.length !== 5) return 'hypotheses per panel';
+    /* same places inside each panel (the panel is translated as a whole) */
+    for (let i = 0; i < 5; i++) if (P[0].ellipses[i][0] !== P[1].ellipses[i][0] || P[0].ellipses[i][1] !== P[1].ellipses[i][1]) return `H${i + 1} moved between the panels`;
+    if (!(P[1].dx > P[0].dx && P[1].dy === P[0].dy)) return 'panel 2 is not to the right of panel 1';
+    if (P[0].edges !== 5 || P[1].edges !== 5) return `transitions ${P[0].edges}, ${P[1].edges}`;
+    if (P[0].dashed !== 0 || P[1].dashed !== 5) return `dashed ${P[0].dashed}, ${P[1].dashed}`;
+    if (P[0].weights.join() !== '1,0,0,0,0' || P[1].weights.join() !== '0,1,0,0,0') return 'weights ' + P.map(p => p.weights.join()).join(' | ');
+    if (!/>Graph 1 \(c = 1\/2\)<\/text>/.test(svg) || !/>Graph 2 \(c = 1\/2\)<\/text>/.test(svg)) return 'labels missing';
+    const tex = exportTikZPanels(panels).text;
+    if ((tex.match(/\\begin\{scope\}\[xshift=[-\d.]+cm, yshift=[-\d.]+cm, name prefix=g[12]-\]/g) || []).length !== 2) return 'scopes';
+    if ((tex.match(/\\node\[hyp[^\]]*\] \(n\d\)/g) || []).length !== 10 || !/\\draw\[trans, comp1\]/.test(tex) || (tex.match(/\\draw\[trans\]/g) || []).length !== 5) return 'tikz nodes or styles';
+    if (!/\{Graph 1 \(\$c = \\frac\{1\}\{2\}\$\)\}/.test(tex) || !/\{Graph 2 \(\$c = \\frac\{1\}\{2\}\$\)\}/.test(tex)) return 'tikz labels';
+    return true;
+  });
+  check('Side by side, layout: three components in one row, "3 of 4" (four components) as a 2 x 2 grid, six in two rows of three; Fig. 5 keeps the symbolic labels 1−γ1, γ1, 1−γ2 and γ2 in its two panels', () => {
+    const grid = svg => { const P = panelNodes(svg); return { n: P.length, cols: new Set(P.map(p => p.dx)).size, rows: new Set(P.map(p => p.dy)).size }; };
+    const G3 = load(entangledKOfM(3, 2, 0.05)), g3 = grid(exportSVGPanels(componentPanels(G3, null, null, fq), fq));
+    if (g3.n !== 3 || g3.cols !== 3 || g3.rows !== 1) return '2 of 3: ' + JSON.stringify(g3);
+    const G4 = load(entangledKOfM(4, 3, 0.05)), g4 = grid(exportSVGPanels(componentPanels(G4, null, null, fq), fq));
+    if (g4.n !== 4 || g4.cols !== 2 || g4.rows !== 2) return '3 of 4: ' + JSON.stringify(g4);
+    const G6 = load(entangledKOfM(4, 2, 0.05)), g6 = grid(exportSVGPanels(componentPanels(G6, null, null, fq), fq));
+    if (g6.n !== 6 || g6.cols !== 3 || g6.rows !== 2) return '2 of 4: ' + JSON.stringify(g6);
+    if (panelColumns(2) !== 2 || panelColumns(5) !== 3 || panelColumns(7) !== 3) return 'panelColumns';
+    const G5 = load(entangledTemplateJSON('maurerFig5')), s5 = exportSVGPanels(componentPanels(G5, null, null, fq), fq);
+    for (const t of ['1−γ1', 'γ1', '1−γ2', 'γ2', '1−ε', 'ε']) if (!s5.includes(`>${t}</text>`)) return 'Fig. 5 label missing: ' + t;
+    const t5 = exportTikZPanels(componentPanels(G5, null, null, fq)).text;
+    if (!/\$1-\\gamma1\$/.test(t5) || !/\$\\gamma2\$/.test(t5)) return 'Fig. 5 TikZ symbols';
+    return true;
+  });
+  check('Side by side in Test mode, Fig. 3(c) (p. 1747) drawn apart: after rejecting H1 and H3 on the section 3.1 p-values, panel 1 shows H4 at 0.999 and H5 at 0.001, panel 2 still (0, 1, 0, 0, 0) since H1 and H3 carried no weight there (Fig. 3(c): α_24 = α_25 = 0), H1 and H3 greyed in both panels with the component weights they had when rejected (H3: 1 in graph 1, 0 in graph 2); the beamer frames carry each panel\'s own level (c × w × α) under the hypotheses', () => {
+    const G = F(), id = l => byLabel(G, l);
+    let st = stateFromGraph(G); const rej = new Map();
+    for (const l of ['H1', 'H3']) { rej.set(id(l), { wvec: st.ent.comps.map(cs => cs.w.get(id(l)) || Q.ZERO) }); st = rejectNode(st, id(l)); }
+    const panels = componentPanels(G, st, rej, fq), svg = exportSVGPanels(panels, fq), P = panelNodes(svg);
+    if (P.length !== 2) return 'panels ' + P.length;
+    if (P[0].weights.join() !== '1,0,1,0.999,0.001') return 'panel 1 weights ' + P[0].weights.join();
+    if (P[1].weights.join() !== '0,1,0,0,0') return 'panel 2 weights ' + P[1].weights.join();
+    if (P[0].grey !== 2 || P[1].grey !== 2) return `greyed ${P[0].grey}, ${P[1].grey}`;
+    if (P[0].edges !== 3 || P[1].edges !== 3) return `transitions ${P[0].edges}, ${P[1].edges}`; /* H4 → H2, H2 → H4, H2 → H5; H2 → H5, H2 → H4, H5 → H4 (the loop through H1 and H3 closes to 1) */
+    const tex = exportBeamer([{ panels: componentPanels(G, stateFromGraph(G), null, fq), caption: 'start', alpha: 0.025 }, { panels, caption: 'two steps', alpha: 0.025 }], 'T');
+    if ((tex.match(/\\only<\d>\{%/g) || []).length !== 2 || (tex.match(/name prefix=g[12]-/g) || []).length !== 4) return 'beamer overlays';
+    /* second overlay, panel 1: H4 at level 1/2 × 999/1000 × 0.025 = 0.0124875 and H5 at 1/2 × 1/1000 × 0.025 = 0.0000125; panel 2: H4 and H5 at level 0 */
+    const second = tex.split('\\only<2>{%')[1];
+    if (!/level \$0\.01249\$/.test(second)) return 'panel 1 level of H4: ' + (second.match(/level \$[^$]*\$/g) || []).join(' ');
+    if (!/level \$0\.0000125\$/.test(second)) return 'panel 1 level of H5: ' + (second.match(/level \$[^$]*\$/g) || []).join(' ');
+    if ((second.match(/level \$0\$/g) || []).length !== 3) return 'panel 2 levels of H2, H4 and H5 should be 0, 0.0125 and 0: ' + (second.match(/level \$[^$]*\$/g) || []).join(' ');
+    if (!/\\resizebox\{\d+\.\d\dcm\}\{!\}/.test(tex)) return 'no resizebox for a picture too big for the frame';
+    return true;
+  });
   return res;
 }
 
@@ -5294,6 +5482,7 @@ let witForce = false; // user asked to enumerate a large graph anyway
 let plain = false;    // the clinician view: everyday words (plainWords), and the statistician's tabs, templates and sections hidden (body.clinician)
 let presenting = false;
 let allView = false;  // entangled graphs: show every component overlaid (read-only) instead of the active one
+let sideBySide = false; // entangled graphs: the SVG, TikZ and beamer exports draw the component graphs side by side (Fig. 2 style)
 const hist = { past: [], future: [] };
 const SIM = { power: {}, rho: '0.5', useMatrix: false, corr: {}, n: 10000, success: { ids: [], rule: 'any' }, running: null, result: null, runs: [], error: '' };
 /* Optimise tab (multigrain stage): the gain function and its expected gain for the current graph. Session state only;
@@ -7395,13 +7584,16 @@ $('presentBar').addEventListener('click', e => {
 });
 
 /* ---------- step-by-step beamer export ---------- */
-function stepFrames() {
-  /* Use the steps taken in Test mode if there are any; otherwise run the procedure on the p-values. */
+function stepFrames(panels) {
+  /* Use the steps taken in Test mode if there are any; otherwise run the procedure on the p-values.
+     panels: an entangled graph drawn as side-by-side panels at every step instead of the All view */
   const states = [];
   let st = stateFromGraph(G), rejected = new Map(), caps = [];
   /* entangled graph: every frame is the All view (vector of component weights, one line style per component) */
   const rejVec = new Map();
   const bendsOf = st.ent ? st.ent.comps.map((_, k) => new Map(entViewGraph(G, k).edges.map(e => [gKey(e.from, e.to), e.bend]))) : null;
+  /* rejected hypotheses with the component weights they had when rejected, for the panels */
+  const rejWithVec = rej => new Map([...rej].map(([id, k]) => [id, { step: k, wvec: rejVec.get(id) }]));
   const entVM = (s, rej) => {
     const nodes = G.nodes.map(n => {
       const v = { id: n.id, label: n.label, x: n.x, y: n.y, rx: nodeRx(n.label), ry: NODE_R, p: n.p, group: n.group || '', color: n.color || '', w: s.w.get(n.id) || Q.ZERO, rejected: rej.has(n.id) };
@@ -7426,7 +7618,7 @@ function stepFrames() {
         nodes: G.nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y, rx: nodeRx(n.label), ry: NODE_R, p: n.p, group: n.group || '', color: n.color || '', w: n.w, rejected: rj.has(n.id) })),
         edges: [...s.g.entries()].filter(([, g]) => !Q.isZero(g)).map(([k, g]) => { const [a, b] = k.split('>'); const o = edgeOf(a, b); return { from: a, to: b, g, bend: o ? o.bend : null, text: fmt(g) }; })
       };
-      return { vm, layout: layoutEdges(vm), caption, alpha: G.alpha };
+      return Object.assign({ vm, layout: layoutEdges(vm), caption, alpha: G.alpha }, panels && s.ent ? { panels: componentPanels(G, s, rejWithVec(rj), fmt) } : {});
     });
   }
   const steps = (mode === 'test' && T && T.log.some(l => l.data)) ? T.log.filter(l => l.data) : null;
@@ -7461,16 +7653,17 @@ function stepFrames() {
       edges: [...s.g.entries()].filter(([, g]) => !Q.isZero(g)).map(([k, g]) => { const [a, b] = k.split('>'); const o = edgeOf(a, b); return { from: a, to: b, g, bend: o ? o.bend : null, text: fmt(g) }; })
     };
     if (!s.ent) for (const n of vm.nodes) if (n.rejected) { const r = G.nodes.find(x => x.id === n.id); n.w = r ? r.w : Q.ZERO; }
-    return { vm, layout: layoutEdges(vm), caption, alpha: G.alpha };
+    return Object.assign({ vm, layout: layoutEdges(vm), caption, alpha: G.alpha }, panels && s.ent ? { panels: componentPanels(G, s, rejWithVec(rej), fmt) } : {});
   });
 }
 
 /* ---------- export panel ---------- */
 function initExportPanel() {
   $('tab-export').innerHTML = `<h2>Export and share</h2>
-  <p class="small muted">Pictures and TikZ show the graph as it is on the canvas, including any test progress. R code describes the initial graph.</p>
+  <p class="small muted">Pictures and TikZ show the graph as it is on the canvas, including any test progress. R code describes the initial graph.<span id="sbsNote" hidden> For an entangled graph, "Graphs side by side" draws each component graph on its own, as Maurer and Bretz (2013) do in their Fig. 2.</span></p>
   <div class="export-grid">
     <button class="btn" data-export="png">Picture (PNG)</button>
+    <button class="btn" data-export="sbs" hidden>Graphs side by side (PNG)</button>
     <button class="btn" data-export="link">Share link</button>
     <button class="btn" data-export="json">Save as a file</button>
     <button class="btn" data-export="load">Open a saved graph</button>
@@ -7483,6 +7676,7 @@ function initExportPanel() {
     <button class="btn" data-export="tikz">LaTeX (TikZ)</button>
     <button class="btn" data-export="svg">Vector picture (SVG)</button>
   </div>
+  <label class="chk" id="sbsRow" hidden><input type="checkbox" id="sbsToggle"> Draw the component graphs side by side (Maurer and Bretz 2013, Fig. 2) in the SVG, TikZ and beamer exports</label>
   <h3>For R</h3>
   <div class="export-grid">
     <button class="btn" data-export="graphicalmcp">graphicalMCP</button>
@@ -7491,6 +7685,20 @@ function initExportPanel() {
   </div>
   <p class="small muted clinician-only">LaTeX, R code and SAP text are for the statistician. Untick Plain language to see them.</p>
   <div id="exportOut" class="form" aria-live="polite"></div>`;
+}
+/* The side-by-side button, note and tick box show for an entangled graph only */
+function updateExportPanel() {
+  const ent = isEntangled(G), b = document.querySelector('#tab-export [data-export="sbs"]');
+  if (b) b.hidden = !ent;
+  const r = $('sbsRow'); if (r) r.hidden = !ent;
+  const n = $('sbsNote'); if (n) n.hidden = !ent;
+  const t = $('sbsToggle'); if (t) t.checked = sideBySide;
+}
+/* The component graphs of the entangled graph on the canvas as side-by-side panels: the stored design graph with its
+   symbolic labels, or in Test mode each component's current graph with the rejected hypotheses greyed */
+function currentPanels() {
+  const inTest = mode === 'test' && T;
+  return componentPanels(G, inTest ? T.st : null, inTest ? T.rejected : null, fmt);
 }
 const SAVE_OK = ['png', 'svg', 'json', 'txt', 'md', 'html', 'csv'];
 function canDownload(file) {
@@ -7557,22 +7765,25 @@ async function showExport(kind) {
   if (!out) return;
   if (!G.nodes.length && kind !== 'load') { out.innerHTML = '<p class="muted">Add some hypotheses first.</p>'; return; }
   const { vm, layout } = currentPicture();
+  /* an entangled graph drawn as side-by-side panels: always for the "Graphs side by side" button, and for SVG, TikZ and beamer with the box ticked */
+  const sbs = isEntangled(G) && (kind === 'sbs' || (sideBySide && (kind === 'svg' || kind === 'tikz' || kind === 'beamer')));
+  const sbsDesc = 'Each component graph drawn on its own with the hypotheses in the same places, its name and share c underneath, in the style of Maurer and Bretz (2013), Fig. 2.';
   if (kind === 'svg') {
-    exportPayload = exportSVG(vm, layout, fmt);
-    out.innerHTML = codeBlock('SVG picture', 'White background, no interface chrome. Scales to any size.', exportPayload, 'multiplicity-graph.svg', 'image/svg+xml');
-  } else if (kind === 'png') {
-    const s = exportSVG(vm, layout, fmt);
+    exportPayload = sbs ? exportSVGPanels(currentPanels(), fmt) : exportSVG(vm, layout, fmt);
+    out.innerHTML = codeBlock('SVG picture', (sbs ? sbsDesc + ' ' : '') + 'White background, no interface chrome. Scales to any size.', exportPayload, sbs ? 'multiplicity-graph-components.svg' : 'multiplicity-graph.svg', 'image/svg+xml');
+  } else if (kind === 'png' || kind === 'sbs') {
+    const s = sbs ? exportSVGPanels(currentPanels(), fmt) : exportSVG(vm, layout, fmt);
     try {
       const url = await svgToPng(s);
       exportPayload = url;
-      const dl = canDownload('x.png');
-      out.innerHTML = `<h3>PNG picture</h3><p class="small muted">Twice screen resolution, white background.${dl ? '' : ' Right-click (or long-press) the picture to save or copy it.'}</p>
-        <img class="preview-img" id="pngPreview" alt="The graph as a PNG picture" src="${url}">
-        ${dl ? '<div class="row-actions"><button class="btn primary" data-action="download-png">Download multiplicity-graph.png</button></div>' : ''}`;
+      const dl = canDownload('x.png'), file = sbs ? 'multiplicity-graph-components.png' : 'multiplicity-graph.png';
+      out.innerHTML = `<h3>${sbs ? 'PNG picture: the component graphs side by side' : 'PNG picture'}</h3><p class="small muted">${sbs ? sbsDesc + ' ' : ''}Twice screen resolution, white background.${dl ? '' : ' Right-click (or long-press) the picture to save or copy it.'}</p>
+        <img class="preview-img" id="pngPreview" alt="${sbs ? 'The component graphs side by side as a PNG picture' : 'The graph as a PNG picture'}" src="${url}">
+        ${dl ? `<div class="row-actions"><button class="btn primary" data-action="download-png" data-file="${file}">Download ${file}</button></div>` : ''}`;
     } catch (err) { out.innerHTML = `<p class="err-text">✕ ${esc(err.message)}</p>`; }
   } else if (kind === 'tikz') {
-    exportPayload = exportTikZ(vm, layout);
-    out.innerHTML = codeBlock('TikZ', 'Same positions and curvature as the canvas (1 cm = 60 px). Paste into a LaTeX or beamer document.' + (vm.all ? ' All view: one line style per component and a key below the picture.' : ''), exportPayload, 'multiplicity-graph.tex', 'text/x-tex');
+    exportPayload = sbs ? exportTikZPanels(currentPanels()).text : exportTikZ(vm, layout);
+    out.innerHTML = codeBlock('TikZ', (sbs ? sbsDesc + ' One scope per panel. ' : '') + 'Same positions and curvature as the canvas (1 cm = 60 px). Paste into a LaTeX or beamer document.' + (!sbs && vm.all ? ' All view: one line style per component and a key below the picture.' : ''), exportPayload, sbs ? 'multiplicity-graph-components.tex' : 'multiplicity-graph.tex', 'text/x-tex');
   } else if (kind === 'graphicalmcp') {
     exportPayload = exportGraphicalMCP(G);
     out.innerHTML = codeBlock('R code for graphicalMCP', isEntangled(G) ? 'graphicalMCP has no entangled graph object. The code builds each component and gives the intersection weights of the whole procedure, with a Bonferroni closed test by hand when every hypothesis has a p-value.' : 'Initial graph, plus the test call when every hypothesis has a p-value. For the parametric test each block of known correlations becomes a test group; for Simes within groups, read the note in the code, since graphicalMCP\'s grouped Simes test is stronger than the Sketchpad\'s.', exportPayload, 'multiplicity-graph.R', 'text/plain');
@@ -7592,9 +7803,9 @@ async function showExport(kind) {
       out.innerHTML = codeBlock('Share code', 'The whole graph is stored in this code, so nothing is uploaded. Add it to the end of this page\'s link (no spaces) to share the graph, or paste it into "Open a saved graph".', exportPayload, null);
     }
   } else if (kind === 'beamer') {
-    const frames = stepFrames();
+    const frames = stepFrames(sbs);
     exportPayload = exportBeamer(frames, 'Graphical multiple testing procedure');
-    out.innerHTML = codeBlock('Beamer frame, one overlay per rejection', `${frames.length} overlay${frames.length === 1 ? '' : 's'}: the initial graph${frames.length > 1 ? ` and ${frames.length - 1} rejection${frames.length > 2 ? 's' : ''}` : ''}. ${mode === 'test' && T && T.closed ? 'A closed test has no rejection order, so the second overlay shows the final result.' : mode === 'test' && T && T.step ? 'Follows the steps you have taken in Test mode.' : 'Follows the automatic run of the Bonferroni graph on the entered p-values.'} Works with the Metropolis theme; add the \\usetikzlibrary line to the preamble.`, exportPayload, 'multiplicity-graph-steps.tex', 'text/x-tex');
+    out.innerHTML = codeBlock('Beamer frame, one overlay per rejection', `${sbs ? sbsDesc + ' Every overlay is the panel set at that step, with each component graph\'s own level under its hypotheses. ' : ''}${frames.length} overlay${frames.length === 1 ? '' : 's'}: the initial graph${frames.length > 1 ? ` and ${frames.length - 1} rejection${frames.length > 2 ? 's' : ''}` : ''}. ${mode === 'test' && T && T.closed ? 'A closed test has no rejection order, so the second overlay shows the final result.' : mode === 'test' && T && T.step ? 'Follows the steps you have taken in Test mode.' : 'Follows the automatic run of the Bonferroni graph on the entered p-values.'} Works with the Metropolis theme; add the \\usetikzlibrary line to the preamble.`, exportPayload, sbs ? 'multiplicity-graph-components-steps.tex' : 'multiplicity-graph-steps.tex', 'text/x-tex');
   } else if (kind === 'sap') {
     const sap = sapText(G);
     const textAll = sapPlainText(sap) + '\n\n' + sap.tables.map(tableToTSV).join('\n\n') + '\n\n' + sapRefsText(sap);
@@ -7990,6 +8201,7 @@ function renderAll() {
   renderStatus();
   updateToolbar();
   updatePresentBar();
+  updateExportPanel();
   if (activeTab === 'export' && exportView && exportView !== 'load') showExport(exportView);
 }
 function setSel(s) {
@@ -8628,7 +8840,7 @@ $('tab-export').addEventListener('click', e => {
   else if (act === 'copy-sap-tables') copyRich(sapText(G).tables.map(tableToTSV).join('\n\n'), sapText(G).tables.map(tableToHTML).join(''), b, 'sapTable0');
   else if (act === 'copy-sap-all') copyRich(exportPayload, sapHTML, b, 'sapText');
   else if (act === 'download') download(b.dataset.file, b.dataset.mime, exportPayload, b);
-  else if (act === 'download-png') download('multiplicity-graph.png', 'image/png', dataUrlToBlob(exportPayload), b);
+  else if (act === 'download-png') download(b.dataset.file || 'multiplicity-graph.png', 'image/png', dataUrlToBlob(exportPayload), b);
   else if (act === 'load-text') loadFromText($('loadText').value);
 });
 document.addEventListener('change', e => {
@@ -8639,6 +8851,11 @@ document.addEventListener('change', e => {
   if (activeTab === 'optimise') renderOptimisePanel();
 });
 $('tab-export').addEventListener('change', e => {
+  if (e.target.id === 'sbsToggle') {
+    sideBySide = e.target.checked;
+    if (exportView === 'svg' || exportView === 'tikz' || exportView === 'beamer') showExport(exportView);
+    return;
+  }
   if (e.target.id !== 'loadFile') return;
   const f = e.target.files && e.target.files[0];
   if (!f) return;

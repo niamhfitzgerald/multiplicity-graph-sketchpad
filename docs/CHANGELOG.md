@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.6 (2026-10-28)
+
+Entangled graphs: the component graphs drawn side by side, as in Maurer and Bretz (2013), Fig. 2 (p. 1746). Left for later since 1.2.0.
+
+- Export tab, for an entangled graph: **Graphs side by side (PNG)** next to Picture (PNG). One panel per component graph, drawn as an ordinary graph in that graph's line style (the key of the All view), with the hypotheses in the same places in every panel and "Graph 1 (c = 1/2)" underneath. Two or three panels in a row, four as a 2 × 2 grid, more in rows of three. In Test mode the panels follow the current step: each graph's own updated weights and transitions, rejected hypotheses greyed in every panel (Fig. 3 drawn apart). The button shows in the clinician view.
+- With Plain language off, a tick box under the SVG, TikZ and beamer buttons draws those three side by side too. The TikZ is one picture with a scope and name prefix per panel. The beamer frames show the panel set at every step, with each graph's own level (c × w × α, Algorithm 1, p. 1743) under its hypotheses, scaled to fit the frame when the picture is too wide or too tall. Download names end in `-components`.
+- The SVG, TikZ and beamer exports of 1.3.5 are unchanged byte for byte (`exportSVG` and `exportTikZ` were split into a bounds, a body and a wrapper function so the panels could reuse them; checked on every template, ordinary and entangled).
+- Tests: three self-tests (123 to 126): the Fig. 2 panels in SVG and TikZ, the layout rule with the Fig. 5 symbols, and the Test state of Fig. 3(c) with the beamer levels. Two browser checks (42 to 44). The views check lists the new button, its note and the tick box as planned differences from the 1.3.0 snapshot. Engine stress suite: 46. The TikZ and beamer files of Fig. 2 and Fig. 5 compiled with pdflatex (Metropolis theme) without errors.
+
 ## 1.3.5 (2026-10-28)
 
 The last places a clinician met statistical words with Plain language ticked, and the toolbar decision left open since 1.3.1. With Plain language off nothing changes, except the end of presentation mode.

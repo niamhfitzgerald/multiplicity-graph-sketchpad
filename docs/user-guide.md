@@ -1,6 +1,6 @@
 # Multiplicity Graph Sketchpad User Guide
 
-Niamh Fitzgerald · version 1.3.5
+Niamh Fitzgerald · version 1.3.6
 
 The Sketchpad draws, tests and explains graphical multiple testing procedures (Bretz et al., 2009) in the browser. Nothing you enter leaves your computer. This guide covers how to use it, not the method.
 
@@ -47,7 +47,7 @@ An entangled graph is several graphs on the same hypotheses, each with a weight 
 - **Test mode** opens on the All view and follows the test there; Design returns to the graph you were editing. The step log says what each open hypothesis received from each graph. Run test, Step, the order section, What would it take, adjusted p-values, the closed tests and the Power tab all work on the whole entangled graph. The Compare tab draws both graphs in the All view and compares the combined weights (with each graph's weight in brackets) and the transitions graph by graph; an ordinary graph counts as Graph 1.
 - **Default graph (Matrix tab):** "Default graph: the procedure as fixed sequences with weights" shows any graph of up to 6 hypotheses as columns of fixed sequences with their weights, in the style of Maurer and Bretz (2013), Fig. 4(a). A box hides the sequences with weight below 1/100, which for a graph with ε edges gives the ε-free picture. "Copy as text" copies the sequences; "Make this an entangled graph of these sequences" builds the equivalent entangled graph, one graph per sequence.
 - **Import (Matrix tab):** "Entangled graph from gMCP code" reads the R lines that build the components and the final `new("entangledMCP", subgraphs = list(...), weights = c(...))`. "Default graph: fixed sequences with weights" takes one sequence per line, such as `H1 > H3 > H4 > H2 > H5 : 1/2`, and builds an entangled graph of chains.
-- **Exports:** pictures, TikZ and the beamer frames show the view on the canvas, with the line styles and a key in the All view. gMCP code builds an `entangledMCP` object and tests it with Bonferroni (gMCP has no Simes or parametric test for entangled graphs); it also prints the intersection weights. graphicalMCP has no entangled graph object, so that code builds each graph and gives the intersection weights with a Bonferroni closed test by hand. The Power tab's R code uses gMCP's `calcPower()`. Saved files keep every graph (version 2; an older version of the Sketchpad opens Graph 1), share links too. The SAP text describes each graph and the combined rule, with a table of weights per graph and one transition table per graph.
+- **Exports:** pictures, TikZ and the beamer frames show the view on the canvas, with the line styles and a key in the All view. **Graphs side by side (PNG)** in the Export tab draws each graph on its own, with the hypotheses in the same places and the graph's name and c underneath, as in Maurer and Bretz (2013), Fig. 2; it shows in the clinician view too, and in Test mode it follows the current step. With Plain language off, a tick box under the SVG, TikZ and beamer buttons draws those three side by side as well; the beamer frames then show every graph at every step, with each graph's own level under its hypotheses. Two or three graphs sit in one row, four in a 2 × 2 grid, more in rows of three. gMCP code builds an `entangledMCP` object and tests it with Bonferroni (gMCP has no Simes or parametric test for entangled graphs); it also prints the intersection weights. graphicalMCP has no entangled graph object, so that code builds each graph and gives the intersection weights with a Bonferroni closed test by hand. The Power tab's R code uses gMCP's `calcPower()`. Saved files keep every graph (version 2; an older version of the Sketchpad opens Graph 1), share links too. The SAP text describes each graph and the combined rule, with a table of weights per graph and one transition table per graph.
 
 ## Fix and tidy
 
@@ -133,7 +133,7 @@ When the graph or a setting changes after a comparison, a notice asks you to run
 
 All exports are in the Export tab. Pictures and TikZ show the graph as it is on the canvas, including any test progress; the R code describes the initial graph.
 
-- **Picture:** PNG at twice screen resolution, or SVG under More formats. Both have a white background and include group bands and colours.
+- **Picture:** PNG at twice screen resolution, or SVG under More formats. Both have a white background and include group bands and colours. For an entangled graph, **Graphs side by side (PNG)** draws each component graph on its own (see Entangled graphs).
 - **LaTeX (TikZ):** the same positions and curves as the canvas, with the `\usetikzlibrary` line it needs in a comment at the top.
 - **Beamer, step by step:** one frame with one overlay per rejection, following the steps you took in Test mode (or the automatic run on the p-values). Each overlay shows the levels and a caption. It works with the Metropolis theme.
 - **R:** `graph_create()` for graphicalMCP, with `graph_test_shortcut()` when every p-value is entered; `matrix2graph()` for gMCP. For an entangled graph, see the Entangled graphs section.

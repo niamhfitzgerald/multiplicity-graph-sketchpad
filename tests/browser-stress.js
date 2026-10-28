@@ -1083,6 +1083,57 @@ async function step(name, fn) {
     await page.evaluate(() => { setPlain(false, true); loadGraph(templateJSON('holm')); });
   });
 
+  await step('Side by side (1.3.6): the "Graphs side by side" button is absent for Holm and present for Fig. 2 in both views; it gives a PNG preview of the panels; in the clinician view the SVG, TikZ and beamer buttons and the tick box are hidden while the button shows', async () => {
+    await page.evaluate(() => { setMode('design', true); setPlain(false, true); loadGraph(templateJSON('holm')); setTab('export'); }); await sleep(100);
+    const vis = sel => page.locator(sel).evaluate(e => e.getClientRects().length > 0).catch(() => false);
+    if (await vis('[data-export="sbs"]') || await vis('#sbsRow') || await vis('#sbsNote')) return 'shown for an ordinary graph';
+    await page.evaluate(() => { loadGraph(entangledTemplateJSON('maurerFig2')); }); await sleep(100);
+    if (!(await vis('[data-export="sbs"]')) || !(await vis('#sbsRow')) || !(await vis('#sbsNote'))) return 'not shown for Fig. 2';
+    await page.click('[data-export="sbs"]'); await sleep(900);
+    if (!(await page.locator('#pngPreview').count()) || !/component graphs side by side/i.test(await page.locator('#exportOut h3').innerText())) return 'no PNG preview of the panels';
+    const img = await page.locator('#pngPreview').evaluate(i => ({ w: i.naturalWidth, h: i.naturalHeight }));
+    if (!(img.w > 1.4 * img.h)) return 'the panel picture is not wide: ' + JSON.stringify(img);
+    if (!/Download multiplicity-graph-components\.png/.test(await page.locator('#exportOut').innerText()) && (await ev(() => canDownload('x.png')))) return 'download name';
+    await page.check('#plainToggle'); await sleep(150); await page.evaluate(() => setTab('export')); await sleep(80);
+    const shown = await page.locator('#tab-export [data-export]').evaluateAll(es => es.filter(e => e.getClientRects().length).map(e => e.dataset.export).sort().join());
+    if (shown !== 'json,link,load,png,sbs') return 'clinician view exports: ' + shown;
+    if (await vis('#sbsRow')) return 'tick box shown in the clinician view';
+    await page.click('[data-export="sbs"]'); await sleep(900);
+    if (!(await page.locator('#pngPreview').count())) return 'no preview in the clinician view';
+    await page.uncheck('#plainToggle'); await sleep(150);
+  });
+
+  await step('Side by side (1.3.6): with the box ticked the SVG and TikZ exports hold two panels (Fig. 2 after two steps: panel 1 shows 0.999 and 0.001 at H4 and H5, panel 2 still 0) and the beamer frame has three overlays of panels with each graph\'s own levels; unticked, every export is as before', async () => {
+    await page.evaluate(() => { setPlain(false, true); loadGraph(entangledTemplateJSON('maurerFig2')); G.nodes.forEach((n, i) => { n.p = ['0.01', '0.022', '0.005', '0.012', '0.001'][i]; }); renderAll(); setMode('test'); }); await sleep(150);
+    const s1 = page.evaluate(() => stepOnce(false)); await sleep(1300); await s1; const s2 = page.evaluate(() => stepOnce(false)); await sleep(1300); await s2;
+    await page.evaluate(() => setTab('export')); await sleep(80);
+    const grab = async k => { await page.click(`[data-export="${k}"]`); await sleep(200); return page.locator('#exportCode').innerText(); };
+    const before = { svg: await grab('svg'), tikz: await grab('tikz'), beamer: await grab('beamer') };
+    if (/translate\(/.test(before.svg) || /name prefix/.test(before.tikz) || /name prefix/.test(before.beamer)) return 'panels drawn with the box unticked';
+    await page.check('#sbsToggle'); await sleep(250);
+    let out = await page.locator('#exportCode').innerText();
+    if ((out.match(/\\only<\d>\{%/g) || []).length !== 3 || (out.match(/name prefix=g[12]-/g) || []).length !== 6) return 'beamer panel overlays: ' + (out.match(/name prefix/g) || []).length;
+    if (!/level \$0\.01249\$/.test(out) || !/level \$0\.0000125\$/.test(out) || !/\\resizebox\{/.test(out)) return 'beamer panel levels';
+    if (!/Passed on: \+1\/2 to H3/.test(out)) return 'beamer caption kept';
+    if (!/Every overlay is the panel set/.test(await page.locator('#exportOut p').first().innerText()) || !/multiplicity-graph-components-steps\.tex/.test(await page.locator('#exportOut').innerText())) return 'beamer description or file name';
+    out = await grab('svg');
+    const panels = [...out.matchAll(/<g transform="translate\([^)]*\)">([\s\S]*?)<\/g>/g)].map(m => m[1]);
+    if (panels.length !== 2) return 'svg panels ' + panels.length;
+    const wts = g => [...g.matchAll(/font-size="1[13]" text-anchor="middle" fill="#[0-9a-f]+">([^<]*)<\/text>/g)].map(m => m[1]).join();
+    if (wts(panels[0]) !== '1,0,1,0.999,0.001' || wts(panels[1]) !== '0,1,0,0,0') return 'svg panel weights: ' + wts(panels[0]) + ' | ' + wts(panels[1]);
+    if (!/>Graph 2 \(c = 1\/2\)<\/text>/.test(out) || (out.match(/stroke="#9aa0a6" stroke-width="1.8"/g) || []).length !== 4) return 'svg labels or greyed hypotheses';
+    if (!/multiplicity-graph-components\.svg/.test(await page.locator('#exportOut').innerText())) return 'svg file name';
+    out = await grab('tikz');
+    if ((out.match(/name prefix=g[12]-/g) || []).length !== 2 || !/\\draw\[trans, comp1\]/.test(out) || !/One scope per panel/.test(await page.locator('#exportOut p').first().innerText())) return 'tikz panels';
+    await page.uncheck('#sbsToggle'); await sleep(250);
+    const after = { tikz: await page.locator('#exportCode').innerText(), svg: await grab('svg'), beamer: await grab('beamer') };
+    if (after.svg !== before.svg || after.tikz !== before.tikz || after.beamer !== before.beamer) return 'exports changed after unticking';
+    /* the PNG button follows the current state too: the preview exists in Test mode */
+    await page.click('[data-export="sbs"]'); await sleep(900); if (!(await page.locator('#pngPreview').count())) return 'no PNG in Test mode';
+    await ev(() => setMode('design')); await sleep(200);
+    await page.evaluate(() => { setPlain(false, true); loadGraph(templateJSON('holm')); });
+  });
+
   await step('Entangled graphs (Compare tab): All-view pictures, combined weights with the component vectors, transitions compared graph by graph against a kept copy with different c and against an ordinary graph, test both, paired power, entangled templates offered', async () => {
     await page.evaluate(() => { loadGraph(entangledTemplateJSON('maurerFig2')); G.nodes.forEach((n, i) => { n.p = ['0.01', '0.022', '0.005', '0.012', '0.001'][i]; }); renderAll(); });
     await page.click('#tabbtn-compare'); await sleep(100);
@@ -1250,8 +1301,12 @@ async function step(name, fn) {
   const { captureViews, diffViews } = require('./view-capture');
   await step('Plain language on hides exactly what 1.3.0 hid with Advanced off: tabs, templates, menu, sections and buttons; off shows what Advanced on showed', async () => {
     const views = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, 'views-1.3.0.json'), 'utf8'));
-    /* planned differences: Import opens the Matrix tab, so it is hidden with the tab in the clinician view */
-    const planned = ['menu: only with 1.3.0 Advanced off: importBtn'];
+    /* planned differences: Import opens the Matrix tab, so it is hidden with the tab in the clinician view (1.3.2);
+       1.3.6: the side-by-side export of an entangled graph (Maurer and Bretz 2013, Fig. 2): the "Graphs side by side"
+       button and its note show in both views, the tick box for the SVG, TikZ and beamer exports with Plain language off only */
+    const planned = ['menu: only with 1.3.0 Advanced off: importBtn',
+      'entangledDesign.export: only with Plain language on: #sbsNote, export:sbs',
+      'entangledDesign.export: only with Plain language off: #sbsNote, #sbsRow, #sbsToggle, export:sbs'];
     let out = '';
     for (const on of [true, false]) {
       const { c, p } = await freshPage();
