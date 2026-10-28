@@ -590,8 +590,8 @@ table.t td:first-child { white-space: nowrap; }
 <script>
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.3.3';
-const APP_DATE = '2026-10-27';
+const APP_VERSION = '1.3.4';
+const APP_DATE = '2026-10-28';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
 /* The author's LinkedIn profile; the header byline and About link to it. */
@@ -1121,9 +1121,18 @@ function entangledKOfM(m, k, alpha) {
     edges.push(k > 1 ? [top, m, 'ε'] : [top, m, '1']);
     return { w, edges };
   });
+  /* Levels once k primaries are rejected (checked against the engine for every m <= 6 and k, rejecting in index order, 28 October 2026; in other orders they hold up to terms in ε):
+     H(m+1) at alpha/C(m,k); each remaining primary at (1 - 1/C(m,k)) alpha/(m - k); after r >= k rejections H(m+1)
+     holds C(r,k)/C(m,k) of alpha. Maurer and Bretz (2013), p. 1751, give the 3 of 4 case: 3 alpha/4 and alpha/4. */
+  const nC = subsets.length, gcd = (a, b) => (b ? gcd(b, a % b) : a);
+  const aFrac = (num, den) => { const g = gcd(num, den); num /= g; den /= g; return den === 1 ? (num === 1 ? 'α' : `${num}α`) : `${num === 1 ? '' : num}α/${den}`; };
+  const pFrac = (num, den) => { const g = gcd(num, den); return den / g === 1 ? `${num / g}` : `${num / g}/${den / g}`; };
+  const xt = k === 1 ? ' With k = 1 this is the k-out-of-n gatekeeping procedure of Xi and Tamhane (2014) with γ = 0.'
+    : k === m - 1 ? ` With k = m − 1 this is the k-out-of-n gatekeeping procedure of Xi and Tamhane (2014) with γ = 1 − 2/m = ${pFrac(m - 2, m)}.`
+    : ' It is not the k-out-of-n gatekeeping procedure of Xi and Tamhane (2014), whose secondary level rises in equal steps; both control the familywise error rate.';
   return entangledJSON({
     alpha, nodes, groups: Array.from({ length: m }, () => 'primary').concat(['secondary']),
-    note: `At least ${k} of ${m} primary hypotheses (H1 to H${m}) must be rejected before the secondary hypothesis H${m + 1} is tested (Maurer and Bretz, 2013, section 5.3.2, pp. 1750-1751, and Fig. 6; Guilbaud, 2018, Example 11 and Fig. 5(b), for 2 of 3). One component graph per set of ${k} primaries (${subsets.length} in all, c = 1/${subsets.length} each): Holm within the set, and only the last of the set to be rejected hands its level to H${m + 1} (the ε edge); the other primaries are isolated with weight 0. Taken together: Holm on the primaries until ${k} are rejected, each remaining primary then at (m − k)α/m = ${m - k}α/${m}, and H${m + 1} at ${k}α/${m} once ${k} primaries are rejected, rising to α when all are.`,
+    note: `At least ${k} of ${m} primary hypotheses (H1 to H${m}) must be rejected before the secondary hypothesis H${m + 1} is tested (Maurer and Bretz, 2013, section 5.3.2, pp. 1750-1751, and Fig. 6; Guilbaud, 2018, Example 11 and Fig. 5(b), for 2 of 3). One component graph per set of ${k} primaries (${nC} in all, c = 1/${nC} each): Holm within the set, and only the last of the set to be rejected hands its level to H${m + 1} (the ε edge); the other primaries are isolated with weight 0. Taken together, ignoring terms in ε: Holm on the primaries until ${k === 1 ? 'one is' : `${k} are`} rejected. Then H${m + 1} is at α/C(${m}, ${k}) = ${aFrac(1, nC)} and each remaining primary at (1 − 1/C(${m}, ${k}))α/(${m} − ${k}) = ${aFrac(nC - 1, nC * (m - k))}. Each further primary rejection raises the level of H${m + 1}: after r rejections it is C(r, ${k})/C(${m}, ${k}) of α, so α once all ${m} are rejected.${xt}`,
     c: subsets.map(() => `1/${subsets.length}`),
     comps
   });
@@ -2160,13 +2169,13 @@ Object.assign(TEMPLATES, {
   },
   efficacySafety: {
     name: 'Efficacy and safety for three treatments (Bretz et al., 2009, Fig. 8)',
-    note: 'Three treatments, each with an efficacy hypothesis and a safety hypothesis (Bretz et al., 2009, Fig. 8, p. 594). HE1, HE2, HE3 (efficacy) share alpha equally; HS1, HS2, HS3 (safety) start at 0. A treatment\'s safety hypothesis is tested only once its efficacy hypothesis is rejected, which passes it the whole level; a rejected safety hypothesis passes its level equally to the efficacy hypotheses of the other two treatments. Alpha-exhaustive. The paper gives the graph only, with no worked numbers.',
+    note: 'Three treatments, each with an efficacy hypothesis and a safety hypothesis (Bretz et al., 2009, Fig. 8, p. 594). HE1, HE2, HE3 (efficacy) share alpha equally; HS1, HS2, HS3 (safety) start at 0. A treatment\'s safety hypothesis is tested only once its efficacy hypothesis is rejected, which passes it the whole level; a rejected safety hypothesis passes its level equally to the efficacy hypotheses of the other two treatments. Alpha-exhaustive. The paper gives the graph only, with no worked numbers. Koenig et al. (2025, Fig. 5, p. 10, and Table 7, p. 11) use the same graph for a primary and a secondary endpoint with three doses against placebo.',
     nodes: [['HE1', '1/3', 0, 0], ['HE2', '1/3', 260, 0], ['HE3', '1/3', 520, 0], ['HS1', '0', 0, 230], ['HS2', '0', 260, 230], ['HS3', '0', 520, 230]],
     edges: [[0, 3, '1'], [1, 4, '1'], [2, 5, '1'], [3, 1, '1/2'], [3, 2, '1/2'], [4, 0, '1/2'], [4, 2, '1/2'], [5, 0, '1/2'], [5, 1, '1/2']], groups: ['efficacy', 'efficacy', 'efficacy', 'safety', 'safety', 'safety']
   },
   hungWang: {
     name: 'Hung and Wang (2010): non-inferiority then superiority, two endpoints',
-    note: 'Non-inferiority and superiority on a primary and a secondary endpoint (Hung and Wang, 2010, Biometrical Journal 52:747-756, Fig. 1, p. 751; section 7, p. 754). H1,NI (non-inferiority on the primary endpoint) holds all of alpha. When it is rejected, a share ν goes to superiority on the primary endpoint (H1,S) and 1−ν to non-inferiority on the secondary endpoint (H2,NI). H1,S passes τ to H2,S and 1−τ to H2,NI; H2,NI passes ω to H1,S and 1−ω to H2,S. H2,S (superiority on the secondary endpoint) passes nothing on, so the graph is not alpha-exhaustive and validation shows that one warning. The paper warns (p. 754) that τ = ω = 1 lets H2,S be tested without H2,NI having been rejected, and then H2,S can never be tested unless H1,S is. The defaults here are ν = τ = ω = 1/2. gMCP\'s HungEtWang2010(nu, tau, omega) has the same nodes in the same order but puts its tau on the H1,S → H2,NI edge, the other way round from the figure, so this graph is HungEtWang2010(nu = ν, tau = 1 − τ, omega = ω); the gMCP export writes the matrix in full.',
+    note: 'Non-inferiority and superiority on a primary and a secondary endpoint (Hung and Wang, 2010, Biometrical Journal 52:747-756, Fig. 1, p. 751; section 7, p. 754). H1,NI (non-inferiority on the primary endpoint) holds all of alpha. When it is rejected, a share ν goes to superiority on the primary endpoint (H1,S) and 1−ν to non-inferiority on the secondary endpoint (H2,NI). H1,S passes τ to H2,S and 1−τ to H2,NI; H2,NI passes ω to H1,S and 1−ω to H2,S. H2,S (superiority on the secondary endpoint) passes nothing on, so the graph is not alpha-exhaustive and validation shows that one warning. The paper warns (p. 754) that τ = ω = 1 lets H2,S be tested without H2,NI having been rejected, and then H2,S can never be tested unless H1,S is. More generally, H2,S can be rejected without H2,NI whenever ν > 0 and τ > 0 (Guilbaud, 2011, Biometrical Journal 53:927-937, p. 930). The defaults here are ν = τ = ω = 1/2. gMCP\'s HungEtWang2010(nu, tau, omega) has the same nodes in the same order but puts its tau on the H1,S → H2,NI edge, the other way round from the figure, so this graph is HungEtWang2010(nu = ν, tau = 1 − τ, omega = ω); the gMCP export writes the matrix in full.',
     nodes: [['H1,NI', '1', 0, 0], ['H1,S', '0', 300, 0], ['H2,NI', '0', 0, 220], ['H2,S', '0', 300, 220]],
     edges: [[0, 1, 'ν'], [0, 2, '1-ν'], [1, 3, 'τ'], [1, 2, '1-τ'], [2, 1, 'ω'], [2, 3, '1-ω']]
   },
@@ -3084,7 +3093,7 @@ function plainGraphText(G, nameOf) {
     /* Entangled graph (Maurer and Bretz, 2013): the allowance is split across linked graphs; a question's share is
        the sum of its shares in all of them, and each graph hands its part on in its own way */
     const n = G.ent.comps.length;
-    out.push(`The trial asks ${m} question${m > 1 ? 's' : ''} (${joinWords(G.nodes.map(nd => nameOf(nd.id, true)))}). It is allowed a ${pctWords(G.alpha)} chance of wrongly claiming at least one success across all of them. That allowance is split between ${n} linked graphs (${joinWords(G.ent.comps.map((_, k) => `graph ${k + 1} holds ${pctWords(Q.toNum(G.ent.c[k]) * G.alpha)}`))}). A question's share at any time is the sum of its shares in all the graphs${closed ? '.' : ', and it can only be claimed as a success if its p-value is no bigger than that sum.'} When a question succeeds, each graph hands its part of the share on in its own way, so a share remembers which graph it came from.`);
+    out.push(`The trial asks ${m} question${m > 1 ? 's' : ''} (${joinWords(G.nodes.map(nd => nameOf(nd.id, true)))}). It is allowed a ${pctWords(G.alpha)} chance of wrongly claiming at least one success across all of them, whichever of the questions truly have no effect. That allowance is split between ${n} linked graphs (${joinWords(G.ent.comps.map((_, k) => `graph ${k + 1} holds ${pctWords(Q.toNum(G.ent.c[k]) * G.alpha)}`))}). A question's share at any time is the sum of its shares in all the graphs${closed ? '.' : ', and it can only be claimed as a success if its p-value is no bigger than that sum.'} When a question succeeds, each graph hands its part of the share on in its own way, so a share remembers which graph it came from.`);
     G.ent.comps.forEach((cs, k) => {
       const v = entViewGraph(G, k), ck = Q.toNum(G.ent.c[k]) * G.alpha;
       const withW = v.nodes.filter(nd => !Q.isZero(nd.w));
@@ -3102,7 +3111,7 @@ function plainGraphText(G, nameOf) {
     else out.push('These shares are not compared with the p-values one question at a time. Instead every combination of questions is checked together with a Simes test, which can confirm a combination when all of its p-values are fairly small even if none is below its own share, and a question is claimed only when every combination that includes it passes the check. This relies on the test results not being negatively related to one another.');
     return out;
   }
-  out.push(`The trial asks ${m} question${m > 1 ? 's' : ''} (${joinWords(G.nodes.map(n => nameOf(n.id, true)))}). It is allowed a ${pctWords(G.alpha)} chance of wrongly claiming at least one success across all of them. That allowance is shared out${closed ? ' as described below.' : ', and a question can only be claimed as a success if its p-value is no bigger than its share at the time.'}`);
+  out.push(`The trial asks ${m} question${m > 1 ? 's' : ''} (${joinWords(G.nodes.map(n => nameOf(n.id, true)))}). It is allowed a ${pctWords(G.alpha)} chance of wrongly claiming at least one success across all of them, whichever of the questions truly have no effect. That allowance is shared out${closed ? ' as described below.' : ', and a question can only be claimed as a success if its p-value is no bigger than its share at the time.'}`);
   const withW = G.nodes.filter(n => !Q.isZero(n.w)), noW = G.nodes.filter(n => Q.isZero(n.w));
   const starts = withW.map(n => `${nameOf(n.id)} starts with ${pctWords(Q.toNum(n.w) * G.alpha)}`);
   let s = `At the start, ${joinWords(starts) || 'no question has a share'}.`;
@@ -3492,7 +3501,7 @@ function corrConflict(block, corrAt) {
 function corrConflictText(labels, whole) {
   if (labels.length === 2) return `The correlation between ${labels[0]} and ${labels[1]} must lie strictly between −1 and 1.`;
   const list = labels.slice(0, -1).join(', ') + ' and ' + labels[labels.length - 1];
-  return whole && labels.length > 3 ? 'These correlations cannot all hold at once (the matrix is not positive definite). Try values closer to 0.' : `The correlations between ${list} cannot all hold at once (the matrix is not positive definite). Try values closer to 0.`;
+  return whole && labels.length > 3 ? 'These correlations cannot all hold at once, or they make one statistic an exact combination of the others, as for a full population, a subgroup and its complement (the matrix is not positive definite). Try values closer to 0, or leave one of them out.' : `The correlations between ${list} cannot all hold at once, or they make one statistic an exact combination of the others, as for a full population, a subgroup and its complement (the matrix is not positive definite). Try values closer to 0, or leave one of them out.`;
 }
 /* c such that P(some Z_i >= z_{1 - c w_i a}) = level, for a block with known correlation. Cached per call context. */
 function paramConstant(block, w, a, level, cholL, rand, cache) {
@@ -4302,6 +4311,113 @@ function runLiteratureSelfTests() {
     const rz = power(Z, { pw: [95, 90, 85, 65, 60], corr: cs(5, 0.5) });
     return near(rz.rej, [0.950, 0.867, 0.784, 0.546, 0.485], 0.005) || 'Zhan powers ' + rz.rej.map(x => (100 * x).toFixed(2)).join(' ');
   });
+  /* 1.3.4: worked examples from the methods check of 27 October 2026 */
+  check('Wang and Ting (2014), Figs. 2 to 4 (pp. 4 to 6) and Table 1 (p. 5): two doses, non-inferiority H1, H2 and superiority on the primary and secondary endpoints (H3, H4 for the high dose; H5, H6 for the low dose), α 0.05, p = (0.005, 0.027, 0.020, 0.009, 0.133, 0.018). Gatekeeping (Fig. 2) rejects H1, H3, H4; Fig. 3 rejects H1, H2, H4, with H3 at 3α/8 and H2 at 5α/8 after H1 and H4; Fig. 4 (ε edges) rejects H1, H2, H3, H4, H6', () => {
+    const L6 = ['H1', 'H2', 'H3', 'H4', 'H5', 'H6'], p = [0.005, 0.027, 0.020, 0.009, 0.133, 0.018], w = ['1/2', '1/2', '0', '0', '0', '0'];
+    const z = () => Array.from({ length: 6 }, () => Array(6).fill('0'));
+    const f2 = z(); f2[0][2] = f2[0][3] = f2[1][4] = f2[1][5] = '1/2'; f2[2][3] = f2[3][2] = f2[4][5] = f2[5][4] = '1';
+    const f3 = z(); f3[0][2] = f3[0][3] = f3[1][4] = f3[1][5] = '1/2'; f3[2][3] = f3[2][1] = f3[3][2] = f3[3][1] = f3[4][5] = f3[4][0] = f3[5][4] = f3[5][0] = '1/2';
+    const f4 = z(); f4[0][2] = f4[0][3] = f4[1][4] = f4[1][5] = '1/2'; f4[2][3] = f4[3][2] = f4[4][5] = f4[5][4] = '1-ε'; f4[2][1] = f4[3][1] = f4[4][0] = f4[5][0] = 'ε';
+    const G2 = mk(w, f2, L6, 0.05), G3 = mk(w, f3, L6, 0.05), G4 = mk(w, f4, L6, 0.05);
+    const rj = G => labels(G, runProcedure(stateFromGraph(G), pOfG(G, p), 0.05).order);
+    if (rj(G2) !== 'H1,H3,H4') return 'Fig. 2 rejects ' + rj(G2);
+    if (rj(G3) !== 'H1,H2,H4') return 'Fig. 3 rejects ' + rj(G3);
+    const s = after(G3, ['H1', 'H4']);
+    if (wOf(G3, s, 'H3') !== '3/8' || wOf(G3, s, 'H2') !== '5/8') return `Fig. 3 after H1, H4: H3 ${wOf(G3, s, 'H3')}, H2 ${wOf(G3, s, 'H2')}`;
+    return rj(G4) === 'H1,H2,H3,H4,H6' || 'Fig. 4 rejects ' + rj(G4);
+  });
+  check('Wang et al. (2015), Fig. 3 (p. 18) and Table 1 (p. 19): primaries H1, H2 and secondaries H3, H4, α 0.05, five p-value rows under within-dose fixed sequences (Fig. 3(a)), Bonferroni parallel gatekeeping, serial gatekeeping with Holm in each family (ε edges) and the "no-dead-end" graph (Fig. 3(b)). All 20 printed results match except row 5 under serial gatekeeping, printed as H1 only: Holm rejects H1 then H2 (0.02 ≤ 0.025, 0.04 ≤ 0.05), then H3 and H4 (0.024 ≤ 0.025, 0.04 ≤ 0.05), so all four', () => {
+    const L4 = ['H1', 'H2', 'H3', 'H4'], w = ['1/2', '1/2', '0', '0'];
+    const fixed = mk(w, [[0, 0, 1, 0], [0, 0, 0, 1], [0, 0, 0, 0], [0, 0, 0, 0]], L4, 0.05);
+    const par = mk(w, [[0, 0, '1/2', '1/2'], [0, 0, '1/2', '1/2'], [0, 0, 0, 1], [0, 0, 1, 0]], L4, 0.05);
+    const ser = mk(w, [[0, '1-ε', 'ε', 0], ['1-ε', 0, 0, 'ε'], [0, 0, 0, 1], [0, 0, 1, 0]], L4, 0.05);
+    const nde = mk(w, [[0, 0, 1, 0], [0, 0, 0, 1], [0, 1, 0, 0], [1, 0, 0, 0]], L4, 0.05);
+    const rows = [
+      [[0.02, 0.015, 0.012, 0.04], 'H1,H2,H3', 'H1,H2,H3,H4', 'H1,H2,H3,H4', 'H1,H2,H3,H4'],
+      [[0.02, 0.04, 0.012, 0.024], 'H1,H3', 'H1,H3,H4', 'H1,H2,H3,H4', 'H1,H2,H3,H4'],
+      [[0.02, 0.06, 0.012, 0.024], 'H1,H3', 'H1,H3,H4', 'H1', 'H1,H3'],
+      [[0.02, 0.04, 0.04, 0.024], 'H1', 'H1', 'H1,H2,H3,H4', 'H1'],
+      [[0.02, 0.04, 0.024, 0.04], 'H1,H3', 'H1', 'H1,H2,H3,H4', 'H1,H2,H3,H4']];
+    const names = ['fixed sequence', 'parallel gatekeeping', 'serial gatekeeping', 'no-dead-end'];
+    for (let r = 0; r < rows.length; r++) [fixed, par, ser, nde].forEach((G, k) => {
+      const got = labels(G, runProcedure(stateFromGraph(G), pOfG(G, rows[r][0]), 0.05).order);
+      if (got !== rows[r][k + 1]) throw new Error(`row ${r + 1}, ${names[k]}: ${got}`);
+    });
+    return true;
+  });
+  check('Koenig et al. (2025), Table 6 (p. 10): step-down Dunnett for three doses against placebo is the parametric test on an equally weighted Holm graph with correlation 1/2; p = (0.3492, 0.0247, 0.0065) gives adjusted p (0.3492, 0.0449, 0.0176), tolerance 0.0002', () => {
+    const r = closedAdj(load(generatedTemplate('holm', 3)), [0.3492, 0.0247, 0.0065], 0.025, 'parametric', { corr: cs(3, 0.5) });
+    return near(r.adj, [0.3492, 0.0449, 0.0176], 0.0002) || 'adjusted ' + r.adj.map(x => x.toFixed(5)).join(', ');
+  });
+  check('Koenig et al. (2025), Fig. 5 (p. 10) and Table 7 (p. 11): the efficacy and safety template is their graph for a primary (HE) and a secondary (HS) endpoint with three doses; the local levels of all seven printed intersections match exactly', () => {
+    const G = load(templateJSON('efficacySafety')), labs = G.nodes.map(n => n.label);
+    const want = { 'HE1,HE2,HE3,HS1,HS2,HS3': '1/3 1/3 1/3 0 0 0', 'HS1,HS2,HS3': '1/3 1/3 1/3', 'HE1,HE2,HS1,HS2,HS3': '1/3 1/3 0 0 1/3', 'HE1,HE2,HS1,HS2': '1/2 1/2 0 0', 'HE1,HS1,HS2,HS3': '1/3 0 1/3 1/3', 'HE1,HS1,HS3': '1/2 0 1/2', 'HE1,HS3': '1/2 1/2' };
+    for (const [set, w] of Object.entries(want)) {
+      const keep = set.split(','), st = after(G, labs.filter(l => !keep.includes(l)));
+      const got = keep.map(l => wOf(G, st, l)).join(' ');
+      if (got !== w) return `${set}: ${got}`;
+    }
+    return true;
+  });
+  check('Ristl et al. (2024), p. 606: the closed max-type test of two survival summaries is the parametric test on Holm(2) with the estimated correlation 0.87; p = (0.0100, 0.0053) gives adjusted p (0.0100, 0.0082), tolerance 0.0002', () => {
+    const r = closedAdj(load(generatedTemplate('holm', 2)), [0.0100, 0.0053], 0.025, 'parametric', { corr: cs(2, 0.87) });
+    return near(r.adj, [0.0100, 0.0082], 0.0002) || 'adjusted ' + r.adj.map(x => x.toFixed(5)).join(', ');
+  });
+  check('Guilbaud (2011), Fig. 1 (p. 928): the Hung and Wang template with ν = 1/5, τ = 3/10, ω = 1/2 has the default graph of four sequences with weights ντ = 3/50, ν(1 − τ) = 7/50, (1 − ν)ω = 2/5 and (1 − ν)(1 − ω) = 2/5. Example 1 and Table 1 (pp. 929, 933), Fig. 2A (τ = 0 and an edge of 1 from H2,S to H1,S): after H1,NI, H1,S holds ν and H2,NI 1 − ν; after H1,NI and H2,NI, H1,S holds ν + (1 − ν)ω and H2,S (1 − ν)(1 − ω)', () => {
+    const G = load(templateJSON('hungWang'));
+    G.vars = Object.assign({}, G.vars || {}, { 'ν': Q.parse('1/5'), 'τ': Q.parse('3/10'), 'ω': Q.parse('1/2') }); evaluateGraph(G);
+    const lab = id => G.nodes.find(n => n.id === id).label, dg = defaultGraphOf(G);
+    const got = dg.seqs.map(s => s.order.map(lab).join('>') + ':' + Q.exact(s.c)).sort().join(' ');
+    const want = ['H1,NI>H1,S>H2,S:3/50', 'H1,NI>H1,S>H2,NI>H2,S:7/50', 'H1,NI>H2,NI>H1,S>H2,S:2/5', 'H1,NI>H2,NI>H2,S:2/5'].sort().join(' ');
+    if (got !== want) return 'default graph ' + got;
+    const A = mk(['1', '0', '0', '0'], [['0', '1/5', '4/5', '0'], ['0', '0', '1', '0'], ['0', '1/2', '0', '1/2'], ['0', '1', '0', '0']], ['H1,NI', 'H1,S', 'H2,NI', 'H2,S'], 0.025);
+    let s = after(A, ['H1,NI']);
+    if (wOf(A, s, 'H1,S') !== '1/5' || wOf(A, s, 'H2,NI') !== '4/5') return `Fig. 2A after H1,NI: ${wOf(A, s, 'H1,S')}, ${wOf(A, s, 'H2,NI')}`;
+    s = after(A, ['H1,NI', 'H2,NI']);
+    return (wOf(A, s, 'H1,S') === '3/5' && wOf(A, s, 'H2,S') === '2/5') || `Fig. 2A after H1,NI and H2,NI: ${wOf(A, s, 'H1,S')}, ${wOf(A, s, 'H2,S')}`;
+  });
+  check('Zhang, Quan, Ng and Stepanavage (1997), Table 6 and text (p. 218): weighted Holm with weights 1, 1, 2, 1 (here 1/5, 1/5, 2/5, 1/5), α 0.05, p = (0.0037, 0.0077, 0.0274, 0.0369) tests the endpoints at 0.0100, 0.0125, 0.0333 and 0.0500 in turn and rejects all four; equally weighted Holm rejects the first two; the closed Simes test rejects all four', () => {
+    const w = ['1/5', '1/5', '2/5', '1/5'], G = mk(w, wHolm(w), null, 0.05), p = [0.0037, 0.0077, 0.0274, 0.0369];
+    const r = runProcedure(stateFromGraph(G), pOfG(G, p), 0.05);
+    if (r.order.map(id => G.nodes.find(n => n.id === id).label).join(',') !== 'H1,H2,H3,H4') return 'weighted Holm order ' + order(G, p, 0.05);
+    let st = stateFromGraph(G); const lv = [];
+    for (const id of r.order) { lv.push(Q.toNum(st.w.get(id)) * 0.05); st = rejectNode(st, id); }
+    if (!near(lv, [0.01, 0.0125, 0.05 * 2 / 3, 0.05], 1e-12)) return 'levels ' + lv.map(x => x.toFixed(4)).join(', ');
+    const Hm = load(generatedTemplate('holm', 4));
+    if (order(Hm, p, 0.05) !== 'H1,H2') return 'Holm rejected ' + order(Hm, p, 0.05);
+    const s = closedAdj(Hm, p, 0.05, 'simes');
+    return s.rejected.every(Boolean) || 'closed Simes rejected ' + s.rejected.map(Number).join('');
+  });
+  check('Xi and Tamhane (2014), section 6 and Table III (pp. 1328 to 1329): at least 3 of 4 primaries (their γ = 1/2), α 0.05, p = (0.01, 0.02, 0.024, 0.04, 0.01) rejects H1 only; the adjusted p-values are 0.040 for H1 and 0.060 for H2 to H5 (T-HOLM), tolerance 0.0001 for ε = 1/1000', () => {
+    const G = load(entangledKOfM(4, 3, 0.05)), p = [0.01, 0.02, 0.024, 0.04, 0.01];
+    if (order(G, p, 0.05) !== 'H1') return 'rejected ' + order(G, p, 0.05);
+    const a = adjustedPValues(stateFromGraph(G), pOfG(G, p)), got = G.nodes.map(n => a.get(n.id));
+    return near(got, [0.04, 0.06, 0.06, 0.06, 0.06], 0.0001) || 'adjusted ' + got.map(x => x.toFixed(5)).join(', ');
+  });
+  check('Rauch and Beyersmann (2013), Figs. 2 and 3 (p. 3603): a composite CE and its component EP1 at α/2 each pass 1 − ε to each other and ε/2 to each of EP2 and EP3, which pass 1 to each other. After CE is rejected, EP1 holds 1 − ε/2 and EP2, EP3 ε/4 each (ε = 1/1000), with EP1 passing 1/2 to each, the ε → 0 graph of Fig. 3 (left); after CE and EP1, EP2 and EP3 hold 1/2 each and pass 1 to each other (Fig. 3, right)', () => {
+    const G = mk(['1/2', '1/2', '0', '0'], [['0', '1-ε', 'ε/2', 'ε/2'], ['1-ε', '0', 'ε/2', 'ε/2'], ['0', '0', '0', '1'], ['0', '0', '1', '0']], ['CE', 'EP1', 'EP2', 'EP3'], 0.025);
+    let s = after(G, ['CE']);
+    const w1 = ['EP1', 'EP2', 'EP3'].map(l => wOf(G, s, l)).join(' ');
+    if (w1 !== '1999/2000 1/4000 1/4000') return 'after CE: ' + w1;
+    if (gOf(G, s, 'EP1', 'EP2') !== '1/2' || gOf(G, s, 'EP1', 'EP3') !== '1/2' || gOf(G, s, 'EP2', 'EP3') !== '1') return 'after CE, transitions ' + [gOf(G, s, 'EP1', 'EP2'), gOf(G, s, 'EP1', 'EP3'), gOf(G, s, 'EP2', 'EP3')].join(' ');
+    s = after(G, ['CE', 'EP1']);
+    return (wOf(G, s, 'EP2') === '1/2' && wOf(G, s, 'EP3') === '1/2' && gOf(G, s, 'EP2', 'EP3') === '1' && gOf(G, s, 'EP3', 'EP2') === '1') || `after CE and EP1: ${wOf(G, s, 'EP2')}, ${wOf(G, s, 'EP3')}`;
+  });
+  check('Giacalone et al. (2018), Tables 1 and 2 (pp. 5 to 6): Holm on 22 raw p-values at α 0.05 rejects nine hypotheses and gives the printed adjusted p-values to four decimals. The follow-up time p-value is 0.0577 as in Table 1 (Table 2 prints 0.0567 beside the adjusted 0.5770, a misprint); the paper caps adjusted p-values at 0.9999', () => {
+    const p = [0.0281, 0.0019, 0.0001, 0.0002, 0.0032, 0.0004, 0.0053, 0.0008, 0.0007, 0.6274, 0.2755, 0.0006, 0.7376, 0.9852, 0.5074, 0.1553, 0.8858, 0.6075, 0.0316, 0.0003, 0.6643, 0.0577];
+    const want = [0.3372, 0.0285, 0.0022, 0.0042, 0.0448, 0.0076, 0.0689, 0.0128, 0.0119, 0.9999, 0.9999, 0.0108, 0.9999, 0.9999, 0.9999, 0.9999, 0.9999, 0.9999, 0.3476, 0.0060, 0.9999, 0.5770];
+    const G = load(generatedTemplate('holm', 22)), a = adjustedPValues(stateFromGraph(G), pOfG(G, p)), got = G.nodes.map(n => Math.min(a.get(n.id), 0.9999));
+    if (!near(got, want, 5e-5)) return 'adjusted ' + got.map(x => x.toFixed(4)).join(', ');
+    const n = runProcedure(stateFromGraph(G), pOfG(G, p), 0.05).order.length;
+    return n === 9 || 'rejected ' + n;
+  });
+  check('Maurer, Bretz and Posch (2022), Algorithm 1 (p. 759), the "otherwise 0" case: with w = (1/3, 1/3, 1/3), g12 = g21 = 1 and g31 = g32 = 1/2, removing H2 gives H1 the weight 2/3 and no outgoing edge (g13 = 0) and makes g31 = 1; after H1 and H2 are removed, in either order, H3 keeps 1/3', () => {
+    const G = mk(['1/3', '1/3', '1/3'], [['0', '1', '0'], ['1', '0', '0'], ['1/2', '1/2', '0']], null, 0.05);
+    const s = after(G, ['H2']);
+    if (wOf(G, s, 'H1') !== '2/3' || gOf(G, s, 'H1', 'H3') !== '0' || gOf(G, s, 'H3', 'H1') !== '1') return `after H2: ${wOf(G, s, 'H1')}, g13 ${gOf(G, s, 'H1', 'H3')}, g31 ${gOf(G, s, 'H3', 'H1')}`;
+    const a = after(G, ['H1', 'H2']), b = after(G, ['H2', 'H1']);
+    return (wOf(G, a, 'H3') === '1/3' && wOf(G, b, 'H3') === '1/3') || `H3 ${wOf(G, a, 'H3')} and ${wOf(G, b, 'H3')}`;
+  });
   return res;
 }
 
@@ -4440,6 +4556,23 @@ function runEntangledSelfTests() {
     if (!near(wOf(m34, 2), 0.5) || !near(wOf(m34, 3), 0.5)) return '{H3,H4} weights';
     const b = runProcedure(stateFromGraph(G), pOfG(G, p), 0.025);
     return lab(G, b.order.slice().sort()) === 'H1,H2,H3' || 'Bonferroni rejected ' + lab(G, b.order);
+  });
+  check('Self-test I. At least k of m (Maurer and Bretz, 2013, section 5.3.2, p. 1751; Robertson, Wason and Bretz, 2020, Table 4, p. 3148): after H1 to Hk are rejected the secondary holds 1/C(m, k) and each remaining primary (1 − 1/C(m, k))/(m − k); after r ≥ k rejections the secondary holds C(r, k)/C(m, k); the template note states the same levels (3 of 4: 3α/4 and α/4)', () => {
+    const choose = (n, r) => { let x = 1; for (let i = 1; i <= r; i++) x = (x * (n - r + i)) / i; return x; };
+    const said = { '4,3': ['α/4', '3α/4'], '4,2': ['α/6', '5α/12'], '3,2': ['α/3', '2α/3'], '4,1': ['α/4', 'α/4'], '6,3': ['α/20', '19α/60'] };
+    for (const [m, k] of [[3, 1], [3, 2], [4, 1], [4, 2], [4, 3], [5, 2], [6, 3], [6, 5]]) {
+      const o = kOfM(m, k, 0.025), G = load(o), ids = G.nodes.map(n => n.id), sec = ids[m], C = choose(m, k);
+      let st = stateFromGraph(G);
+      for (let r = 1; r <= m; r++) {
+        st = rejectNode(st, ids[r - 1]);
+        if (r < k) continue;
+        if (!near(Q.toNum(st.w.get(sec)), choose(r, k) / C)) return `${k} of ${m}, r = ${r}: secondary ${Q.exact(st.w.get(sec))}`;
+        if (r === k) for (let i = k; i < m; i++) if (!near(Q.toNum(st.w.get(ids[i])), (1 - 1 / C) / (m - k))) return `${k} of ${m}: H${i + 1} ${Q.exact(st.w.get(ids[i]))}`;
+      }
+      const s = said[m + ',' + k];
+      if (s && !(o.note.includes(`= ${s[0]} and each remaining primary`) && o.note.includes(`= ${s[1]}. Each further`))) return `${k} of ${m}: the note does not state ${s.join(' and ')}`;
+    }
+    return true;
   });
   check('Entangled JSON (version 2) and the share link round-trip every component, c, ε expressions and the active component; the top-level graph is component 1', () => {
     const G = F(); entLoad(G, 1);
@@ -5175,7 +5308,7 @@ const OPT = { source: 'quick', quick: 'any', values: { reg: [], rule: 'all', sco
 /* Help on what correlation to enter, shown in the Power tab and in the parametric help of the Test tab */
 /* Result-text note for correlations entered as 1 and capped at 0.999999 so the matrix is positive definite (runSim and the Compare tab) */
 function corrCapText(capped) { return capped ? ` (${capped} pair${capped > 1 ? 's' : ''} entered as 1 ${capped > 1 ? 'were' : 'was'} set to 0.999999 so that the matrix is positive definite)` : ''; }
-const CORR_WHAT_TO_ENTER = 'What to enter. For two doses compared with one control, the correlation of the two z statistics is &radic;(n&#8321;n&#8322; / ((n&#8321; + n&#8320;)(n&#8322; + n&#8320;))), so 0.5 with equal group sizes (Bretz et al., 2011, p. 904; Li, Deng and Ting, 2023, section 3.4). For the same test in the full population and in a subgroup, it is about the square root of the subgroup\'s share of the sample (Zhao, Dmitrienko and Tamura, 2010, eq. 4). For two endpoints measured on the same patients, it is the correlation between the endpoints. For binary endpoints use the tetrachoric correlation, not the correlation of the 0/1 outcomes (Westfall et al., 2008, p. 620).';
+const CORR_WHAT_TO_ENTER = 'What to enter. For two doses compared with one control, the correlation of the two z statistics is &radic;(n&#8321;n&#8322; / ((n&#8321; + n&#8320;)(n&#8322; + n&#8320;))), so 0.5 with equal group sizes (Bretz et al., 2011, p. 904; Li, Deng and Ting, 2023, section 3.4). This assumes a common variance; for unequal variances see Pigorsch, Hothorn and Konietschke (2025, eq. 4). For the same test in the full population and in a subgroup, it is about the square root of the subgroup\'s share &gamma; of the sample (Zhao, Dmitrienko and Tamura, 2010, eq. 4). This assumes the outcome varies equally in the subgroup and in the rest of the population. With standard deviations &sigma;<sub>S</sub> in the subgroup and &sigma;<sub>C</sub> in the rest, it is &sigma;<sub>S</sub>&radic;&gamma; / &radic;(&gamma;&sigma;<sub>S</sub>&sup2; + (1 &minus; &gamma;)&sigma;<sub>C</sub>&sup2;); the subgroup and the rest are uncorrelated (Thomas, Bornkamp, Posch and K&ouml;nig, 2020, p. 58). For two endpoints measured on the same patients, it is the correlation between the endpoints. For binary endpoints use the tetrachoric correlation, not the correlation of the 0/1 outcomes (Westfall et al., 2008, p. 620).';
 
 const fmt = q => Q.fmt(q, numMode);
 const editVal = q => (numMode === 'dec' ? Q.dec(q) : (Q.isExactShort(q) ? Q.exact(q) : Q.dec(q)));
@@ -5726,7 +5859,7 @@ function renderStatus() {
   const ordered = V.filter(m => m.level === 'error').concat(V.filter(m => m.level === 'warn'));
   if (!ordered.length) {
     const ex = isAlphaExhaustive(G);
-    el.innerHTML = `<div class="msg ok"><span class="ic" aria-hidden="true">✓</span><span class="txt-part"><b>Valid graph.</b> ${ex === true ? 'Every intersection hypothesis has weights summing to 1, so the procedure is alpha-exhaustive.' : ex === false ? 'The initial weights and rows of G sum to 1, but some intersection hypotheses have weights summing to less than 1, so the procedure is not alpha-exhaustive (this happens when two hypotheses pass their whole level to each other, as the secondary pair in truncated Holm does: once one of them is removed the other has nowhere to send its level).' : 'The weights and every row of G sum to 1, which makes the procedure alpha-exhaustive unless two hypotheses exchange their whole level.'}</span></div>`;
+    el.innerHTML = `<div class="msg ok"><span class="ic" aria-hidden="true">✓</span><span class="txt-part"><b>Valid graph.</b> ${ex === true ? 'Every intersection hypothesis has weights summing to 1, so the procedure is alpha-exhaustive.' : ex === false ? 'The initial weights and rows of G sum to 1, but some intersection hypotheses have weights summing to less than 1, so the procedure is not alpha-exhaustive. This happens when some hypotheses pass level only among themselves: once all of that group is removed, the level it received cannot return to the other hypotheses. Examples are the secondary pair in truncated Holm, which pass their whole level to each other, and a secondary family that passes level only within itself.' : 'The weights and every row of G sum to 1, which makes the procedure alpha-exhaustive unless some hypotheses pass level only among themselves (such as two that exchange their whole level).'}</span></div>`;
     return;
   }
   el.innerHTML = ordered.map(m => {
@@ -6142,7 +6275,7 @@ function testCtx() {
 }
 function corrProblem() {
   if (testType() !== 'parametric') return '';
-  if (G.sided === 'two') return 'The parametric test needs one-sided p-values: it assumes that Φ⁻¹(1 − p) is multivariate normal, which does not hold for two-sided p-values (gMCP manual). Switch the p-values to one-sided in the toolbar, or choose another test.';
+  if (G.sided === 'two') return 'The parametric test needs one-sided p-values: it assumes that Φ⁻¹(1 − p) is multivariate normal, which does not hold for two-sided p-values (gMCP manual; Bretz et al., 2013, Biometrical Journal 55:266). Switch the p-values to one-sided in the toolbar, or choose another test.';
   let blocks;
   try { blocks = corrBlocks(G.nodes.map((_, i) => i), testCorrAt); } catch (e) { return e.message; }
   for (const b of blocks) { const bad = corrConflict(b, testCorrAt); if (bad) return corrConflictText(bad.map(i => G.nodes[i].label), bad.length === b.length); }
@@ -6416,7 +6549,7 @@ function testTypeSection() {
   else if (type === 'simes-groups') body += `<p class="small muted">Weighted Simes test when every hypothesis of an intersection belongs to the same group, plain weighted Bonferroni otherwise (gMCP's <code>simes.on.subsets.test</code>). This is weaker than Simes within each group with Bonferroni between groups (Bretz et al., 2011, eq. 8), which graphicalMCP uses; the Simes condition then only has to hold within a group. ${groups.length ? `Groups: ${groups.map(esc).join(', ')}.` : 'No groups are set: give each hypothesis a group in its panel.'}</p>`;
   else {
     const prob = corrProblem();
-    body += `<p class="small muted">Weighted parametric test (Xi et al., 2017, section 4.3, eq. 6): within each block of hypotheses with known correlations the test uses the multivariate normal distribution of the one-sided test statistics, with a separate constant for each block, and blocks are combined by Bonferroni. gMCP uses one common constant for all blocks instead (Bretz et al., 2011, eq. 3), so its results can differ slightly. It assumes that Φ⁻¹(1 − p) is multivariate normal under the null with the correlations entered here, so the p-values must be one-sided. Leave a pair blank when its correlation is unknown; known pairs must form complete blocks.</p>
+    body += `<p class="small muted">Weighted parametric test (Xi et al., 2017, section 4.3, eq. 6): within each block of hypotheses with known correlations the test uses the multivariate normal distribution of the one-sided test statistics, with a separate constant for each block, and blocks are combined by Bonferroni. On an equally weighted Holm graph whose hypotheses form one block this is the step-down Dunnett test (Koenig et al., 2025, p. 4). gMCP uses one common constant for all blocks instead (Bretz et al., 2011, eq. 3), so its results can differ slightly. It assumes that Φ⁻¹(1 − p) is multivariate normal under the null with the correlations entered here, so the p-values must be one-sided. Leave a pair blank when its correlation is unknown; known pairs must form complete blocks.</p>
       <p class="small muted">${CORR_WHAT_TO_ENTER}</p>
       ${prob ? `<p class="${/same as Bonferroni/.test(prob) ? 'small muted' : 'err-text'}">${/same as Bonferroni/.test(prob) ? '' : '✕ '}${esc(prob)}</p>` : ''}
       <div class="mx-scroll"><table class="mx"><thead><tr><th></th>${G.nodes.map(n => `<th scope="col">${esc(n.label)}</th>`).join('')}</tr></thead><tbody>${G.nodes.map((a, i) => `<tr><th scope="row">${esc(a.label)}</th>${G.nodes.map((b, j) => j <= i ? `<td style="text-align:center;color:var(--muted)">${j === i ? '1' : ''}</td>` : `<td><input id="tc-${a.id}-${b.id}" data-tcorr="${a.id < b.id ? a.id + '|' + b.id : b.id + '|' + a.id}" value="${testCorrAt(i, j) == null ? '' : esc(String(testCorrAt(i, j)))}" placeholder="?" aria-label="Correlation between ${esc(a.label)} and ${esc(b.label)}"></td>`).join('')}</tr>`).join('')}</tbody></table></div>
@@ -6718,7 +6851,7 @@ function simInputsCheck() {
     if (i < j && v > 0.999999) capped++;
   }
   const L = cholesky(Rm, m);
-  if (!L) return { error: 'Those correlations cannot all hold at once (the matrix is not positive definite). Try values closer to 0.' };
+  if (!L) return { error: 'Those correlations cannot all hold at once, or they make one statistic an exact combination of the others, as for a full population, a subgroup and its complement (the matrix is not positive definite). Try values closer to 0, or leave one of them out.' };
   const za = qnorm(1 - G.alpha);
   return { pw, Rm, L, mean: pw.map(x => za + qnorm(x / 100)), capped };
 }
@@ -7643,7 +7776,7 @@ function runComparePower() {
   let capped = 0;
   for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) { const v = i === j ? 1 : Number(corrOf(G.nodes[i].id, G.nodes[j].id)); if (!(v >= -1 && v <= 1)) { CMP.error = 'Correlations in the Power tab must be numbers between −1 and 1.'; renderComparePanel(); return; } Rm[i * m + j] = i === j ? 1 : Math.min(v, 0.999999); if (i < j && v > 0.999999) capped++; }
   const L = cholesky(Rm, m);
-  if (!L) { CMP.error = 'The correlations in the Power tab cannot all hold at once (the matrix is not positive definite).'; renderComparePanel(); return; }
+  if (!L) { CMP.error = 'The correlations in the Power tab cannot all hold at once, or they make one statistic an exact combination of the others (the matrix is not positive definite).'; renderComparePanel(); return; }
   const za = qnorm(1 - G.alpha), mean = pw.map(x => za + qnorm(x / 100));
   const GB = deserializeGraph(B, false, 1).G, fgA = floatGraph(G), fgB = floatGraph(GB);
   const ids = G.nodes.map(n => n.id), sIdx = SIM.success.ids.map(id => ids.indexOf(id)).filter(i => i >= 0);
@@ -8601,8 +8734,11 @@ $('selftestBtn').addEventListener('click', () => { closeMenu(); showSelfTest(); 
 /* ---------- About, references and licence ---------- */
 const REFERENCES = [
   ['Bretz2009', 'Bretz F, Maurer W, Brannath W, Posch M (2009). A graphical approach to sequentially rejective multiple test procedures. Statistics in Medicine 28(4):586–604. doi:10.1002/sim.3495', 'The graphical approach: weights, transition matrix, the update algorithm and adjusted p-values. Everything in Design and the Bonferroni test.'],
+  ['MaurerBretzPosch2022', 'Maurer W, Bretz F, Posch M (2022). Rationale for the update algorithm of the graphical approach to sequentially rejective multiple test procedures. Pharmaceutical Statistics 21(4):757–763. doi:10.1002/pst.2227', 'Why the update rule (Algorithm 1 of Bretz et al., 2009) takes the form it does; the weights as absorption probabilities of a Markov chain (section 4.3).'],
   ['Bretz2011', 'Bretz F, Posch M, Glimm E, Klinglmüller F, Maurer W, Rohmeyer K (2011). Graphical approaches for multiple comparison procedures using weighted Bonferroni, Simes, or parametric tests. Biometrical Journal 53(6):894–913. doi:10.1002/bimj.201000239', 'Graph as the weighting strategy of a closed test; weighted Simes and parametric intersection tests; the free combination condition (p. 895). Its Bonferroni mixture of Simes tests (eq. 8) is what graphicalMCP uses; the Simes within groups option here follows gMCP instead.'],
+  ['Bretz2013', 'Bretz F, Posch M, Glimm E, Klinglmueller F, Maurer W, Rohmeyer K (2013). Author\'s reply. Biometrical Journal 55(2):266. doi:10.1002/bimj.201200256', 'Why the parametric test needs one-sided p-values: two-sided tests cannot be built from one-sided ones by halving the level.'],
   ['Xi2017', 'Xi D, Glimm E, Maurer W, Bretz F (2017). A unified framework for weighted parametric multiple test procedures. Biometrical Journal 59(5):918–931. doi:10.1002/bimj.201600233', 'The parametric test used here: adjusted p-values within blocks of known correlation, Bonferroni between blocks.'],
+  ['Koenig2025', 'Koenig F, Krasnozhon S, Bornkamp B, Bretz F, Glimm E, Graf A, Xi D (2025). Closed MCP-Mod for pairwise comparisons of several doses with a control. Statistics in Medicine 44(10-12):e70124. doi:10.1002/sim.70124', 'The parametric test on an equally weighted Holm graph is step-down Dunnett (p. 4); the efficacy and safety graph used for a primary and a secondary endpoint (Fig. 5, p. 10).'],
   ['BMH2011', 'Bretz F, Maurer W, Hommel G (2011). Test and power considerations for multiple endpoint analyses using sequentially rejective graphical procedures. Statistics in Medicine 30(13):1489–1501. doi:10.1002/sim.3988', 'Worked trial example (three doses, two endpoints template) and power measures.'],
   ['Maurer2011', 'Maurer W, Glimm E, Bretz F (2011). Multiple and repeated testing of primary, coprimary, and secondary hypotheses. Statistics in Biopharmaceutical Research 3(2):336–352. doi:10.1198/sbr.2010.10010', 'Successive procedures (the two doses, two endpoints and successive templates).'],
   ['Glimm2010', 'Glimm E, Maurer W, Bretz F (2010). Hierarchical testing of multiple endpoints in group-sequential trials. Statistics in Medicine 29(2):219–228. doi:10.1002/sim.3748', 'Why a secondary hypothesis must not be tested at the full α once its primary is rejected at an interim analysis (cited in the SAP interim analyses placeholder).'],
@@ -8617,7 +8753,9 @@ const REFERENCES = [
   ['Paux2018', 'Paux G, Dmitrienko A (2018). Penalty-based approaches to evaluating multiplicity adjustments in clinical trials: traditional multiplicity problems. Journal of Biopharmaceutical Statistics 28(1):146–168.', 'Fixed sequence lacks robustness when the effects are uncertain (fixed sequence template notes).'],
   ['Dmitrienko2003', 'Dmitrienko A, Offen WW, Westfall PH (2003). Gatekeeping strategies for clinical trials that do not require all primary effects to be significant. Statistics in Medicine 22(15):2387–2400. doi:10.1002/sim.1526', 'Parallel gatekeeping.'],
   ['Li2023', 'Li X, Deng Q, Ting N (2023). Consistency based multiplicity adjustment approach: multiple doses in phase III studies. Statistics in Biopharmaceutical Research 15(4):748–754. doi:10.1080/19466315.2022.2127872', 'Section 3.4: the correlation between two dose-versus-control z statistics (correlation help in the Power and Test tabs).'],
+  ['Pigorsch2025', 'Pigorsch M, Hothorn LA, Konietschke F (2025). Multiple contrast tests for count data: small sample approximations and their limitations. Biometrical Journal 67(6):e70098. doi:10.1002/bimj.70098', 'Eq. 4: the correlation of contrast tests with unequal variances (correlation help).'],
   ['Zhao2010', 'Zhao YD, Dmitrienko A, Tamura R (2010). Design and analysis considerations in clinical trials with a sensitive subpopulation. Statistics in Biopharmaceutical Research 2(1):72–83.', 'Eq. 4: the correlation between a full-population test and a subgroup test (correlation help).'],
+  ['Thomas2020', 'Thomas M, Bornkamp B, Posch M, König F (2020). A multiple comparison procedure for dose-finding trials with subpopulations. Biometrical Journal 62(1):53–68. doi:10.1002/bimj.201800111', 'p. 58: the correlation of full-population and subgroup tests with unequal variances; the subgroup and its complement are uncorrelated (correlation help).'],
   ['Westfall2008', 'Westfall PH, Tsai K, Ogenstad S, Tomoiaga A, Moseley S, Lu Y (2008). Clinical trials simulation: a statistical approach. Journal of Biopharmaceutical Statistics 18(4):611–630. doi:10.1080/10543400802071303', 'Binary endpoints need the tetrachoric correlation as the latent-normal input (correlation help).'],
   ['XiChen2024', 'Xi D, Chen Y (2024). Optimal weighted Bonferroni tests and their graphical extensions. Statistics in Medicine 43(3):475–500.', 'Eq. 2: the mean of a z statistic from its marginal power (Power tab).'],
   ['Dmitrienko2008', 'Dmitrienko A, Tamhane AC, Wiens BL (2008). General multistage gatekeeping procedures. Biometrical Journal 50(5):667–677.', 'Truncated Holm (the γ template).'],
@@ -8636,9 +8774,11 @@ const REFERENCES = [
   ['Strassburger2008', 'Strassburger K, Bretz F (2008). Compatible simultaneous lower confidence bounds for the Holm procedure and other Bonferroni-based closed tests. Statistics in Medicine 27(24):4914–4927. doi:10.1002/sim.3338', 'Simultaneous confidence intervals compatible with Bonferroni-based closed tests (not computed here).'],
   ['Guilbaud2008', 'Guilbaud O (2008). Simultaneous confidence regions corresponding to Holm’s step-down procedure and other closed-testing procedures. Biometrical Journal 50(5):678–692. doi:10.1002/bimj.200710449', 'Simultaneous confidence regions for Holm, fixed sequence, gatekeeping and fallback procedures (not computed here).'],
   ['Guilbaud2018', 'Guilbaud O (2018). Simultaneous confidence intervals compatible with sequentially rejective graphical procedures. Statistics in Biopharmaceutical Research 10(3):220–232. doi:10.1080/19466315.2018.1497532', 'Simultaneous confidence intervals for graphical procedures (not computed here); truncated Holm as a graph for two primary hypotheses only.'],
-  ['XiBretz2019', 'Xi D, Bretz F (2019). Symmetric graphs for equally weighted tests, with application to the Hochberg procedure. Statistics in Medicine 38(27):5268–5282. doi:10.1002/sim.8375', 'Section 5.1 and Fig. 5: parallel gatekeeping with truncated Holm as an entangled graph (template), tested with Hochberg, that is, the Simes closure.'],
+  ['XiBretz2019', 'Xi D, Bretz F (2019). Symmetric graphs for equally weighted tests, with application to the Hochberg procedure. Statistics in Medicine 38(27):5268–5282. doi:10.1002/sim.8375', 'Section 5.1 and Fig. 5: parallel gatekeeping with truncated Holm as an entangled graph (template). The paper tests it with the truncated Hochberg and Hochberg procedures, each a closed test with its own intersection test (p. 5271, eq. 1). The app\'s weighted Simes closure on the same graph is a Hommel-type test. It gives the paper\'s result for the section 5.1 example.'],
+  ['XiTamhane2014', 'Xi D, Tamhane AC (2014). A general multistage procedure for k-out-of-n gatekeeping. Statistics in Medicine 33(8):1321–1335. doi:10.1002/sim.6028', 'The k-truncated Holm procedure for k-out-of-n gatekeeping (eqs. 6 and 8, p. 1324); the at least k of m template equals it for k = 1 and k = m − 1.'],
   ['Burman2009', 'Burman C-F, Sonesson C, Guilbaud O (2009). A recycling framework for the construction of Bonferroni-based multiple tests. Statistics in Medicine 28(5):739–761. doi:10.1002/sim.3513', 'Default graphs: the fixed sequences with weights of the Matrix tab\'s default-graph view and import.'],
   ['HungWang2010', 'Hung HMJ, Wang SJ (2010). Challenges to multiple testing in clinical trials. Biometrical Journal 52(6):747–756.', 'Fig. 1: the non-inferiority then superiority template with ν, τ and ω.'],
+  ['Guilbaud2011', 'Guilbaud O (2011). Note on simultaneous inferences about non-inferiority and superiority for a primary and a secondary endpoint. Biometrical Journal 53(6):927–937. doi:10.1002/bimj.201000247', 'p. 930: in the Hung and Wang graph, H2,S can be rejected without H2,NI whenever ν > 0 and τ > 0 (template note).'],
   ['GuilbaudKarlsson2011', 'Guilbaud O, Karlsson P (2011). Confidence regions for Bonferroni-based closed tests extended to more general closed tests. Journal of Biopharmaceutical Statistics 21(4):682–707.', 'Example 2: Bretz et al. (2009) Fig. 14 left as the default graph of two sequences (the right graph is only close to its six-sequence default graph).'],
   ['LiZhou2021', 'Li H, Zhou H (2021). A new approach to address multiplicity in hypothesis testing with constraints. Communications in Statistics, Theory and Methods 50(1):35–60. doi:10.1080/03610926.2019.1628989', 'Fig. 7: p-value scenarios worked through the two Bretz et al. (2009) Fig. 14 graphs (self-tests).'],
   ['Minini2026', 'Minini P, Paux G, Dmitrienko A (2026). Comparison of multiple testing procedures for clinical trials with two doses and multiple ranked endpoints. Journal of Biopharmaceutical Statistics, published online 11 October 2026. doi:10.1080/10543406.2026.2741424', 'Figs. 4 and 5 are the two doses, three endpoints templates (Bretz et al., 2009, Fig. 14).'],

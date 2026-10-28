@@ -1,6 +1,6 @@
 # Multiplicity Graph Sketchpad User Guide
 
-Niamh Fitzgerald · version 1.3.3
+Niamh Fitzgerald · version 1.3.4
 
 The Sketchpad draws, tests and explains graphical multiple testing procedures (Bretz et al., 2009) in the browser. Nothing you enter leaves your computer. This guide covers how to use it, not the method.
 
@@ -91,7 +91,7 @@ The default is the weighted Bonferroni test, which is the one that can be steppe
 
 ## Power by simulation
 
-The Power tab estimates how often the graph rejects each hypothesis. Enter the power each test would have on its own at the full alpha, and the correlation between the test statistics (one value for every pair, or pair by pair). A note under the correlation box says what to enter for the common cases: two doses against one control, a full population and a subgroup, two endpoints on the same patients, and binary endpoints. The same note appears with the correlation matrix of the parametric test in the Test tab. If the correlations cannot all hold at once, a red message names the hypotheses involved as soon as you leave the box. A correlation entered as 1 is set to 0.999999 so that the simulation can run; the result text says how many pairs were changed. Define a success rule if you want one, such as "any of H1, H2". Run simulation gives the power for each hypothesis, the chance of at least one and of all rejections, and the expected number rejected. "Keep for comparison" stores a run so you can compare designs side by side. The matching graphicalMCP code is underneath. If you change the graph, the test or any simulation setting after a run, a notice asks you to run again.
+The Power tab estimates how often the graph rejects each hypothesis. Enter the power each test would have on its own at the full alpha, and the correlation between the test statistics (one value for every pair, or pair by pair). Enter each power as if that test were the only one, at the full alpha, not at its share of alpha; the graph does the splitting. This is the same for binary endpoints. The simulation uses z tests, so with fewer than about 30 patients per group its power reads slightly higher than a t test or an exact test would give. A note under the correlation box says what to enter for the common cases: two doses against one control, a full population and a subgroup, two endpoints on the same patients, and binary endpoints. The same note appears with the correlation matrix of the parametric test in the Test tab. If the correlations cannot all hold at once, a red message names the hypotheses involved as soon as you leave the box. A correlation entered as 1 is set to 0.999999 so that the simulation can run; the result text says how many pairs were changed. Define a success rule if you want one, such as "any of H1, H2". Run simulation gives the power for each hypothesis, the chance of at least one and of all rejections, and the expected number rejected. "Keep for comparison" stores a run so you can compare designs side by side. The matching graphicalMCP code is underneath. If you change the graph, the test or any simulation setting after a run, a notice asks you to run again.
 
 ## Optimise with multigrain
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.3.4 (2026-10-28)
+
+Fixes and self-tests from the methods check of 27 October 2026. The engine's results are unchanged. Words, references and tests only.
+
+- Fixed: the note of the "at least k of m" entangled template gave the wrong levels once k primaries are rejected (the graph itself was right). It now says H(m+1) is tested at α/C(m, k) and each remaining primary at (1 − 1/C(m, k))α/(m − k), with the numbers filled in and ignoring terms in ε, and that each further rejection raises H(m+1) to C(r, k)/C(m, k) of α. It says when the template is the k-out-of-n gatekeeping procedure of Xi and Tamhane (2014): for k = 1 and k = m − 1 only. New Self-test I checks the levels for eight (m, k) pairs and the note text for five.
+- Correlation help (Power tab, and the parametric test in the Test tab): the many-to-one formula assumes a common variance; for unequal variances the help points to Pigorsch, Hothorn and Konietschke (2025, eq. 4). The subgroup formula √γ assumes the outcome varies equally in the subgroup and the rest; the help now gives the formula for unequal standard deviations and says the subgroup and the rest are uncorrelated (Thomas, Bornkamp, Posch and König, 2020, p. 58).
+- The message for a correlation matrix that is not positive definite now also names the singular case, as for a full population, a subgroup and its complement, and suggests leaving one of them out. Test tab, Power tab and Compare tab.
+- Graph tab status line: a graph whose rows sum to 1 can fail to be alpha-exhaustive when some hypotheses pass level only among themselves. The line now gives the secondary pair in truncated Holm and a secondary family that passes level only within itself as examples.
+- Parametric test help: on an equally weighted Holm graph whose hypotheses form one block, the test is step-down Dunnett (Koenig et al., 2025, p. 4). The two-sided refusal cites Bretz et al. (2013) beside the gMCP manual.
+- Template notes: Hung and Wang now says H2,S can be rejected without H2,NI whenever ν > 0 and τ > 0 (Guilbaud, 2011, p. 930). Efficacy and safety now says Koenig et al. (2025, Fig. 5 and Table 7) use the same graph for a primary and a secondary endpoint with three doses.
+- About: the note on Xi and Bretz (2019) now says the paper tests its graph with the truncated Hochberg and Hochberg procedures (p. 5271, eq. 1), while the app's weighted Simes closure is a Hommel-type test that gives the paper's result for its section 5.1 example. Seven new references: Maurer, Bretz and Posch (2022); Bretz et al. (2013); Koenig et al. (2025); Pigorsch, Hothorn and Konietschke (2025); Thomas et al. (2020); Xi and Tamhane (2014); Guilbaud (2011).
+- Plain language on: the sentence "It is allowed a 2.5% chance of wrongly claiming at least one success across all of them" (Graph tab and Test tab) now ends "whichever of the questions truly have no effect". With Plain language off the page is unchanged.
+- Eleven new literature self-tests: Wang and Ting (2014), Figs. 2 to 4 and Table 1; Wang et al. (2015), Table 1, all 20 results (row 5 under serial gatekeeping is printed as H1 only; Holm rejects all four); Koenig et al. (2025), Table 6 (step-down Dunnett adjusted p-values) and Table 7 (closure weights of the efficacy and safety graph); Ristl et al. (2024), p. 606; Guilbaud (2011), the default graph of Fig. 1 and the levels of Fig. 2A; Zhang, Quan, Ng and Stepanavage (1997), Table 6; Xi and Tamhane (2014), Table III; Rauch and Beyersmann (2013), Figs. 2 and 3; Giacalone et al. (2018), Tables 1 and 2 (22 adjusted p-values); Maurer, Bretz and Posch (2022), Algorithm 1, the "otherwise 0" case. Self-tests: 123. Browser suite: 42. Engine stress suite: 46.
+- User guide: the Power tab section says to enter each power as if that test were the only one, at the full alpha, also for binary endpoints, and that z tests read slightly high with fewer than about 30 patients per group.
+
 ## 1.3.3 (2026-10-27)
 
 One new literature self-test, planned for 1.3.1 and held back for the paper.

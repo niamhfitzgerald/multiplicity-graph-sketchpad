@@ -1,7 +1,7 @@
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.3.3';
-const APP_DATE = '2026-10-27';
+const APP_VERSION = '1.3.4';
+const APP_DATE = '2026-10-28';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
 /* The author's LinkedIn profile; the header byline and About link to it. */
@@ -531,9 +531,18 @@ function entangledKOfM(m, k, alpha) {
     edges.push(k > 1 ? [top, m, 'ε'] : [top, m, '1']);
     return { w, edges };
   });
+  /* Levels once k primaries are rejected (checked against the engine for every m <= 6 and k, rejecting in index order, 28 October 2026; in other orders they hold up to terms in ε):
+     H(m+1) at alpha/C(m,k); each remaining primary at (1 - 1/C(m,k)) alpha/(m - k); after r >= k rejections H(m+1)
+     holds C(r,k)/C(m,k) of alpha. Maurer and Bretz (2013), p. 1751, give the 3 of 4 case: 3 alpha/4 and alpha/4. */
+  const nC = subsets.length, gcd = (a, b) => (b ? gcd(b, a % b) : a);
+  const aFrac = (num, den) => { const g = gcd(num, den); num /= g; den /= g; return den === 1 ? (num === 1 ? 'α' : `${num}α`) : `${num === 1 ? '' : num}α/${den}`; };
+  const pFrac = (num, den) => { const g = gcd(num, den); return den / g === 1 ? `${num / g}` : `${num / g}/${den / g}`; };
+  const xt = k === 1 ? ' With k = 1 this is the k-out-of-n gatekeeping procedure of Xi and Tamhane (2014) with γ = 0.'
+    : k === m - 1 ? ` With k = m − 1 this is the k-out-of-n gatekeeping procedure of Xi and Tamhane (2014) with γ = 1 − 2/m = ${pFrac(m - 2, m)}.`
+    : ' It is not the k-out-of-n gatekeeping procedure of Xi and Tamhane (2014), whose secondary level rises in equal steps; both control the familywise error rate.';
   return entangledJSON({
     alpha, nodes, groups: Array.from({ length: m }, () => 'primary').concat(['secondary']),
-    note: `At least ${k} of ${m} primary hypotheses (H1 to H${m}) must be rejected before the secondary hypothesis H${m + 1} is tested (Maurer and Bretz, 2013, section 5.3.2, pp. 1750-1751, and Fig. 6; Guilbaud, 2018, Example 11 and Fig. 5(b), for 2 of 3). One component graph per set of ${k} primaries (${subsets.length} in all, c = 1/${subsets.length} each): Holm within the set, and only the last of the set to be rejected hands its level to H${m + 1} (the ε edge); the other primaries are isolated with weight 0. Taken together: Holm on the primaries until ${k} are rejected, each remaining primary then at (m − k)α/m = ${m - k}α/${m}, and H${m + 1} at ${k}α/${m} once ${k} primaries are rejected, rising to α when all are.`,
+    note: `At least ${k} of ${m} primary hypotheses (H1 to H${m}) must be rejected before the secondary hypothesis H${m + 1} is tested (Maurer and Bretz, 2013, section 5.3.2, pp. 1750-1751, and Fig. 6; Guilbaud, 2018, Example 11 and Fig. 5(b), for 2 of 3). One component graph per set of ${k} primaries (${nC} in all, c = 1/${nC} each): Holm within the set, and only the last of the set to be rejected hands its level to H${m + 1} (the ε edge); the other primaries are isolated with weight 0. Taken together, ignoring terms in ε: Holm on the primaries until ${k === 1 ? 'one is' : `${k} are`} rejected. Then H${m + 1} is at α/C(${m}, ${k}) = ${aFrac(1, nC)} and each remaining primary at (1 − 1/C(${m}, ${k}))α/(${m} − ${k}) = ${aFrac(nC - 1, nC * (m - k))}. Each further primary rejection raises the level of H${m + 1}: after r rejections it is C(r, ${k})/C(${m}, ${k}) of α, so α once all ${m} are rejected.${xt}`,
     c: subsets.map(() => `1/${subsets.length}`),
     comps
   });
@@ -1570,13 +1579,13 @@ Object.assign(TEMPLATES, {
   },
   efficacySafety: {
     name: 'Efficacy and safety for three treatments (Bretz et al., 2009, Fig. 8)',
-    note: 'Three treatments, each with an efficacy hypothesis and a safety hypothesis (Bretz et al., 2009, Fig. 8, p. 594). HE1, HE2, HE3 (efficacy) share alpha equally; HS1, HS2, HS3 (safety) start at 0. A treatment\'s safety hypothesis is tested only once its efficacy hypothesis is rejected, which passes it the whole level; a rejected safety hypothesis passes its level equally to the efficacy hypotheses of the other two treatments. Alpha-exhaustive. The paper gives the graph only, with no worked numbers.',
+    note: 'Three treatments, each with an efficacy hypothesis and a safety hypothesis (Bretz et al., 2009, Fig. 8, p. 594). HE1, HE2, HE3 (efficacy) share alpha equally; HS1, HS2, HS3 (safety) start at 0. A treatment\'s safety hypothesis is tested only once its efficacy hypothesis is rejected, which passes it the whole level; a rejected safety hypothesis passes its level equally to the efficacy hypotheses of the other two treatments. Alpha-exhaustive. The paper gives the graph only, with no worked numbers. Koenig et al. (2025, Fig. 5, p. 10, and Table 7, p. 11) use the same graph for a primary and a secondary endpoint with three doses against placebo.',
     nodes: [['HE1', '1/3', 0, 0], ['HE2', '1/3', 260, 0], ['HE3', '1/3', 520, 0], ['HS1', '0', 0, 230], ['HS2', '0', 260, 230], ['HS3', '0', 520, 230]],
     edges: [[0, 3, '1'], [1, 4, '1'], [2, 5, '1'], [3, 1, '1/2'], [3, 2, '1/2'], [4, 0, '1/2'], [4, 2, '1/2'], [5, 0, '1/2'], [5, 1, '1/2']], groups: ['efficacy', 'efficacy', 'efficacy', 'safety', 'safety', 'safety']
   },
   hungWang: {
     name: 'Hung and Wang (2010): non-inferiority then superiority, two endpoints',
-    note: 'Non-inferiority and superiority on a primary and a secondary endpoint (Hung and Wang, 2010, Biometrical Journal 52:747-756, Fig. 1, p. 751; section 7, p. 754). H1,NI (non-inferiority on the primary endpoint) holds all of alpha. When it is rejected, a share ν goes to superiority on the primary endpoint (H1,S) and 1−ν to non-inferiority on the secondary endpoint (H2,NI). H1,S passes τ to H2,S and 1−τ to H2,NI; H2,NI passes ω to H1,S and 1−ω to H2,S. H2,S (superiority on the secondary endpoint) passes nothing on, so the graph is not alpha-exhaustive and validation shows that one warning. The paper warns (p. 754) that τ = ω = 1 lets H2,S be tested without H2,NI having been rejected, and then H2,S can never be tested unless H1,S is. The defaults here are ν = τ = ω = 1/2. gMCP\'s HungEtWang2010(nu, tau, omega) has the same nodes in the same order but puts its tau on the H1,S → H2,NI edge, the other way round from the figure, so this graph is HungEtWang2010(nu = ν, tau = 1 − τ, omega = ω); the gMCP export writes the matrix in full.',
+    note: 'Non-inferiority and superiority on a primary and a secondary endpoint (Hung and Wang, 2010, Biometrical Journal 52:747-756, Fig. 1, p. 751; section 7, p. 754). H1,NI (non-inferiority on the primary endpoint) holds all of alpha. When it is rejected, a share ν goes to superiority on the primary endpoint (H1,S) and 1−ν to non-inferiority on the secondary endpoint (H2,NI). H1,S passes τ to H2,S and 1−τ to H2,NI; H2,NI passes ω to H1,S and 1−ω to H2,S. H2,S (superiority on the secondary endpoint) passes nothing on, so the graph is not alpha-exhaustive and validation shows that one warning. The paper warns (p. 754) that τ = ω = 1 lets H2,S be tested without H2,NI having been rejected, and then H2,S can never be tested unless H1,S is. More generally, H2,S can be rejected without H2,NI whenever ν > 0 and τ > 0 (Guilbaud, 2011, Biometrical Journal 53:927-937, p. 930). The defaults here are ν = τ = ω = 1/2. gMCP\'s HungEtWang2010(nu, tau, omega) has the same nodes in the same order but puts its tau on the H1,S → H2,NI edge, the other way round from the figure, so this graph is HungEtWang2010(nu = ν, tau = 1 − τ, omega = ω); the gMCP export writes the matrix in full.',
     nodes: [['H1,NI', '1', 0, 0], ['H1,S', '0', 300, 0], ['H2,NI', '0', 0, 220], ['H2,S', '0', 300, 220]],
     edges: [[0, 1, 'ν'], [0, 2, '1-ν'], [1, 3, 'τ'], [1, 2, '1-τ'], [2, 1, 'ω'], [2, 3, '1-ω']]
   },
@@ -2494,7 +2503,7 @@ function plainGraphText(G, nameOf) {
     /* Entangled graph (Maurer and Bretz, 2013): the allowance is split across linked graphs; a question's share is
        the sum of its shares in all of them, and each graph hands its part on in its own way */
     const n = G.ent.comps.length;
-    out.push(`The trial asks ${m} question${m > 1 ? 's' : ''} (${joinWords(G.nodes.map(nd => nameOf(nd.id, true)))}). It is allowed a ${pctWords(G.alpha)} chance of wrongly claiming at least one success across all of them. That allowance is split between ${n} linked graphs (${joinWords(G.ent.comps.map((_, k) => `graph ${k + 1} holds ${pctWords(Q.toNum(G.ent.c[k]) * G.alpha)}`))}). A question's share at any time is the sum of its shares in all the graphs${closed ? '.' : ', and it can only be claimed as a success if its p-value is no bigger than that sum.'} When a question succeeds, each graph hands its part of the share on in its own way, so a share remembers which graph it came from.`);
+    out.push(`The trial asks ${m} question${m > 1 ? 's' : ''} (${joinWords(G.nodes.map(nd => nameOf(nd.id, true)))}). It is allowed a ${pctWords(G.alpha)} chance of wrongly claiming at least one success across all of them, whichever of the questions truly have no effect. That allowance is split between ${n} linked graphs (${joinWords(G.ent.comps.map((_, k) => `graph ${k + 1} holds ${pctWords(Q.toNum(G.ent.c[k]) * G.alpha)}`))}). A question's share at any time is the sum of its shares in all the graphs${closed ? '.' : ', and it can only be claimed as a success if its p-value is no bigger than that sum.'} When a question succeeds, each graph hands its part of the share on in its own way, so a share remembers which graph it came from.`);
     G.ent.comps.forEach((cs, k) => {
       const v = entViewGraph(G, k), ck = Q.toNum(G.ent.c[k]) * G.alpha;
       const withW = v.nodes.filter(nd => !Q.isZero(nd.w));
@@ -2512,7 +2521,7 @@ function plainGraphText(G, nameOf) {
     else out.push('These shares are not compared with the p-values one question at a time. Instead every combination of questions is checked together with a Simes test, which can confirm a combination when all of its p-values are fairly small even if none is below its own share, and a question is claimed only when every combination that includes it passes the check. This relies on the test results not being negatively related to one another.');
     return out;
   }
-  out.push(`The trial asks ${m} question${m > 1 ? 's' : ''} (${joinWords(G.nodes.map(n => nameOf(n.id, true)))}). It is allowed a ${pctWords(G.alpha)} chance of wrongly claiming at least one success across all of them. That allowance is shared out${closed ? ' as described below.' : ', and a question can only be claimed as a success if its p-value is no bigger than its share at the time.'}`);
+  out.push(`The trial asks ${m} question${m > 1 ? 's' : ''} (${joinWords(G.nodes.map(n => nameOf(n.id, true)))}). It is allowed a ${pctWords(G.alpha)} chance of wrongly claiming at least one success across all of them, whichever of the questions truly have no effect. That allowance is shared out${closed ? ' as described below.' : ', and a question can only be claimed as a success if its p-value is no bigger than its share at the time.'}`);
   const withW = G.nodes.filter(n => !Q.isZero(n.w)), noW = G.nodes.filter(n => Q.isZero(n.w));
   const starts = withW.map(n => `${nameOf(n.id)} starts with ${pctWords(Q.toNum(n.w) * G.alpha)}`);
   let s = `At the start, ${joinWords(starts) || 'no question has a share'}.`;
@@ -2902,7 +2911,7 @@ function corrConflict(block, corrAt) {
 function corrConflictText(labels, whole) {
   if (labels.length === 2) return `The correlation between ${labels[0]} and ${labels[1]} must lie strictly between −1 and 1.`;
   const list = labels.slice(0, -1).join(', ') + ' and ' + labels[labels.length - 1];
-  return whole && labels.length > 3 ? 'These correlations cannot all hold at once (the matrix is not positive definite). Try values closer to 0.' : `The correlations between ${list} cannot all hold at once (the matrix is not positive definite). Try values closer to 0.`;
+  return whole && labels.length > 3 ? 'These correlations cannot all hold at once, or they make one statistic an exact combination of the others, as for a full population, a subgroup and its complement (the matrix is not positive definite). Try values closer to 0, or leave one of them out.' : `The correlations between ${list} cannot all hold at once, or they make one statistic an exact combination of the others, as for a full population, a subgroup and its complement (the matrix is not positive definite). Try values closer to 0, or leave one of them out.`;
 }
 /* c such that P(some Z_i >= z_{1 - c w_i a}) = level, for a block with known correlation. Cached per call context. */
 function paramConstant(block, w, a, level, cholL, rand, cache) {
@@ -3712,6 +3721,113 @@ function runLiteratureSelfTests() {
     const rz = power(Z, { pw: [95, 90, 85, 65, 60], corr: cs(5, 0.5) });
     return near(rz.rej, [0.950, 0.867, 0.784, 0.546, 0.485], 0.005) || 'Zhan powers ' + rz.rej.map(x => (100 * x).toFixed(2)).join(' ');
   });
+  /* 1.3.4: worked examples from the methods check of 27 October 2026 */
+  check('Wang and Ting (2014), Figs. 2 to 4 (pp. 4 to 6) and Table 1 (p. 5): two doses, non-inferiority H1, H2 and superiority on the primary and secondary endpoints (H3, H4 for the high dose; H5, H6 for the low dose), α 0.05, p = (0.005, 0.027, 0.020, 0.009, 0.133, 0.018). Gatekeeping (Fig. 2) rejects H1, H3, H4; Fig. 3 rejects H1, H2, H4, with H3 at 3α/8 and H2 at 5α/8 after H1 and H4; Fig. 4 (ε edges) rejects H1, H2, H3, H4, H6', () => {
+    const L6 = ['H1', 'H2', 'H3', 'H4', 'H5', 'H6'], p = [0.005, 0.027, 0.020, 0.009, 0.133, 0.018], w = ['1/2', '1/2', '0', '0', '0', '0'];
+    const z = () => Array.from({ length: 6 }, () => Array(6).fill('0'));
+    const f2 = z(); f2[0][2] = f2[0][3] = f2[1][4] = f2[1][5] = '1/2'; f2[2][3] = f2[3][2] = f2[4][5] = f2[5][4] = '1';
+    const f3 = z(); f3[0][2] = f3[0][3] = f3[1][4] = f3[1][5] = '1/2'; f3[2][3] = f3[2][1] = f3[3][2] = f3[3][1] = f3[4][5] = f3[4][0] = f3[5][4] = f3[5][0] = '1/2';
+    const f4 = z(); f4[0][2] = f4[0][3] = f4[1][4] = f4[1][5] = '1/2'; f4[2][3] = f4[3][2] = f4[4][5] = f4[5][4] = '1-ε'; f4[2][1] = f4[3][1] = f4[4][0] = f4[5][0] = 'ε';
+    const G2 = mk(w, f2, L6, 0.05), G3 = mk(w, f3, L6, 0.05), G4 = mk(w, f4, L6, 0.05);
+    const rj = G => labels(G, runProcedure(stateFromGraph(G), pOfG(G, p), 0.05).order);
+    if (rj(G2) !== 'H1,H3,H4') return 'Fig. 2 rejects ' + rj(G2);
+    if (rj(G3) !== 'H1,H2,H4') return 'Fig. 3 rejects ' + rj(G3);
+    const s = after(G3, ['H1', 'H4']);
+    if (wOf(G3, s, 'H3') !== '3/8' || wOf(G3, s, 'H2') !== '5/8') return `Fig. 3 after H1, H4: H3 ${wOf(G3, s, 'H3')}, H2 ${wOf(G3, s, 'H2')}`;
+    return rj(G4) === 'H1,H2,H3,H4,H6' || 'Fig. 4 rejects ' + rj(G4);
+  });
+  check('Wang et al. (2015), Fig. 3 (p. 18) and Table 1 (p. 19): primaries H1, H2 and secondaries H3, H4, α 0.05, five p-value rows under within-dose fixed sequences (Fig. 3(a)), Bonferroni parallel gatekeeping, serial gatekeeping with Holm in each family (ε edges) and the "no-dead-end" graph (Fig. 3(b)). All 20 printed results match except row 5 under serial gatekeeping, printed as H1 only: Holm rejects H1 then H2 (0.02 ≤ 0.025, 0.04 ≤ 0.05), then H3 and H4 (0.024 ≤ 0.025, 0.04 ≤ 0.05), so all four', () => {
+    const L4 = ['H1', 'H2', 'H3', 'H4'], w = ['1/2', '1/2', '0', '0'];
+    const fixed = mk(w, [[0, 0, 1, 0], [0, 0, 0, 1], [0, 0, 0, 0], [0, 0, 0, 0]], L4, 0.05);
+    const par = mk(w, [[0, 0, '1/2', '1/2'], [0, 0, '1/2', '1/2'], [0, 0, 0, 1], [0, 0, 1, 0]], L4, 0.05);
+    const ser = mk(w, [[0, '1-ε', 'ε', 0], ['1-ε', 0, 0, 'ε'], [0, 0, 0, 1], [0, 0, 1, 0]], L4, 0.05);
+    const nde = mk(w, [[0, 0, 1, 0], [0, 0, 0, 1], [0, 1, 0, 0], [1, 0, 0, 0]], L4, 0.05);
+    const rows = [
+      [[0.02, 0.015, 0.012, 0.04], 'H1,H2,H3', 'H1,H2,H3,H4', 'H1,H2,H3,H4', 'H1,H2,H3,H4'],
+      [[0.02, 0.04, 0.012, 0.024], 'H1,H3', 'H1,H3,H4', 'H1,H2,H3,H4', 'H1,H2,H3,H4'],
+      [[0.02, 0.06, 0.012, 0.024], 'H1,H3', 'H1,H3,H4', 'H1', 'H1,H3'],
+      [[0.02, 0.04, 0.04, 0.024], 'H1', 'H1', 'H1,H2,H3,H4', 'H1'],
+      [[0.02, 0.04, 0.024, 0.04], 'H1,H3', 'H1', 'H1,H2,H3,H4', 'H1,H2,H3,H4']];
+    const names = ['fixed sequence', 'parallel gatekeeping', 'serial gatekeeping', 'no-dead-end'];
+    for (let r = 0; r < rows.length; r++) [fixed, par, ser, nde].forEach((G, k) => {
+      const got = labels(G, runProcedure(stateFromGraph(G), pOfG(G, rows[r][0]), 0.05).order);
+      if (got !== rows[r][k + 1]) throw new Error(`row ${r + 1}, ${names[k]}: ${got}`);
+    });
+    return true;
+  });
+  check('Koenig et al. (2025), Table 6 (p. 10): step-down Dunnett for three doses against placebo is the parametric test on an equally weighted Holm graph with correlation 1/2; p = (0.3492, 0.0247, 0.0065) gives adjusted p (0.3492, 0.0449, 0.0176), tolerance 0.0002', () => {
+    const r = closedAdj(load(generatedTemplate('holm', 3)), [0.3492, 0.0247, 0.0065], 0.025, 'parametric', { corr: cs(3, 0.5) });
+    return near(r.adj, [0.3492, 0.0449, 0.0176], 0.0002) || 'adjusted ' + r.adj.map(x => x.toFixed(5)).join(', ');
+  });
+  check('Koenig et al. (2025), Fig. 5 (p. 10) and Table 7 (p. 11): the efficacy and safety template is their graph for a primary (HE) and a secondary (HS) endpoint with three doses; the local levels of all seven printed intersections match exactly', () => {
+    const G = load(templateJSON('efficacySafety')), labs = G.nodes.map(n => n.label);
+    const want = { 'HE1,HE2,HE3,HS1,HS2,HS3': '1/3 1/3 1/3 0 0 0', 'HS1,HS2,HS3': '1/3 1/3 1/3', 'HE1,HE2,HS1,HS2,HS3': '1/3 1/3 0 0 1/3', 'HE1,HE2,HS1,HS2': '1/2 1/2 0 0', 'HE1,HS1,HS2,HS3': '1/3 0 1/3 1/3', 'HE1,HS1,HS3': '1/2 0 1/2', 'HE1,HS3': '1/2 1/2' };
+    for (const [set, w] of Object.entries(want)) {
+      const keep = set.split(','), st = after(G, labs.filter(l => !keep.includes(l)));
+      const got = keep.map(l => wOf(G, st, l)).join(' ');
+      if (got !== w) return `${set}: ${got}`;
+    }
+    return true;
+  });
+  check('Ristl et al. (2024), p. 606: the closed max-type test of two survival summaries is the parametric test on Holm(2) with the estimated correlation 0.87; p = (0.0100, 0.0053) gives adjusted p (0.0100, 0.0082), tolerance 0.0002', () => {
+    const r = closedAdj(load(generatedTemplate('holm', 2)), [0.0100, 0.0053], 0.025, 'parametric', { corr: cs(2, 0.87) });
+    return near(r.adj, [0.0100, 0.0082], 0.0002) || 'adjusted ' + r.adj.map(x => x.toFixed(5)).join(', ');
+  });
+  check('Guilbaud (2011), Fig. 1 (p. 928): the Hung and Wang template with ν = 1/5, τ = 3/10, ω = 1/2 has the default graph of four sequences with weights ντ = 3/50, ν(1 − τ) = 7/50, (1 − ν)ω = 2/5 and (1 − ν)(1 − ω) = 2/5. Example 1 and Table 1 (pp. 929, 933), Fig. 2A (τ = 0 and an edge of 1 from H2,S to H1,S): after H1,NI, H1,S holds ν and H2,NI 1 − ν; after H1,NI and H2,NI, H1,S holds ν + (1 − ν)ω and H2,S (1 − ν)(1 − ω)', () => {
+    const G = load(templateJSON('hungWang'));
+    G.vars = Object.assign({}, G.vars || {}, { 'ν': Q.parse('1/5'), 'τ': Q.parse('3/10'), 'ω': Q.parse('1/2') }); evaluateGraph(G);
+    const lab = id => G.nodes.find(n => n.id === id).label, dg = defaultGraphOf(G);
+    const got = dg.seqs.map(s => s.order.map(lab).join('>') + ':' + Q.exact(s.c)).sort().join(' ');
+    const want = ['H1,NI>H1,S>H2,S:3/50', 'H1,NI>H1,S>H2,NI>H2,S:7/50', 'H1,NI>H2,NI>H1,S>H2,S:2/5', 'H1,NI>H2,NI>H2,S:2/5'].sort().join(' ');
+    if (got !== want) return 'default graph ' + got;
+    const A = mk(['1', '0', '0', '0'], [['0', '1/5', '4/5', '0'], ['0', '0', '1', '0'], ['0', '1/2', '0', '1/2'], ['0', '1', '0', '0']], ['H1,NI', 'H1,S', 'H2,NI', 'H2,S'], 0.025);
+    let s = after(A, ['H1,NI']);
+    if (wOf(A, s, 'H1,S') !== '1/5' || wOf(A, s, 'H2,NI') !== '4/5') return `Fig. 2A after H1,NI: ${wOf(A, s, 'H1,S')}, ${wOf(A, s, 'H2,NI')}`;
+    s = after(A, ['H1,NI', 'H2,NI']);
+    return (wOf(A, s, 'H1,S') === '3/5' && wOf(A, s, 'H2,S') === '2/5') || `Fig. 2A after H1,NI and H2,NI: ${wOf(A, s, 'H1,S')}, ${wOf(A, s, 'H2,S')}`;
+  });
+  check('Zhang, Quan, Ng and Stepanavage (1997), Table 6 and text (p. 218): weighted Holm with weights 1, 1, 2, 1 (here 1/5, 1/5, 2/5, 1/5), α 0.05, p = (0.0037, 0.0077, 0.0274, 0.0369) tests the endpoints at 0.0100, 0.0125, 0.0333 and 0.0500 in turn and rejects all four; equally weighted Holm rejects the first two; the closed Simes test rejects all four', () => {
+    const w = ['1/5', '1/5', '2/5', '1/5'], G = mk(w, wHolm(w), null, 0.05), p = [0.0037, 0.0077, 0.0274, 0.0369];
+    const r = runProcedure(stateFromGraph(G), pOfG(G, p), 0.05);
+    if (r.order.map(id => G.nodes.find(n => n.id === id).label).join(',') !== 'H1,H2,H3,H4') return 'weighted Holm order ' + order(G, p, 0.05);
+    let st = stateFromGraph(G); const lv = [];
+    for (const id of r.order) { lv.push(Q.toNum(st.w.get(id)) * 0.05); st = rejectNode(st, id); }
+    if (!near(lv, [0.01, 0.0125, 0.05 * 2 / 3, 0.05], 1e-12)) return 'levels ' + lv.map(x => x.toFixed(4)).join(', ');
+    const Hm = load(generatedTemplate('holm', 4));
+    if (order(Hm, p, 0.05) !== 'H1,H2') return 'Holm rejected ' + order(Hm, p, 0.05);
+    const s = closedAdj(Hm, p, 0.05, 'simes');
+    return s.rejected.every(Boolean) || 'closed Simes rejected ' + s.rejected.map(Number).join('');
+  });
+  check('Xi and Tamhane (2014), section 6 and Table III (pp. 1328 to 1329): at least 3 of 4 primaries (their γ = 1/2), α 0.05, p = (0.01, 0.02, 0.024, 0.04, 0.01) rejects H1 only; the adjusted p-values are 0.040 for H1 and 0.060 for H2 to H5 (T-HOLM), tolerance 0.0001 for ε = 1/1000', () => {
+    const G = load(entangledKOfM(4, 3, 0.05)), p = [0.01, 0.02, 0.024, 0.04, 0.01];
+    if (order(G, p, 0.05) !== 'H1') return 'rejected ' + order(G, p, 0.05);
+    const a = adjustedPValues(stateFromGraph(G), pOfG(G, p)), got = G.nodes.map(n => a.get(n.id));
+    return near(got, [0.04, 0.06, 0.06, 0.06, 0.06], 0.0001) || 'adjusted ' + got.map(x => x.toFixed(5)).join(', ');
+  });
+  check('Rauch and Beyersmann (2013), Figs. 2 and 3 (p. 3603): a composite CE and its component EP1 at α/2 each pass 1 − ε to each other and ε/2 to each of EP2 and EP3, which pass 1 to each other. After CE is rejected, EP1 holds 1 − ε/2 and EP2, EP3 ε/4 each (ε = 1/1000), with EP1 passing 1/2 to each, the ε → 0 graph of Fig. 3 (left); after CE and EP1, EP2 and EP3 hold 1/2 each and pass 1 to each other (Fig. 3, right)', () => {
+    const G = mk(['1/2', '1/2', '0', '0'], [['0', '1-ε', 'ε/2', 'ε/2'], ['1-ε', '0', 'ε/2', 'ε/2'], ['0', '0', '0', '1'], ['0', '0', '1', '0']], ['CE', 'EP1', 'EP2', 'EP3'], 0.025);
+    let s = after(G, ['CE']);
+    const w1 = ['EP1', 'EP2', 'EP3'].map(l => wOf(G, s, l)).join(' ');
+    if (w1 !== '1999/2000 1/4000 1/4000') return 'after CE: ' + w1;
+    if (gOf(G, s, 'EP1', 'EP2') !== '1/2' || gOf(G, s, 'EP1', 'EP3') !== '1/2' || gOf(G, s, 'EP2', 'EP3') !== '1') return 'after CE, transitions ' + [gOf(G, s, 'EP1', 'EP2'), gOf(G, s, 'EP1', 'EP3'), gOf(G, s, 'EP2', 'EP3')].join(' ');
+    s = after(G, ['CE', 'EP1']);
+    return (wOf(G, s, 'EP2') === '1/2' && wOf(G, s, 'EP3') === '1/2' && gOf(G, s, 'EP2', 'EP3') === '1' && gOf(G, s, 'EP3', 'EP2') === '1') || `after CE and EP1: ${wOf(G, s, 'EP2')}, ${wOf(G, s, 'EP3')}`;
+  });
+  check('Giacalone et al. (2018), Tables 1 and 2 (pp. 5 to 6): Holm on 22 raw p-values at α 0.05 rejects nine hypotheses and gives the printed adjusted p-values to four decimals. The follow-up time p-value is 0.0577 as in Table 1 (Table 2 prints 0.0567 beside the adjusted 0.5770, a misprint); the paper caps adjusted p-values at 0.9999', () => {
+    const p = [0.0281, 0.0019, 0.0001, 0.0002, 0.0032, 0.0004, 0.0053, 0.0008, 0.0007, 0.6274, 0.2755, 0.0006, 0.7376, 0.9852, 0.5074, 0.1553, 0.8858, 0.6075, 0.0316, 0.0003, 0.6643, 0.0577];
+    const want = [0.3372, 0.0285, 0.0022, 0.0042, 0.0448, 0.0076, 0.0689, 0.0128, 0.0119, 0.9999, 0.9999, 0.0108, 0.9999, 0.9999, 0.9999, 0.9999, 0.9999, 0.9999, 0.3476, 0.0060, 0.9999, 0.5770];
+    const G = load(generatedTemplate('holm', 22)), a = adjustedPValues(stateFromGraph(G), pOfG(G, p)), got = G.nodes.map(n => Math.min(a.get(n.id), 0.9999));
+    if (!near(got, want, 5e-5)) return 'adjusted ' + got.map(x => x.toFixed(4)).join(', ');
+    const n = runProcedure(stateFromGraph(G), pOfG(G, p), 0.05).order.length;
+    return n === 9 || 'rejected ' + n;
+  });
+  check('Maurer, Bretz and Posch (2022), Algorithm 1 (p. 759), the "otherwise 0" case: with w = (1/3, 1/3, 1/3), g12 = g21 = 1 and g31 = g32 = 1/2, removing H2 gives H1 the weight 2/3 and no outgoing edge (g13 = 0) and makes g31 = 1; after H1 and H2 are removed, in either order, H3 keeps 1/3', () => {
+    const G = mk(['1/3', '1/3', '1/3'], [['0', '1', '0'], ['1', '0', '0'], ['1/2', '1/2', '0']], null, 0.05);
+    const s = after(G, ['H2']);
+    if (wOf(G, s, 'H1') !== '2/3' || gOf(G, s, 'H1', 'H3') !== '0' || gOf(G, s, 'H3', 'H1') !== '1') return `after H2: ${wOf(G, s, 'H1')}, g13 ${gOf(G, s, 'H1', 'H3')}, g31 ${gOf(G, s, 'H3', 'H1')}`;
+    const a = after(G, ['H1', 'H2']), b = after(G, ['H2', 'H1']);
+    return (wOf(G, a, 'H3') === '1/3' && wOf(G, b, 'H3') === '1/3') || `H3 ${wOf(G, a, 'H3')} and ${wOf(G, b, 'H3')}`;
+  });
   return res;
 }
 
@@ -3850,6 +3966,23 @@ function runEntangledSelfTests() {
     if (!near(wOf(m34, 2), 0.5) || !near(wOf(m34, 3), 0.5)) return '{H3,H4} weights';
     const b = runProcedure(stateFromGraph(G), pOfG(G, p), 0.025);
     return lab(G, b.order.slice().sort()) === 'H1,H2,H3' || 'Bonferroni rejected ' + lab(G, b.order);
+  });
+  check('Self-test I. At least k of m (Maurer and Bretz, 2013, section 5.3.2, p. 1751; Robertson, Wason and Bretz, 2020, Table 4, p. 3148): after H1 to Hk are rejected the secondary holds 1/C(m, k) and each remaining primary (1 − 1/C(m, k))/(m − k); after r ≥ k rejections the secondary holds C(r, k)/C(m, k); the template note states the same levels (3 of 4: 3α/4 and α/4)', () => {
+    const choose = (n, r) => { let x = 1; for (let i = 1; i <= r; i++) x = (x * (n - r + i)) / i; return x; };
+    const said = { '4,3': ['α/4', '3α/4'], '4,2': ['α/6', '5α/12'], '3,2': ['α/3', '2α/3'], '4,1': ['α/4', 'α/4'], '6,3': ['α/20', '19α/60'] };
+    for (const [m, k] of [[3, 1], [3, 2], [4, 1], [4, 2], [4, 3], [5, 2], [6, 3], [6, 5]]) {
+      const o = kOfM(m, k, 0.025), G = load(o), ids = G.nodes.map(n => n.id), sec = ids[m], C = choose(m, k);
+      let st = stateFromGraph(G);
+      for (let r = 1; r <= m; r++) {
+        st = rejectNode(st, ids[r - 1]);
+        if (r < k) continue;
+        if (!near(Q.toNum(st.w.get(sec)), choose(r, k) / C)) return `${k} of ${m}, r = ${r}: secondary ${Q.exact(st.w.get(sec))}`;
+        if (r === k) for (let i = k; i < m; i++) if (!near(Q.toNum(st.w.get(ids[i])), (1 - 1 / C) / (m - k))) return `${k} of ${m}: H${i + 1} ${Q.exact(st.w.get(ids[i]))}`;
+      }
+      const s = said[m + ',' + k];
+      if (s && !(o.note.includes(`= ${s[0]} and each remaining primary`) && o.note.includes(`= ${s[1]}. Each further`))) return `${k} of ${m}: the note does not state ${s.join(' and ')}`;
+    }
+    return true;
   });
   check('Entangled JSON (version 2) and the share link round-trip every component, c, ε expressions and the active component; the top-level graph is component 1', () => {
     const G = F(); entLoad(G, 1);
