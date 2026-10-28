@@ -383,6 +383,9 @@ body.present .node-body { stroke-width: 3; }
 .band text { font-size: 12px; letter-spacing: 1px; fill: var(--muted); text-transform: uppercase; }
 
 @media (max-width: 1500px) { .brand .sub { display: none; } }
+/* the clinician view's "= 2.5%" after the allowance box (1.3.5): shown from 1440 wide, where the toolbar still fits on one row */
+#alphaPct { white-space: nowrap; }
+@media (max-width: 1439px) { #alphaPct { display: none !important; } }
 @media (max-width: 640px) { .canvas-hint { right: 10px; top: calc(52px + var(--comp-h, 0px)); max-width: none; } }
 table.t td:first-child { white-space: nowrap; }
 @media (max-width: 900px) {
@@ -417,7 +420,7 @@ table.t td:first-child { white-space: nowrap; }
       <button id="modeDesign" aria-pressed="true">Design</button>
       <button id="modeTest" aria-pressed="false">Test</button>
     </div>
-    <label class="field-inline" for="alphaInput"><span id="alphaLabel" title="Significance level">&alpha; =</span><input id="alphaInput" value="0.025" inputmode="decimal" autocomplete="off" aria-label="Significance level alpha"></label>
+    <label class="field-inline" for="alphaInput"><span id="alphaLabel" title="Significance level">&alpha; =</span><input id="alphaInput" value="0.025" inputmode="decimal" autocomplete="off" aria-label="Significance level alpha"><span id="alphaPct" hidden></span></label>
     <select class="sel" id="sidedSelect" aria-label="Are the p-values one-sided or two-sided" title="Whether the p-values you enter are one-sided or two-sided. The parametric test needs one-sided p-values; the SAP text says which you chose.">
       <option value="one">one-sided p</option>
       <option value="two">two-sided p</option>
@@ -590,7 +593,7 @@ table.t td:first-child { white-space: nowrap; }
 <script>
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.3.4';
+const APP_VERSION = '1.3.5';
 const APP_DATE = '2026-10-28';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
@@ -5625,8 +5628,9 @@ function renderCanvas() {
       : `<text class="nlabel" y="-3" style="font-size:15px;${tcol}">${esc(n.label)}</text>`;
     const flash = T && T.flashNodes && T.flashNodes.has(n.id);
     const wt = n.wvec ? `(${n.wvec.map(q => fmt(q)).join(', ')})` : (mode !== 'test' && !n.rejected && (nodeById(n.id) || {}).wexpr) ? exprDisplay(nodeById(n.id).wexpr) : fmt(n.w);
-    let aria = n.wvec ? `${n.label}, weights by component ${wt}` : `${n.label}, weight ${wt}`;
     const pl = plainWords();
+    /* screen readers: the share at the start as a percentage in the clinician view (1.3.5) */
+    let aria = n.wvec ? `${n.label}, weights by component ${wt}` : plain && mode !== 'test' ? `${n.label}, share at the start ${pctWords(Q.toNum(n.w) * G.alpha)}` : pl ? n.label : `${n.label}, weight ${wt}`;
     if (n.rejected) aria += pl ? ', claimed' : ', rejected';
     let extra = '';
     if (n.rejected) extra += `<line class="strike" x1="${(-n.rx * 0.6).toFixed(1)}" y1="-9" x2="${(n.rx * 0.6).toFixed(1)}" y2="-9"/>`;
@@ -5701,7 +5705,8 @@ function hintText() {
   if (inline) return 'Type a number such as 0.5 or 1/2, then press Enter. Esc cancels.';
   if (sel && sel.type === 'node') return 'Drag the blue dot onto another hypothesis to add a transition (or click the dot, then the target). Double-click to rename or change the weight.';
   if (sel && sel.type === 'edge') return 'Click the weight label again to change it. Drag the label to bend the arrow. Delete removes it.';
-  return G.nodes.some(n => n.p) ? `Double-click empty space to add a hypothesis; drag the blue dot to connect two. Press Test to see what gets ${plainWords() ? 'claimed' : 'rejected'}.` : 'Double-click empty space to add a hypothesis; drag the blue dot to connect two. Then enter p-values in the Test tab.';
+  if (plain) return G.nodes.some(n => n.p) ? `Double-click empty space to add a question; drag the blue dot to connect two. Press Test to see what gets ${plainWords() ? 'claimed' : 'rejected'}.` : 'Double-click empty space to add a question; drag the blue dot to connect two. Then enter p-values in the Test tab.';
+  return G.nodes.some(n => n.p) ? 'Double-click empty space to add a hypothesis; drag the blue dot to connect two. Press Test to see what gets rejected.' : 'Double-click empty space to add a hypothesis; drag the blue dot to connect two. Then enter p-values in the Test tab.';
 }
 function updateHint() {
   const chip = $('hintChip');
@@ -5859,6 +5864,8 @@ function renderStatus() {
   const ordered = V.filter(m => m.level === 'error').concat(V.filter(m => m.level === 'warn'));
   if (!ordered.length) {
     const ex = isAlphaExhaustive(G);
+    /* the clinician view (1.3.5): the same three cases in everyday words; the errors and warnings below keep theirs */
+    if (plain) { el.innerHTML = `<div class="msg ok"><span class="ic" aria-hidden="true">✓</span><span class="txt-part"><b>The drawing is complete.</b> ${ex === true ? `The whole ${pctWords(G.alpha)} allowance is in play, and every share is handed on when a question succeeds.` : ex === false ? 'Part of the allowance can be lost: some questions hand their shares only to each other, so what they hold is lost once they have all succeeded.' : 'The shares add up to the whole allowance.'}</span></div>`; return; }
     el.innerHTML = `<div class="msg ok"><span class="ic" aria-hidden="true">✓</span><span class="txt-part"><b>Valid graph.</b> ${ex === true ? 'Every intersection hypothesis has weights summing to 1, so the procedure is alpha-exhaustive.' : ex === false ? 'The initial weights and rows of G sum to 1, but some intersection hypotheses have weights summing to less than 1, so the procedure is not alpha-exhaustive. This happens when some hypotheses pass level only among themselves: once all of that group is removed, the level it received cannot return to the other hypotheses. Examples are the secondary pair in truncated Holm, which pass their whole level to each other, and a secondary family that passes level only within itself.' : 'The weights and every row of G sum to 1, which makes the procedure alpha-exhaustive unless some hypotheses pass level only among themselves (such as two that exchange their whole level).'}</span></div>`;
     return;
   }
@@ -5890,13 +5897,17 @@ function sumStatus(q) {
   return { cls: 'ok', text: '✓' };
 }
 
+/* The fraction of its share a hypothesis hands on, in words, for the clinician view: "all", "half", "nothing" */
+function handsOnWords(r) { return Q.eq(r, Q.ONE) ? 'all' : Q.isZero(r) ? 'nothing' : shareWords(r); }
 function overviewPanel() {
   const tot = weightSum();
   const ent = isEntangled(G), stAll = ent ? stateFromGraph(G) : null;
+  /* the clinician view (1.3.5): no weight column (as in the Test tab, D1), the share as a percentage, and the row sum in
+     words ("all", "half", "nothing"); every other string is as before */
   const rows = G.nodes.map(n => {
     const r = rowSum(n.id), st = sumStatus(r);
     const lvl = ent ? Q.toNum(stAll.w.get(n.id) || Q.ZERO) * G.alpha : Q.toNum(n.w) * G.alpha;
-    return `<tr><td><button class="btn small" data-action="select-node" data-id="${n.id}">${n.color ? `<span class="dot" style="background:${n.color}"></span>` : ''}${esc(n.label)}</button></td><td>${esc(fmt(n.w))}</td><td>${fmtNum(lvl)}</td><td class="sum ${st.cls}">${esc(fmt(r))} ${st.text}</td></tr>`;
+    return `<tr><td><button class="btn small" data-action="select-node" data-id="${n.id}">${n.color ? `<span class="dot" style="background:${n.color}"></span>` : ''}${esc(n.label)}</button></td>${plain ? '' : `<td>${esc(fmt(n.w))}</td>`}<td>${plain ? pctWords(lvl) : fmtNum(lvl)}</td><td class="sum ${st.cls}">${plain ? `${handsOnWords(r)} ${st.text.split(' ')[0]}` : `${esc(fmt(r))} ${st.text}`}</td></tr>`;
   }).join('');
   return `<h2>Graph</h2>
   ${tplW && mode === 'design' ? `<div class="tpl-w"><p class="small"><b>${WEIGHT_GEN[tplW.key].title}${WEIGHT_GEN[tplW.key].kind === 'kofm' ? '' : ' for any m'}.</b> ${WEIGHT_GEN[tplW.key].prompt || 'Type the initial weights of H1, H2, &hellip; separated by commas.'} ${WEIGHT_GEN[tplW.key].blurb} This replaces the current graph (Undo brings it back).</p>
@@ -5904,9 +5915,11 @@ function overviewPanel() {
     <p class="err-text" id="tplWMsg"${tplW.msg ? '' : ' hidden'}>${esc(tplW.msg)}</p></div>` : ''}
   ${G.note ? `<p class="note">${esc(G.note)}</p>` : ''}
   ${plain && G.nodes.length ? `<div class="plain">${plainGraphText(G, plainName).map(t => `<p>${esc(t)}</p>`).join('')}</div>` : ''}
-  ${G.nodes.length ? `<table class="t"><thead><tr><th scope="col">Hypothesis</th><th scope="col">Weight${ent ? ` in ${compName(G.ent.active)}` : ''}</th><th scope="col">${ent ? 'Level (all graphs)' : 'Level w&alpha;'}</th><th scope="col">Passed on</th></tr></thead><tbody>${rows}</tbody></table>
-  <p class="small muted">Total initial weight ${esc(fmt(tot))}${ent ? ` in ${compName(G.ent.active)}` : ''}, &alpha; = ${fmtNum(G.alpha)}. Click a hypothesis to edit it.</p>` : '<p class="muted">Add a hypothesis to get started.</p>'}
-  ${G.nodes.length > 1 && mode === 'design' ? `<div class="row-actions"><button class="btn small" data-action="equal-w">Give every hypothesis equal weight</button></div>` : ''}
+  ${G.nodes.length ? (plain ? `<table class="t"><thead><tr><th scope="col">Question</th><th scope="col">${ent ? 'Share at the start (all graphs)' : 'Share at the start'}</th><th scope="col">Hands on</th></tr></thead><tbody>${rows}</tbody></table>
+  <p class="small muted">${ent ? `In ${compName(G.ent.active)} the shares at the start add up to ${pctWords(Q.toNum(tot) * G.alpha)}` : Q.eq(tot, Q.ONE) ? `The shares at the start add up to ${pctWords(G.alpha)}, the whole allowance` : `The shares at the start add up to ${pctWords(Q.toNum(tot) * G.alpha)} of the ${pctWords(G.alpha)} allowance`}. Click a question to edit it.</p>`
+  : `<table class="t"><thead><tr><th scope="col">Hypothesis</th><th scope="col">Weight${ent ? ` in ${compName(G.ent.active)}` : ''}</th><th scope="col">${ent ? 'Level (all graphs)' : 'Level w&alpha;'}</th><th scope="col">Passed on</th></tr></thead><tbody>${rows}</tbody></table>
+  <p class="small muted">Total initial weight ${esc(fmt(tot))}${ent ? ` in ${compName(G.ent.active)}` : ''}, &alpha; = ${fmtNum(G.alpha)}. Click a hypothesis to edit it.</p>`) : `<p class="muted">Add a ${plain ? 'question' : 'hypothesis'} to get started.</p>`}
+  ${G.nodes.length > 1 && mode === 'design' ? `<div class="row-actions"><button class="btn small" data-action="equal-w">${plain ? 'Share the allowance equally' : 'Give every hypothesis equal weight'}</button></div>` : ''}
   ${varsSection()}
   ${entangledSection()}
   ${!plain && mode === 'design' && G.nodes.length && !isEntangled(G) ? det('det-build', 'Join or extract', `<p class="small"><b>Join with a template</b> (gMCP joinGraphs): adds a second graph below this one. Weights are rescaled if they then add up to more than 1.</p>
@@ -5914,7 +5927,13 @@ function overviewPanel() {
     <p class="small"><b>Extract a subgraph</b> (gMCP subgraph): keep only the ticked hypotheses, with the transitions among them.</p>
     <div class="row-actions">${G.nodes.map(n => `<label class="chk"><input type="checkbox" data-keep="${n.id}" checked> ${esc(n.label)}</label>`).join('')}</div>
     <div class="row-actions"><button class="btn small" data-action="subgraph">Keep only ticked</button></div>`) : ''}
-  ${det('det-howto', 'How to edit', `<ul class="tips">
+  ${det('det-howto', 'How to edit', plain ? `<ul class="tips">
+    <li><b>Add a question:</b> double-click empty space, or use + Question.</li>
+    <li><b>Add an arrow:</b> drag the blue dot (or the ring) of a question onto another, or click the dot and then the target. Type the fraction handed on and press Enter.</li>
+    <li><b>Edit:</b> click a question or arrow to edit it here. Double-click a question to rename it or change its share on the drawing; click a selected label to change it.</li>
+    <li><b>Bend an arrow:</b> drag its label.</li>
+    <li><b>Remove:</b> select, then press <span class="kbd">Delete</span>. Undo with <span class="kbd">Ctrl</span> <span class="kbd">Z</span>.</li>
+  </ul>` : `<ul class="tips">
     <li><b>Add a hypothesis:</b> double-click empty space, or use + Hypothesis.</li>
     <li><b>Add a transition:</b> drag the blue dot (or the ring) of a hypothesis onto another, or click the dot and then the target. Type the weight and press Enter.</li>
     <li><b>Edit:</b> click a hypothesis or arrow to edit it here. Double-click a hypothesis to rename or reweight it on the canvas; click a selected weight label to change it.</li>
@@ -5951,22 +5970,24 @@ function nodePanel(n) {
   const others = G.nodes.filter(x => x.id !== n.id && !edgeOf(n.id, x.id));
   const rem = Q.sub(Q.ONE, r);
   const def = Q.cmp(rem, Q.ZERO) > 0 ? editVal(rem) : '1/2';
-  const table = outs.length ? `<table class="t"><thead><tr><th scope="col">To</th><th scope="col">Weight</th><th scope="col"><span class="sr-only">Remove</span></th></tr></thead><tbody>${outs.map(e => {
+  /* pl: the clinician view (1.3.5) says question, share and arrow; the inputs still take the fractions */
+  const pl = plain, word = pl ? 'question' : 'hypothesis';
+  const table = outs.length ? `<table class="t"><thead><tr><th scope="col">To</th><th scope="col">${pl ? 'Fraction' : 'Weight'}</th><th scope="col"><span class="sr-only">Remove</span></th></tr></thead><tbody>${outs.map(e => {
     const to = nodeById(e.to);
-    return `<tr><td>→ ${esc(to.label)}</td><td><input id="oe-${e.from}-${e.to}" data-edge-input="${gKey(e.from, e.to)}" value="${esc(weightText(e.g, e.expr))}" aria-label="Weight from ${esc(n.label)} to ${esc(to.label)}" ${dis}></td><td><button class="btn small" data-action="remove-edge" data-key="${gKey(e.from, e.to)}" aria-label="Remove transition to ${esc(to.label)}" ${dis}>Remove</button></td></tr>`;
+    return `<tr><td>→ ${esc(to.label)}</td><td><input id="oe-${e.from}-${e.to}" data-edge-input="${gKey(e.from, e.to)}" value="${esc(weightText(e.g, e.expr))}" aria-label="${pl ? `Fraction handed on from ${esc(n.label)} to ${esc(to.label)}` : `Weight from ${esc(n.label)} to ${esc(to.label)}`}" ${dis}></td><td><button class="btn small" data-action="remove-edge" data-key="${gKey(e.from, e.to)}" aria-label="Remove ${pl ? 'arrow' : 'transition'} to ${esc(to.label)}" ${dis}>Remove</button></td></tr>`;
   }).join('')}</tbody></table>`
     : `<p class="muted small">None yet.</p>`;
   const design = mode === 'design';
-  return `<div class="row-actions" style="justify-content:space-between;align-items:center"><h2>Hypothesis ${esc(n.label)}</h2><button class="btn small" data-action="deselect">Done</button></div>
-  ${design ? '' : '<p class="small muted">Switch to Design mode to change weights or transitions.</p>'}
+  return `<div class="row-actions" style="justify-content:space-between;align-items:center"><h2>${pl ? 'Question' : 'Hypothesis'} ${esc(n.label)}</h2><button class="btn small" data-action="deselect">Done</button></div>
+  ${design ? '' : `<p class="small muted">Switch to Design mode to change ${pl ? 'shares or arrows' : 'weights or transitions'}.</p>`}
   <div class="form">
     <label for="node-label">Label<input class="txt" id="node-label" value="${esc(n.label)}" autocomplete="off"></label>
-    <label for="node-w">Initial weight <span class="hint">Decimal or fraction, such as 0.25 or 1/3. Local level = weight &times; &alpha;.</span><input class="txt" id="node-w" value="${esc(weightText(n.w, n.wexpr))}" autocomplete="off" ${dis}>${n.wexpr ? `<span class="hint">= ${esc(fmt(n.w))} with ${esc(Object.keys(G.vars).filter(v => exprVars(n.wexpr).includes(v)).map(v => `${v} = ${fmt(G.vars[v])}`).join(', '))}</span>` : ''}</label>
+    <label for="node-w">${pl ? 'Share at the start' : 'Initial weight'} <span class="hint">${pl ? `A fraction of the allowance, such as 1/2 or 0.25. 1/2 of ${pctWords(G.alpha)} is ${pctWords(G.alpha / 2)}.` : 'Decimal or fraction, such as 0.25 or 1/3. Local level = weight &times; &alpha;.'}</span><input class="txt" id="node-w" value="${esc(weightText(n.w, n.wexpr))}" autocomplete="off" ${dis}>${n.wexpr ? `<span class="hint">= ${esc(fmt(n.w))} with ${esc(Object.keys(G.vars).filter(v => exprVars(n.wexpr).includes(v)).map(v => `${v} = ${fmt(G.vars[v])}`).join(', '))}</span>` : ''}</label>
     <label for="node-p">p-value <span class="hint">Used when you test the graph</span><input class="txt" id="node-p" value="${esc(n.p || '')}" inputmode="decimal" autocomplete="off"></label>
   </div>
   ${det('det-ndesc', 'Description and group', `<div class="form">
-    <label for="node-desc">Description <span class="hint">Used in plain-language and SAP text, such as "dose 1, primary endpoint"</span><input class="txt" id="node-desc" value="${esc(n.desc || '')}" autocomplete="off"></label>
-    <label for="node-group">Group <span class="hint">Such as primary or secondary. Hypotheses in a group are drawn together.</span><input class="txt" id="node-group" value="${esc(n.group || '')}" autocomplete="off"></label>
+    <label for="node-desc">Description <span class="hint">${pl ? 'Used in the plain-language text, such as "dose 1, main outcome"' : 'Used in plain-language and SAP text, such as "dose 1, primary endpoint"'}</span><input class="txt" id="node-desc" value="${esc(n.desc || '')}" autocomplete="off"></label>
+    <label for="node-group">Group <span class="hint">Such as primary or secondary. ${pl ? 'Questions' : 'Hypotheses'} in a group are drawn together.</span><input class="txt" id="node-group" value="${esc(n.group || '')}" autocomplete="off"></label>
   </div>`, (n.desc || n.group) ? esc([n.desc, n.group].filter(Boolean).join(', ')) : '')}
   <div class="form"><span style="font-weight:700;font-size:14px">Colour</span>
     <div class="swatches" role="group" aria-label="Colour of ${esc(n.label)}">
@@ -5974,29 +5995,31 @@ function nodePanel(n) {
       ${PALETTE.map(([nm, c]) => `<button class="swatch" data-color="${c}" style="background:${c}" aria-label="${nm}" title="${nm}" aria-pressed="${n.color === c}"></button>`).join('')}
       <label class="swatch custom" title="Pick any colour" aria-pressed="${!!n.color && !PALETTE.some(p => p[1] === n.color)}"><input type="color" id="node-color-custom" value="${n.color || '#cfe3f5'}" aria-label="Pick any colour"></label>
     </div>
-    ${G.nodes.length > 1 ? `<div class="row-actions"><button class="btn small" data-action="color-all">Use ${n.color ? 'this colour' : 'no colour'} for every hypothesis</button></div>` : ''}
+    ${G.nodes.length > 1 ? `<div class="row-actions"><button class="btn small" data-action="color-all">Use ${n.color ? 'this colour' : 'no colour'} for every ${word}</button></div>` : ''}
   </div>
-  <h3>When ${esc(n.label)} is rejected, its weight goes to</h3>
+  <h3>${pl ? `When ${esc(n.label)} succeeds, its share goes to` : `When ${esc(n.label)} is rejected, its weight goes to`}</h3>
   ${table}
-  <p class="small sum ${st.cls}">Total passed on: <b>${esc(fmt(r))}</b> ${st.text}</p>
-  ${design ? `<div class="row-actions"><button class="btn primary small" data-action="connect" ${others.length ? '' : 'disabled'}>Connect to another hypothesis</button>${outs.length > 1 ? '<button class="btn small" data-action="equal-row">Share equally</button>' : ''}</div>` : ''}
+  <p class="small sum ${st.cls}">${pl ? `Handed on in total: <b>${handsOnWords(r)}</b> ${st.text.split(' ')[0]}` : `Total passed on: <b>${esc(fmt(r))}</b> ${st.text}`}</p>
+  ${design ? `<div class="row-actions"><button class="btn primary small" data-action="connect" ${others.length ? '' : 'disabled'}>Connect to another ${word}</button>${outs.length > 1 ? '<button class="btn small" data-action="equal-row">Share equally</button>' : ''}</div>` : ''}
   ${!plain && design && others.length ? det('det-addlist', 'Add a transition from a list', `<div class="row-actions"><select class="sel" id="node-add-to" aria-label="Add a transition to">${others.map(o => `<option value="${o.id}">→ ${esc(o.label)}</option>`).join('')}</select><input class="txt" id="node-add-g" style="width:6em" value="${esc(def)}" aria-label="Weight of new transition"><button class="btn small" data-action="add-edge">Add</button></div><p id="node-add-msg" class="err-text" hidden></p>`) : ''}
-  ${design ? '<div class="row-actions"><button class="btn danger" data-action="delete-node">Delete hypothesis</button></div>' : ''}`;
+  ${design ? `<div class="row-actions"><button class="btn danger" data-action="delete-node">Delete ${word}</button></div>` : ''}`;
 }
 function edgePanel(e) {
   const A = nodeById(e.from), B = nodeById(e.to);
   const lay = lastLayout.find(l => l.key === gKey(e.from, e.to));
   const bendNow = Math.round(e.bend != null ? e.bend : (lay ? lay.bend : 0));
   const rev = edgeOf(e.to, e.from);
-  return `<div class="row-actions" style="justify-content:space-between;align-items:center"><h2>Transition ${esc(A.label)} → ${esc(B.label)}</h2><button class="btn small" data-action="deselect">Done</button></div>
+  /* pl: the clinician view (1.3.5) says arrow and fraction handed on; the input still takes the fraction */
+  const pl = plain;
+  return `<div class="row-actions" style="justify-content:space-between;align-items:center"><h2>${pl ? 'Arrow' : 'Transition'} ${esc(A.label)} → ${esc(B.label)}</h2><button class="btn small" data-action="deselect">Done</button></div>
   <div class="form">
-    <label for="edge-g">Weight <span class="hint">Share of ${esc(A.label)}'s level passed to ${esc(B.label)} when ${esc(A.label)} is rejected</span><input class="txt" id="edge-g" value="${esc(weightText(e.g, e.expr))}" autocomplete="off">${e.expr ? `<span class="hint">= ${esc(fmt(e.g))} now. Variables are set in the Graph tab.</span>` : '<span class="hint">A letter such as ε or γ makes it a variable (advanced).</span>'}</label>
+    <label for="edge-g">${pl ? 'Fraction handed on' : 'Weight'} <span class="hint">${pl ? `The fraction of ${esc(A.label)}'s share that goes to ${esc(B.label)} when ${esc(A.label)} succeeds` : `Share of ${esc(A.label)}'s level passed to ${esc(B.label)} when ${esc(A.label)} is rejected`}</span><input class="txt" id="edge-g" value="${esc(weightText(e.g, e.expr))}" autocomplete="off">${e.expr ? `<span class="hint">= ${esc(fmt(e.g))} now. Variables are set in the Graph tab.</span>` : pl ? '' : '<span class="hint">A letter such as ε or γ makes it a variable (advanced).</span>'}</label>
   </div>
-  <p class="small muted">${esc(A.label)} passes on ${esc(fmt(rowSum(A.id)))} in total.</p>
+  <p class="small muted">${pl ? `${esc(A.label)} hands on ${handsOnWords(rowSum(A.id))} of its share.` : `${esc(A.label)} passes on ${esc(fmt(rowSum(A.id)))} in total.`}</p>
   ${rev ? `<div class="row-actions"><button class="btn small" data-action="select-edge" data-key="${gKey(e.to, e.from)}">Go to ${esc(B.label)} → ${esc(A.label)}</button></div>` : ''}
   ${det('det-curve', 'Arrow shape', `<label for="edge-bend" class="small"><b>Curvature</b> (or drag the weight label on the canvas)<input type="range" id="edge-bend" min="-160" max="160" step="1" value="${Math.max(-160, Math.min(160, bendNow))}" style="width:100%"></label>
     <div class="row-actions"><button class="btn small" data-action="bend-auto">Automatic</button><button class="btn small" data-action="bend-straight">Straight</button></div>`)}
-  <div class="row-actions"><button class="btn danger" data-action="delete-edge">Delete transition</button></div>`;
+  <div class="row-actions"><button class="btn danger" data-action="delete-edge">Delete ${pl ? 'arrow' : 'transition'}</button></div>`;
 }
 function renderGraphPanel() {
   const el = $('tab-graph');
@@ -6366,6 +6389,7 @@ function tryReject(id) {
 }
 function stepBack() {
   if (!T || animating || T.running || !T.history.length) return;
+  presentEndShown = false;
   const h = T.history.pop();
   T.redo.push({ id: h.id, info: h.info });
   Object.assign(T, { st: h.st, rejected: h.rejected, order: h.order, step: h.step, done: h.done, whatIfUsed: h.whatIfUsed, picked: h.picked, message: '' });
@@ -6380,6 +6404,7 @@ async function redoStep() {
 }
 async function doReject(id, info, fast, fromRedo) {
   animating = true; T.message = '';
+  presentEndShown = false;
   const before = T.st, after = rejectNode(before, id);
   T.history.push({ st: before, rejected: new Map(T.rejected), order: T.order.slice(), step: T.step, logLen: T.log.length, done: T.done, whatIfUsed: T.whatIfUsed, picked: T.picked, id, info });
   if (!fromRedo) T.redo = [];
@@ -6446,7 +6471,8 @@ function animateFlow(j, before, wj, fast) {
       const path = world.querySelector(`[data-flow="${sel}"] .edge-line`);
       if (!path) return;
       const c = document.createElementNS(ns, 'circle'); c.setAttribute('r', '7'); c.setAttribute('class', 'flow-dot'); c.style.opacity = '0';
-      const t = document.createElementNS(ns, 'text'); t.setAttribute('class', 'flow-text'); t.textContent = '+' + fmt(amount); t.style.opacity = '0';
+      /* the clinician view shows the share handed on as a percentage of the allowance, as the step sentence does (1.3.5) */
+      const t = document.createElementNS(ns, 'text'); t.setAttribute('class', 'flow-text'); t.textContent = '+' + (plainWords() ? pctWords(Q.toNum(amount) * G.alpha) : fmt(amount)); t.style.opacity = '0';
       overlay.append(c, t);
       items.push({ path, len: path.getTotalLength(), c, t });
     };
@@ -6628,7 +6654,11 @@ function witSection() {
   const m = st.ids.length;
   /* pl: plain language (1.3.1); every 1.3.0 sentence is kept unchanged in the other branch */
   const pl = plainWords(), pc = x => pctWords(x);
-  const intro = pl ? '<p class="small muted">For each question not yet claimed: its share now, the most it could ever hold, and which other successes would let it be claimed with its p-value.</p>'
+  /* What-if in the clinician view ignores the typed p-values here too (decision D5, 1.3.5): each card gives the share
+     now and the most it could ever hold, and nothing about p-values */
+  const whatIf = pl && manual && mode === 'test' && !!T;
+  const intro = whatIf ? '<p class="small muted">For each question not yet claimed: its share now, and the most it could ever hold. p-values are ignored in What if.</p>'
+    : pl ? '<p class="small muted">For each question not yet claimed: its share now, the most it could ever hold, and which other successes would let it be claimed with its p-value.</p>'
     : '<p class="small muted">For each open hypothesis: its level now, the highest level it could reach, and the smallest sets of other rejections that would make it rejectable with its p-value.</p>';
   if (m - 1 > 13) return det('det-wit', 'What would it take?', intro + (pl ? `<p class="small">With ${m} questions still open there are too many combinations to check (more than 8,000 per question). This view works for up to 14 open questions.</p>`
     : `<p class="small">With ${m} hypotheses still open there are too many combinations to check (more than 8,000 per hypothesis). This view works for up to 14 open hypotheses.</p>`));
@@ -6636,16 +6666,19 @@ function witSection() {
   const final = manual ? null : new Set(runProcedure(st, pOf, G.alpha).order);
   const succeed = set => (set.length > 1 ? 'succeed' : 'succeeds');
   const cards = st.ids.map(id => {
-    const r = whatWouldItTake(st, id, pOf, G.alpha, 13);
+    const r = whatWouldItTake(st, id, whatIf ? () => null : pOf, G.alpha, 13);
     const p = r.p, hasP = p != null && Number.isFinite(p);
-    const nowTxt = pl ? `share now <b>${pc(r.now.level)}</b>${hasP ? `, p-value <b>${fmtNum(p)}</b>` : ', no p-value'}`
+    const nowTxt = whatIf ? `share now <b>${pc(r.now.level)}</b>` : pl ? `share now <b>${pc(r.now.level)}</b>${hasP ? `, p-value <b>${fmtNum(p)}</b>` : ', no p-value'}`
       : `level now <b>${fmtNum(r.now.level)}</b>${hasP ? `, p = <b>${fmtNum(p)}</b>` : ', no p-value'}`;
     const bestTxt = pl ? (r.best.set.length === 0 ? 'It already holds the most it can.' : `The most it could ever hold: <b>${pc(r.best.level)}</b>, if ${list(r.best.set)} ${r.best.set.length > 2 ? 'all succeed' : r.best.set.length === 2 ? 'both succeed' : 'succeeds'}.`)
       : r.best.set.length === 0 ? 'It is already at its highest possible level.' : `Highest level it could reach: <b>${fmtNum(r.best.level)}</b>, if ${list(r.best.set)} ${r.best.set.length > 1 ? 'are' : 'is'} rejected.`;
     const showBtn = (set, label, level) => `<button class="btn small" data-action="wit-show" data-target="${id}" data-set="${set.join(',')}" data-level="${level}">${label}</button>`;
     const showWide = pl ? 'Show on the drawing' : 'Show on canvas';
     let body = '';
-    if (!hasP) {
+    if (whatIf) {
+      body = `<p class="small">${bestTxt}</p>`;
+      if (r.best.set.length) body += `<div class="row-actions">${showBtn(r.best.set, showWide, r.best.level)}</div>`;
+    } else if (!hasP) {
       body = pl ? `<p class="small">It would need a p-value no bigger than its share: ${pc(r.now.level)} now${r.best.set.length ? `, or ${pc(r.best.level)} at most` : ''}. ${bestTxt}</p>`
         : `<p class="small">It would need p ≤ ${fmtNum(r.now.level)} now${r.best.set.length ? `, or p ≤ ${fmtNum(r.best.level)} at best` : ''}. ${bestTxt}</p>`;
       if (r.best.set.length) body += `<div class="row-actions">${showBtn(r.best.set, showWide, r.best.level)}</div>`;
@@ -7311,9 +7344,15 @@ function exitPresent() {
   renderAll();
   setTimeout(fitView, 30);
 }
+/* Presentation mode shows the end of the test in two presses of Next (1.3.5): the last step's own sentence first, then
+   the "Stopped" or "Finished" caption. Up to 1.3.4 the stop entry, pushed in the same call as the last rejection,
+   hid that sentence. presentEndShown is true once the end caption has been asked for; a step, Back or Reset clears it. */
+let presentEndShown = false;
+/* the stop entry is the last log entry and the step before it has a sentence of its own */
+function presentEndPending() { return !!(T && T.log.length > 1 && T.log[T.log.length - 1].stop && T.log[T.log.length - 2].data && !presentEndShown); }
 function presentCaption() {
   if (!T) return '';
-  const last = T.log.length ? T.log[T.log.length - 1] : null;
+  const last = T.log.length ? (presentEndPending() ? T.log[T.log.length - 2] : T.log[T.log.length - 1]) : null;
   const pl = plainWords();
   if (last && pl && last.stop) {
     /* plain language: the end of the test without "rejected" or "local level" */
@@ -7332,17 +7371,26 @@ function updatePresentBar() {
   if (!presenting) return;
   $('presentCaption').textContent = presentCaption();
   const busy = animating || (T && T.running), done = !T || T.done || !T.st.ids.length;
-  $('presentBar').querySelector('[data-action="pres-next"]').disabled = busy || done || manual || !T;
+  $('presentBar').querySelector('[data-action="pres-next"]').disabled = busy || (done && !presentEndPending()) || manual || !T;
   $('presentBar').querySelector('[data-action="pres-back"]').disabled = busy || !T || !T.history.length;
+}
+/* Next and Back in presentation mode (the buttons and the arrow keys) */
+function presentNext() {
+  if (presenting && presentEndPending()) { presentEndShown = true; updatePresentBar(); return; }
+  presentEndShown = false; stepOnce(false);
+}
+function presentBack() {
+  if (presenting && presentEndShown) { presentEndShown = false; updatePresentBar(); return; }
+  presentEndShown = false; stepBack();
 }
 $('presentBtn').addEventListener('click', enterPresent);
 $('presentBar').addEventListener('click', e => {
   const b = e.target.closest('[data-action]');
   if (!b || b.disabled) return;
   const act = b.dataset.action;
-  if (act === 'pres-next') stepOnce(false);
-  else if (act === 'pres-back') stepBack();
-  else if (act === 'pres-reset') { T = newTest(); renderAll(); }
+  if (act === 'pres-next') presentNext();
+  else if (act === 'pres-back') presentBack();
+  else if (act === 'pres-reset') { presentEndShown = false; T = newTest(); renderAll(); }
   else if (act === 'pres-exit') exitPresent();
 });
 
@@ -7879,7 +7927,12 @@ function updateToolbar() {
      1280 to 1600 pixels, so the percentage is given in the Test tab rather than here. */
   const pl = plainWords();
   $('alphaLabel').textContent = pl ? 'Allowance' : '\u03b1 =';
+  /* the clinician view (1.3.5): the add button says question */
+  $('addNodeBtn').textContent = plain ? '+ Question' : '+ Hypothesis';
+  $('addNodeBtn').title = plain ? 'Add a question (or double-click the drawing)' : 'Add a hypothesis (or double-click the canvas)';
   $('alphaLabel').title = pl ? `The trial's allowance for wrongly claiming at least one success: ${pctWords(G.alpha)}` : 'Significance level';
+  /* the percentage after the box, from 1440 pixels wide (CSS); hidden with Plain language off (1.3.5) */
+  $('alphaPct').textContent = pl ? `= ${pctWords(G.alpha)}` : ''; $('alphaPct').hidden = !pl;
   a.setAttribute('aria-label', pl ? "The trial's allowance, as a decimal" : 'Significance level alpha');
   if (sd) { sd.options[0].textContent = pl ? 'one direction' : 'one-sided p'; sd.options[1].textContent = pl ? 'both directions' : 'two-sided p'; sd.title = pl ? 'Whether the p-values you enter test for an effect in one direction (one-sided) or in both directions (two-sided).' : 'Whether the p-values you enter are one-sided or two-sided. The parametric test needs one-sided p-values; the SAP text says which you chose.'; }
 }
@@ -8838,9 +8891,9 @@ document.addEventListener('keydown', e => {
   if (mod && !typing && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return; }
   if (presenting && !typing) {
     if (e.key === 'Escape') { exitPresent(); return; }
-    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') { e.preventDefault(); if (!(e.target.closest && e.target.closest('[data-node]'))) stepOnce(false); else stepOnce(false); return; }
-    if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); stepBack(); return; }
-    if (e.key === 'r' || e.key === 'R') { T = newTest(); renderAll(); return; }
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') { e.preventDefault(); presentNext(); return; }
+    if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); presentBack(); return; }
+    if (e.key === 'r' || e.key === 'R') { presentEndShown = false; T = newTest(); renderAll(); return; }
   }
   if (e.key === 'Escape') {
     if ($('moreMenu').open) { closeMenu(); return; }

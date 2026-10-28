@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.3.5 (2026-10-28)
+
+The last places a clinician met statistical words with Plain language ticked, and the toolbar decision left open since 1.3.1. With Plain language off nothing changes, except the end of presentation mode.
+
+- Status line under the drawing: "The drawing is complete." with a sentence on the allowance, in place of "Valid graph… alpha-exhaustive". Errors and warnings keep their words.
+- The moving dots carry the share handed on as a percentage ("+0.625%" instead of "+1/4"), the same number as the step sentence.
+- Presentation mode (both views): after the last success the caption shows that step's own sentence; one more Next (or right arrow) shows "Finished" or "Stopped", and Back from there returns to the sentence. Up to 1.3.4 the final sentence never showed.
+- "What would it take?" in What-if mode now ignores the typed p-values in the clinician view (decision D5): each card gives the share now and the most the question could ever hold.
+- The Graph tab in the clinician view (decision D6): the table reads Question, Share at the start (as a percentage) and Hands on (in words), with no weight column; the panel of a question says "Share at the start", "When H1 succeeds, its share goes to", "Fraction" and "Handed on in total"; the panel of an arrow says "Arrow H1 → H2" and "Fraction handed on"; "How to edit", the design hint on the drawing, the screen-reader labels and the "+ Question" button follow. The inputs still take fractions. The template note, the Variables and Entangled graph sections and the fractions on the drawing are unchanged.
+- Toolbar: "Allowance" stays; "= 2.5%" shows after the box from 1440 pixels wide, where the bar still fits on one row. Two rows at 1280 as before.
+- Tests: `tests/plain-capture.js` also reads the Graph tab (without the template's note), the status line, the dots, the add button and the screen-reader labels, and its old-words list gains hypothesis, weight, transition and exhaustive. The plain-on check wants the dots as percentages, the allowance in the status line, the What-if cards without p-values, the toolbar at 1366 and 1440 and the end of presentation mode; the plain-off check lists the extra presentation caption as a planned difference. Browser suite: 42. Self-tests: 123. Engine stress suite: 46 (`core.js` changed only in its version string).
+
 ## 1.3.4 (2026-10-28)
 
 Fixes and self-tests from the methods check of 27 October 2026. The engine's results are unchanged. Words, references and tests only.

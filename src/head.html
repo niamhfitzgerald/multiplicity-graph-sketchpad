@@ -378,6 +378,9 @@ body.present .node-body { stroke-width: 3; }
 .band text { font-size: 12px; letter-spacing: 1px; fill: var(--muted); text-transform: uppercase; }
 
 @media (max-width: 1500px) { .brand .sub { display: none; } }
+/* the clinician view's "= 2.5%" after the allowance box (1.3.5): shown from 1440 wide, where the toolbar still fits on one row */
+#alphaPct { white-space: nowrap; }
+@media (max-width: 1439px) { #alphaPct { display: none !important; } }
 @media (max-width: 640px) { .canvas-hint { right: 10px; top: calc(52px + var(--comp-h, 0px)); max-width: none; } }
 table.t td:first-child { white-space: nowrap; }
 @media (max-width: 900px) {
@@ -409,7 +412,7 @@ table.t td:first-child { white-space: nowrap; }
       <button id="modeDesign" aria-pressed="true">Design</button>
       <button id="modeTest" aria-pressed="false">Test</button>
     </div>
-    <label class="field-inline" for="alphaInput"><span id="alphaLabel" title="Significance level">&alpha; =</span><input id="alphaInput" value="0.025" inputmode="decimal" autocomplete="off" aria-label="Significance level alpha"></label>
+    <label class="field-inline" for="alphaInput"><span id="alphaLabel" title="Significance level">&alpha; =</span><input id="alphaInput" value="0.025" inputmode="decimal" autocomplete="off" aria-label="Significance level alpha"><span id="alphaPct" hidden></span></label>
     <select class="sel" id="sidedSelect" aria-label="Are the p-values one-sided or two-sided" title="Whether the p-values you enter are one-sided or two-sided. The parametric test needs one-sided p-values; the SAP text says which you chose.">
       <option value="one">one-sided p</option>
       <option value="two">two-sided p</option>

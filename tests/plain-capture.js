@@ -4,7 +4,12 @@
 
    With plain = false the "What would it take?" and "Step log" sections are opened, so their text is compared too.
    With plain = true only "What would it take?" is opened: "Show the sums" stays closed, as a clinician sees it.
-   #plainToggle is the Plain language box: in the Test tab up to 1.3.1, at the foot of the side panel after that. */
+   #plainToggle is the Plain language box: in the Test tab up to 1.3.1, at the foot of the side panel after that.
+
+   From 1.3.5 the capture also reads the Graph tab (its table and panels, without the template's own note), the status
+   line under the drawing, the "+ Hypothesis" button, the screen-reader labels of the circles and the labels on the
+   moving dots during the first step (keys graphDesign, graphStep, dots). The 1.3.0 snapshot has no such keys, so the
+   plain-off check ignores them; the plain-on check scans them for old words. */
 const SETUP_P = ['0.004', '0.009', '0.011', '0.03'];
 
 async function capturePlain(page, plain) {
@@ -19,6 +24,25 @@ async function capturePlain(page, plain) {
     hint: await page.locator('#hintText').innerText(),
     toolbar: await ev(() => [document.querySelector('label[for="alphaInput"]').innerText, ...[...document.querySelectorAll('#sidedSelect option')].map(o => o.textContent)])
   });
+  /* the Graph tab without the template's note (the template's own text keeps its words), the status line, the add
+     button and the screen-reader labels; with panels = true also the panel of the first hypothesis and of the first
+     transition, then nothing selected again */
+  const graphTab = () => ev(() => { const el = document.getElementById('tab-graph'); const t = el.innerText; const n = el.querySelector('.note'); return n ? t.replace(n.innerText, '') : t; });
+  const readGraph = async panels => {
+    const was = await ev(() => activeTab);
+    await ev(() => setTab('graph')); await sleep(60);
+    const g = { tab: await graphTab(), status: await page.locator('#statusBar').innerText(), addButton: await page.locator('#addNodeBtn').innerText(),
+      aria: await ev(() => [...document.querySelectorAll('#world [data-node]')].map(x => x.getAttribute('aria-label'))), hint: await page.locator('#hintText').innerText() };
+    if (panels) {
+      await page.click(`[data-node="${await ev(() => G.nodes[0].id)}"] .node-body`); await sleep(80);
+      g.nodePanel = await graphTab();
+      await ev(() => { setSel({ type: 'edge', key: gKey(G.edges[0].from, G.edges[0].to) }); }); await sleep(80);
+      g.edgePanel = await graphTab();
+      await ev(() => setSel(null)); await sleep(60);
+    }
+    await ev(t => setTab(t), was); await sleep(60);
+    return g;
+  };
   const out = {};
 
   /* the clinician set-up, in a fresh page */
@@ -30,13 +54,18 @@ async function capturePlain(page, plain) {
   await sleep(150);
 
   await open(opens); out.design = await read();
+  out.graphDesign = await readGraph(true);
 
   /* Step through it: before any step, then the click messages for H3 (no share yet), one step, H3 again (share too small) */
   await page.click('[data-action="enter-test"]'); await sleep(150);
   await open(opens); out.stepStart = await read();
+  out.graphStep = await readGraph(false);
   const clickNode = async label => { const id = await ev(l => G.nodes.find(n => n.label === l).id, label); await page.click(`[data-node="${id}"] .node-body`); await sleep(100); return page.locator('#hintText').innerText(); };
   out.clickNoShare = await clickNode('H3');
-  await page.click('[data-action="step"]'); await idle(); await sleep(100);
+  /* the labels on the moving dots, read while the first step's animation runs (none with reduced motion) */
+  await page.click('[data-action="step"]'); await sleep(650);
+  out.dots = await ev(() => [...document.querySelectorAll('#overlay .flow-text')].map(x => x.textContent));
+  await idle(); await sleep(100);
   await open(opens); out.afterOneStep = await read();
   out.clickTooSmall = await clickNode('H3');
 
@@ -68,8 +97,9 @@ async function capturePlain(page, plain) {
   return out;
 }
 
-/* Words a clinician should not meet with Plain language ticked (Bonferroni step-through) */
-const OLD_WORDS = [/Hyp\./, /Weight now/, /Level now/, /\bStatus\b/, /\breject/i, /α/, /\balpha\b/i, /\blevel\b/i, /≤/, /one-sided p/, /two-sided p/];
+/* Words a clinician should not meet with Plain language ticked (Bonferroni step-through). From 1.3.5 the list also has
+   hypothesis, weight, transition and exhaustive, for the Graph tab, the status line and the dots. */
+const OLD_WORDS = [/Hyp\./, /Weight now/, /Level now/, /\bStatus\b/, /\breject/i, /α/, /\balpha\b/i, /\blevel\b/i, /≤/, /one-sided p/, /two-sided p/, /hypothes/i, /\bweight/i, /transition/i, /exhaustive/i];
 
 /* Every place an old word appears, as "state/part: word in '...context...'" */
 function oldWordsIn(cap) {

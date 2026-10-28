@@ -1185,18 +1185,39 @@ async function step(name, fn) {
     const { c, p } = await freshPage();
     const got = await capturePlain(p, false);
     await c.close();
-    /* one planned exception: the Plain language box left the Test tab heading for the switch at the foot of the panel */
+    /* planned exceptions: (1) the Plain language box left the Test tab heading for the switch at the foot of the panel
+       (1.3.2); (2) presentation mode now shows the last step's own sentence ("Rejected H3: ...") before the "Stopped"
+       caption, which 1.3.0 never showed (1.3.5), so that one caption is taken out before the comparison */
     const noLabel = v => typeof v === 'string' ? v.replace(/^Test the graph\nPlain language\n/, 'Test the graph\n') : v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, noLabel(x)])) : v;
+    const gc = got.present && got.present.captions;
+    if (gc && gc.length === want.present.captions.length + 1 && /^Rejected H3: p = 0\.011 ≤ 1\/2 × 0\.025 = 0\.0125\. Passed on: \+1\/2 to H4\.$/.test(gc[gc.length - 2])) gc.splice(gc.length - 2, 1);
     for (const k of Object.keys(want)) {
       const a = JSON.stringify(noLabel(want[k])), g = JSON.stringify(noLabel(got[k]));
       if (a !== g) { let i = 0; while (i < a.length && a[i] === g[i]) i++; return `${k} differs at ${i}: 1.3.0 "${a.slice(Math.max(0, i - 40), i + 60)}" now "${(g || '').slice(Math.max(0, i - 40), i + 60)}"`; }
     }
   });
-  await step('Plain language on: no "rejected", "level", α, ≤ or other statistician words in the clinician set-up; the sums are behind "Show the sums"; What-if buttons read "Wait…" while a share moves; "step 2 of 3" while Run test runs; the description tip', async () => {
+  await step('Plain language on: no "rejected", "level", α, ≤, "hypothesis", "weight" or other statistician words in the clinician set-up (Test tab, drawing, Graph tab, status line, dots); the sums are behind "Show the sums"; What-if buttons read "Wait…" while a share moves; "step 2 of 3" while Run test runs; the description tip; the last step\'s sentence shows before "Finished" in presentation mode', async () => {
     const { c, p } = await freshPage();
     const got = await capturePlain(p, true);
     const hits = oldWordsIn(got);
     let sums = '';
+    /* 1.3.5: the dots carry shares as percentages; the status line names the allowance; the presentation captions end
+       with the last step's own sentence and then "Finished" (the last step was never shown up to 1.3.4) */
+    if (!got.dots.length || got.dots.some(t => !/^\+\d[\d.]*%$/.test(t))) sums += 'dots: ' + got.dots.join(', ') + '. ';
+    if (!/allowance/.test(got.graphDesign.status)) sums += 'status line: ' + got.graphDesign.status.slice(0, 120) + '. ';
+    /* the toolbar (1.3.5): "= 2.5%" after the allowance box from 1440 wide, one row at 1366 and 1440, nothing with Plain language off */
+    for (const [w, want] of [[1366, false], [1440, true]]) {
+      await p.setViewportSize({ width: w, height: 800 }); await p.waitForTimeout(150);
+      const r = await p.evaluate(() => ({ pct: $('alphaPct').textContent, shown: $('alphaPct').getClientRects().length > 0, h: Math.round(document.querySelector('.topbar').getBoundingClientRect().height) }));
+      if (r.pct !== '= 2.5%' || r.shown !== want || r.h > 60) sums += `toolbar at ${w}: ${JSON.stringify(r)}. `;
+    }
+    await p.evaluate(() => setPlain(false)); await p.waitForTimeout(100);
+    if (await p.evaluate(() => $('alphaPct').getClientRects().length > 0 || $('alphaPct').textContent !== '' || $('addNodeBtn').textContent !== '+ Hypothesis')) sums += 'toolbar with Plain language off: percentage shown or button renamed. ';
+    await p.evaluate(() => setPlain(true)); await p.setViewportSize({ width: 1400, height: 900 }); await p.waitForTimeout(150);
+    /* What-if (D5): "What would it take?" ignores the typed p-values in the clinician view */
+    for (const k of ['whatIfStart', 'whatIfH1']) if (!/p-values are ignored in What if/.test(got[k].tab) || /p-value 0\.0/.test(got[k].tab) || !/The most it could ever hold: 2\.5%/.test(got[k].tab)) sums += `What-if cards (${k}): ` + got[k].tab.replace(/\s+/g, ' ').slice(-300) + '. ';
+    const caps = got.present.captions;
+    if (caps.length !== 5 || !/^H3 succeeded/.test(caps[3]) || !/^Finished/.test(caps[4])) sums += 'presentation captions: ' + caps.map(x => x.slice(0, 40)).join(' | ') + '. ';
     /* What-if: while a share moves, every button reads "Wait…" and is disabled; then "If it succeeds" again */
     await p.click('#tabbtn-test'); await p.click('[data-action="mode-whatif"]'); await p.waitForTimeout(150);
     const firstId = await p.evaluate(() => G.nodes[0].id);

@@ -1,6 +1,6 @@
 # Multiplicity Graph Sketchpad User Guide
 
-Niamh Fitzgerald · version 1.3.4
+Niamh Fitzgerald · version 1.3.5
 
 The Sketchpad draws, tests and explains graphical multiple testing procedures (Bretz et al., 2009) in the browser. Nothing you enter leaves your computer. This guide covers how to use it, not the method.
 
@@ -80,14 +80,15 @@ The default is the weighted Bonferroni test, which is the one that can be steppe
 ## Explain it to a team
 
 - **Plain language:** tick the box at the foot of the side panel (or in the More menu). It works on every tab. The graph and each step are described in everyday words ("H1 starts with 1.25%. When it succeeds, it hands half of its share to H2..."), with no mention of weights, transition matrices or the familywise error rate. Fill in each hypothesis's description so the text names the endpoints; a tip says so while every description is empty.
-  - The rest of the Test tab, the labels under the circles, the hint, the presentation captions and the toolbar use the same words. A hypothesis is "claimed" when it succeeds. Its "share" of the allowance is shown as a percentage. The weight column is hidden.
+  - The rest of the Test tab, the labels under the circles, the moving dots, the status line under the drawing, the hint, the presentation captions and the toolbar use the same words. A hypothesis is "claimed" when it succeeds. Its "share" of the allowance is shown as a percentage. The weight column is hidden.
+  - The Graph tab says "question", "share" and "arrow" too: the table shows each question's share at the start and what it hands on; the panel of a question or an arrow says where its share goes when it succeeds. The boxes still take fractions such as 1/2. The template's note keeps its own words.
   - The step log becomes **Show the sums (for the statistician)**. It stays closed until you open it, or press "Show the sums" in the box, and holds the full sums.
-  - In What-if mode the buttons read "If it succeeds", and "Wait…" while the share moves. Run test shows "step 2 of 3" as it goes.
-  - The toolbar reads "Allowance" for alpha, and "one direction" or "both directions" for one-sided or two-sided p-values.
+  - In What-if mode the buttons read "If it succeeds", and "Wait…" while the share moves, and "What would it take?" gives each question's share now and the most it could ever hold, with no p-values. Run test shows "step 2 of 3" as it goes.
+  - The toolbar reads "Allowance" for alpha (with "= 2.5%" after the box on a wide enough screen), "+ Question" for the add button, and "one direction" or "both directions" for one-sided or two-sided p-values.
   - The new words apply to the Bonferroni test. With the Simes or parametric tests the statistical terms stay, and the Test tab says "Untick Plain language to change it" under the test's name.
   - The box also hides what a clinical team does not need: the Matrix, Power and Optimise tabs, the four statistician-only templates, Test type, order analysis, adjusted p-values, pasting p-values, Teaching tips, Join or extract, the component buttons of an entangled graph, the Import menu item, and the LaTeX, R and SAP exports. Untick it to see everything again. If you tick it on the Matrix, Power or Optimise tab, the page moves to the Graph tab.
 - **What would it take?** For every hypothesis still open, this section in the Test tab gives its level now, the highest level it could reach, and the smallest sets of other rejections that would let it be rejected with its p-value. Press Show to outline that set on the canvas. It answers the question of how a hypothesis with a tiny p-value can still need another result first.
-- **Present:** the button next to Fit hides the panels and enlarges the graph. Press the right arrow or Next to reject the next hypothesis, the left arrow to go back, R to reset and Esc to leave. The caption at the bottom narrates each step, in plain language if that box is ticked.
+- **Present:** the button next to Fit hides the panels and enlarges the graph. Press the right arrow or Next to reject the next hypothesis, the left arrow to go back, R to reset and Esc to leave. The caption at the bottom narrates each step, in plain language if that box is ticked. After the last rejection the caption gives that step; one more Next shows the result, and Back from there returns to the step.
 
 ## Power by simulation
 
