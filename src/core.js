@@ -1,7 +1,7 @@
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.3.6';
-const APP_DATE = '2026-10-28';
+const APP_VERSION = '1.4.0';
+const APP_DATE = '2026-10-29';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
 /* The author's LinkedIn profile; the header byline and About link to it. */
@@ -1997,18 +1997,85 @@ function qnorm(p) {
   q = p - 0.5; r = q * q;
   return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
 }
-function cholesky(R, m) {
+/* Lower Cholesky factor of R (row-major, m x m), or null when R is not positive definite.
+   psd (1.4.0): also accept a singular but valid (positive semi-definite) matrix, as for a full population, a
+   subgroup and its complement (Thomas, Bornkamp, Posch and König, 2020, p. 58). A positive definite R is factored as
+   before. Otherwise R is first replaced by psdRepair(R) (null when R is not valid), and a pivot of that matrix below
+   1e-10 is taken as 0: that statistic is an exact combination of the earlier ones, its column of L is 0. */
+function cholesky(R, m, psd = false) {
+  const L = cholRaw(R, m, false);
+  if (L || !psd) return L;
+  const Rp = psdRepair(R, m);
+  return Rp ? cholRaw(Rp, m, true) : null;
+}
+function cholRaw(R, m, psd) {
   const L = new Float64Array(m * m);
   for (let i = 0; i < m; i++) {
     for (let j = 0; j <= i; j++) {
       let s = R[i * m + j];
       for (let k = 0; k < j; k++) s -= L[i * m + k] * L[j * m + k];
-      if (i === j) { if (s <= 1e-10) return null; L[i * m + i] = Math.sqrt(s); }
-      else L[i * m + j] = s / L[j * m + j];
+      if (i === j) {
+        if (s > 1e-10) L[i * m + i] = Math.sqrt(s);
+        else if (psd && s >= -1e-8) L[i * m + i] = 0;
+        else return null;
+      } else if (L[j * m + j] > 0) L[i * m + j] = s / L[j * m + j];
+      else if (Math.abs(s) <= 1e-4) L[i * m + j] = 0;
+      else return null;
     }
   }
   return L;
 }
+/* Eigenvalues and eigenvectors of a symmetric m x m matrix (row-major) by cyclic Jacobi rotations. Returns
+   {val, vec} with vec[k * m + i] the i-th entry of the k-th eigenvector. */
+function symEigen(A, m) {
+  const a = Float64Array.from(A), v = new Float64Array(m * m);
+  for (let i = 0; i < m; i++) v[i * m + i] = 1;
+  for (let sweep = 0; sweep < 100; sweep++) {
+    let off = 0;
+    for (let p = 0; p < m; p++) for (let q = p + 1; q < m; q++) off += a[p * m + q] * a[p * m + q];
+    if (off < 1e-30) break;
+    for (let p = 0; p < m; p++) for (let q = p + 1; q < m; q++) {
+      const apq = a[p * m + q];
+      if (Math.abs(apq) < 1e-300) continue;
+      const th = (a[q * m + q] - a[p * m + p]) / (2 * apq);
+      const t = Math.sign(th || 1) / (Math.abs(th) + Math.sqrt(th * th + 1)), c = 1 / Math.sqrt(t * t + 1), sn = t * c;
+      for (let k = 0; k < m; k++) {
+        const akp = a[k * m + p], akq = a[k * m + q];
+        a[k * m + p] = c * akp - sn * akq; a[k * m + q] = sn * akp + c * akq;
+      }
+      for (let k = 0; k < m; k++) {
+        const apk = a[p * m + k], aqk = a[q * m + k];
+        a[p * m + k] = c * apk - sn * aqk; a[q * m + k] = sn * apk + c * aqk;
+      }
+      for (let k = 0; k < m; k++) {
+        const vpk = v[p * m + k], vqk = v[q * m + k];
+        v[p * m + k] = c * vpk - sn * vqk; v[q * m + k] = sn * vpk + c * vqk;
+      }
+    }
+  }
+  return { val: Array.from({ length: m }, (_, i) => a[i * m + i]), vec: v };
+}
+/* 1.4.0: the valid correlation matrix nearest a nearly singular R. Correlations rounded to six decimals move the
+   eigenvalues of R by at most (m - 1) * 5e-7 (Weyl), so a singular R entered that way can have a smallest eigenvalue
+   a little below 0. When the smallest eigenvalue is at least -1e-5, negative eigenvalues are set to 0 and the result
+   is rescaled to a unit diagonal (Higham, 2002, IMA J Numer Anal 22:329, one projection step); below -1e-5 R is
+   not valid and null is returned. R itself is returned when it is positive definite. The test does not depend on
+   the order of the statistics, and every subset of a block that passes also passes (Cauchy interlacing). */
+const PSD_TOL = 1e-5;
+function psdRepair(R, m) {
+  if (cholRaw(R, m, false)) return R;
+  const { val, vec } = symEigen(R, m);
+  if (!(Math.min(...val) >= -PSD_TOL)) return null;
+  const P = new Float64Array(m * m);
+  for (let k = 0; k < m; k++) { const l = Math.max(0, val[k]); if (l > 0) for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) P[i * m + j] += l * vec[k * m + i] * vec[k * m + j]; }
+  const d = Array.from({ length: m }, (_, i) => Math.sqrt(P[i * m + i]));
+  for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) P[i * m + j] = i === j ? 1 : Math.max(-1, Math.min(1, P[i * m + j] / (d[i] * d[j])));
+  return P;
+}
+/* Smallest eigenvalue of a symmetric matrix */
+const minEigen = (R, m) => Math.min(...symEigen(R, m).val);
+/* True when L (from cholesky with psd) has a zero pivot: one statistic is an exact combination of the others */
+const cholSingular = (L, m) => { for (let i = 0; i < m; i++) if (!(L[i * m + i] > 0)) return true; return false; };
 function floatGraph(G) {
   const m = G.nodes.length, idx = new Map(G.nodes.map((n, i) => [n.id, i]));
   const arrays = H => {
@@ -2259,7 +2326,10 @@ function parseDefaultGraph(text) {
   for (const line of lines) {
     const m = /^(.*?)\s*[:=]\s*([^:=]+)$/.exec(line);
     if (!m) throw new Error(`"${line}": write the weight after a colon, such as "H1 > H2 : 1/2".`);
-    const labels = m[1].split(/\s*(?:>|→|->|-->|,)\s*/).map(s => s.trim()).filter(Boolean);
+    /* With arrows on the line, only the arrows separate the hypotheses, so labels such as "H1,NI" (Hung and Wang)
+       survive the round trip from "Copy as text". Commas separate them only on a line without arrows (1.3.7). */
+    const sep = /[>→]/.test(m[1]) ? /\s*(?:>|→|->|-->)\s*/ : /\s*,\s*/;
+    const labels = m[1].split(sep).map(s => s.trim()).filter(Boolean);
     if (labels.length < 1) throw new Error(`"${line}": no hypotheses before the colon.`);
     const order = labels.map(l => { let i = names.indexOf(l); if (i < 0) { names.push(l); i = names.length - 1; } return i; });
     if (new Set(order).size !== order.length) throw new Error(`"${line}": a hypothesis appears twice in one sequence.`);
@@ -2712,6 +2782,7 @@ function sapText(G, opts = {}) {
     samuelcahn1996: 'Samuel-Cahn E (1996). Is the Simes improved Bonferroni procedure conservative? Biometrika 83(4):928–933.',
     lu2016: 'Lu K (2016). Graphical approaches using a Bonferroni mixture of weighted Simes tests. Statistics in Medicine 35(22):4041–4055.',
     xi2017: 'Xi D, Glimm E, Maurer W, Bretz F (2017). A unified framework for weighted parametric multiple test procedures. Biometrical Journal 59(5):918–931.',
+    genz2004: 'Genz A (2004). Numerical computation of rectangular bivariate and trivariate normal and t probabilities. Statistics and Computing 14:251-260.',
     genz2009: 'Genz A, Bretz F (2009). Computation of Multivariate Normal and t Probabilities. Lecture Notes in Statistics 195. Springer.',
     gmcp: 'Rohmeyer K, Klinglmueller F (2024). gMCP: Graph Based Multiple Comparison Procedures. R package version 0.8-17.',
     sarkar1998: 'Sarkar SK (1998). Some probability inequalities for ordered MTP2 random variables: a proof of the Simes conjecture. Annals of Statistics 26(2):494–504.',
@@ -2875,8 +2946,8 @@ function sapText(G, opts = {}) {
     const upNote = upscale && exh === false ? ` The graph is not α-exhaustive, so rescaling changes the procedure: some intersection hypotheses are tested at the full α rather than at α times the sum of their weights${lowest ? `; for example, ${lowest.label} alone is tested at level ${a} rather than ${fmtNum(lowest.w * aNum, 6)}` : ''}. The procedure therefore does not keep the gatekeeping property that the graph suggests.` : '';
     let tech;
     if (tt === 'parametric') {
-      tech = `Each intersection hypothesis H_J will be tested with the weighted parametric test of Xi et al. (2017, section 4.3, eq. 6).${scale} The hypotheses in J are split into blocks: the correlations are known within a block (Table [X.3]) and not between blocks. Within each block B, H_J is rejected if p_i ≤ c_{J,B} w_i(J) α for some i in B, where w_i(J) are the ${upscale ? 'rescaled ' : ''}weights and the constant c_{J,B} ≥ 1 is chosen so that, under H_J, this event has probability α times the sum of w_i(J) over B. The blocks are combined by the Bonferroni inequality, so H_J is tested at level ${upscale ? 'α' : 'α times the sum of its weights'}; because each block has its own constant, a block with one hypothesis has c = 1. This differs from the single common constant for all blocks of Bretz et al. (2011, eq. 3), used by the gMCP package. Within each block, the one-sided test statistics are assumed to be multivariate normal with the correlations in Table [X.3]; [the test statistics are z statistics / are treated as approximately normal]. Multivariate normal probabilities are computed by a randomised quasi-Monte Carlo lattice rule (Genz and Bretz, 2009) with a fixed random seed, so that results can be reproduced, and a reported Monte Carlo standard error.${upNote}`;
-      cite('genz2009', 'gmcp');
+      tech = `Each intersection hypothesis H_J will be tested with the weighted parametric test of Xi et al. (2017, section 4.3, eq. 6).${scale} The hypotheses in J are split into blocks: the correlations are known within a block (Table [X.3]) and not between blocks. Within each block B, H_J is rejected if p_i ≤ c_{J,B} w_i(J) α for some i in B, where w_i(J) are the ${upscale ? 'rescaled ' : ''}weights and the constant c_{J,B} ≥ 1 is chosen so that, under H_J, this event has probability α times the sum of w_i(J) over B. The blocks are combined by the Bonferroni inequality, so H_J is tested at level ${upscale ? 'α' : 'α times the sum of its weights'}; because each block has its own constant, a block with one hypothesis has c = 1. This differs from the single common constant for all blocks of Bretz et al. (2011, eq. 3), used by the gMCP package. Within each block, the one-sided test statistics are assumed to be multivariate normal with the correlations in Table [X.3]; [the test statistics are z statistics / are treated as approximately normal]. Multivariate normal probabilities are computed by numerical integration: for blocks of up to four hypotheses exactly, by the bivariate routine of Genz (2004) and recursive conditioning (Genz and Bretz, 2009, section 2.1.2); for larger blocks by a randomised quasi-Monte Carlo lattice rule (Genz and Bretz, 2009) with a fixed random seed, so that results can be reproduced, and a reported Monte Carlo standard error.${upNote}`;
+      cite('genz2004', 'genz2009', 'gmcp');
     } else {
       const simesRule = 'p_j is at most α times the sum of w_k(J) over the hypotheses k in J with p_k ≤ p_j';
       const cond = `The weighted Simes test controls its level when the test statistics are positively regression dependent on the subset of true null hypotheses (PRDS; Bretz et al., 2011, section 3.3, citing Kling, 2005). This holds, for example, for one-sided tests whose statistics are multivariate normal with non-negative correlations (Benjamini and Yekutieli, 2001, section 3.1; Benjamini and Heller, 2007). For one-sided tests it may exceed its level under negative correlation (Samuel-Cahn, 1996).${two ? ' The p-values here are two-sided, so the condition concerns the absolute values of the test statistics. It holds for two normal statistics with any correlation (Samuel-Cahn, 1996) and for equicorrelated normal statistics (Sarkar, 1998, Proposition 3.2), but is not established for general correlation matrices.' : ''} The assumption is considered to hold here because [justification].`;
@@ -2985,14 +3056,18 @@ function closureWeights(fg) {
 const PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53];
 /* P(Z_i < b_i for all i), Z ~ N(0, R), L = chol(R) lower: randomised quasi-Monte Carlo (Genz and Bretz, 2009,
    section 4.2.2): a Richtmyer lattice (square roots of primes) with the baker transform, averaged over nShift
-   random shifts. Returns {p, se}, where se is the standard error across the shifts (Genz's error estimate). */
-function mvnLowerSE(b, L, m, rand, nPts = 512, nShift = 6) {
+   random shifts. Returns {p, se}, where se is the standard error across the shifts (Genz's error estimate).
+   shifts (optional, 1.4.0): the shifts to use, one array of m - 1 numbers per shift, so that repeated calls with
+   different bounds use the same points (a smooth function of the bounds, for the bisection in paramConstant). */
+function mvnLowerSE(b, L, m, rand, nPts = 512, nShift = 6, shifts = null) {
   if (m === 1) return { p: pnormUpper(-b[0]), se: 0 };
+  if (cholSingular(L, m)) return mvnLowerSingularSE(b, L, m, rand, nPts, nShift, shifts);
   const sq = PRIMES.slice(0, m - 1).map(Math.sqrt);
   let total = 0, total2 = 0;
   const y = new Float64Array(m);
+  if (shifts) nShift = shifts.length;
   for (let s = 0; s < nShift; s++) {
-    const shift = Array.from({ length: m - 1 }, () => rand());
+    const shift = shifts ? shifts[s] : Array.from({ length: m - 1 }, () => rand());
     let sum = 0;
     for (let k = 1; k <= nPts; k++) {
       let f = pnormUpper(-b[0] / L[0]);
@@ -3015,7 +3090,213 @@ function mvnLowerSE(b, L, m, rand, nPts = 512, nShift = 6) {
   const v = Math.max(0, total2 / nShift - p * p);
   return { p, se: nShift > 1 ? Math.sqrt(v / (nShift - 1)) : 0 };
 }
-function mvnLower(b, L, m, rand, nPts = 512, nShift = 6) { return mvnLowerSE(b, L, m, rand, nPts, nShift).p; }
+function mvnLower(b, L, m, rand, nPts = 512, nShift = 6, shifts = null) { return mvnLowerSE(b, L, m, rand, nPts, nShift, shifts).p; }
+/* The same lattice rule for a singular L (1.4.0). A statistic with a zero pivot is fixed by the earlier ones:
+   Z_d = sum_j L_dj y_j. Its limit Z_d < b_d becomes a limit on the last variable it depends on, which is then drawn
+   from a normal truncated on both sides (Genz and Bretz, 2009, section 4.1.4, singular covariance matrices). The
+   lattice has one dimension per non-zero pivot. */
+function mvnLowerSingularSE(b, L, m, rand, nPts, nShift, shifts) {
+  const act = [], deps = new Map();
+  for (let i = 0; i < m; i++) {
+    if (L[i * m + i] > 0) { act.push(i); continue; }
+    let j = -1;
+    for (let k = i - 1; k >= 0; k--) if (Math.abs(L[i * m + k]) > 1e-12) { j = k; break; }
+    if (j < 0) { if (!(b[i] > 0)) return { p: 0, se: 0 }; continue; }
+    if (!deps.has(j)) deps.set(j, []);
+    deps.get(j).push(i);
+  }
+  const r = act.length, sq = PRIMES.slice(0, Math.max(0, r - 1)).map(Math.sqrt), y = new Float64Array(m);
+  if (shifts) nShift = shifts.length;
+  let total = 0, total2 = 0;
+  for (let s = 0; s < nShift; s++) {
+    const shift = shifts ? shifts[s] : Array.from({ length: Math.max(0, r - 1) }, () => rand());
+    let sum = 0;
+    for (let k = 1; k <= nPts; k++) {
+      let f = 1;
+      for (let t = 0; t < r && f > 0; t++) {
+        const i = act[t];
+        let tt = b[i];
+        for (let j = 0; j < i; j++) tt -= L[i * m + j] * y[j];
+        let hi = tt / L[i * m + i], lo = -Infinity;
+        for (const d of deps.get(i) || []) {
+          let td = b[d];
+          for (let j = 0; j < i; j++) td -= L[d * m + j] * y[j];
+          const cf = L[d * m + i], lim = td / cf;
+          if (cf > 0) hi = Math.min(hi, lim); else lo = Math.max(lo, lim);
+        }
+        const plo = lo === -Infinity ? 0 : pnormUpper(-lo), e = Math.max(0, pnormUpper(-hi) - plo);
+        f *= e;
+        if (t < r - 1 && f > 0) {
+          const u = (k * sq[t] + shift[t]) % 1, ui = Math.abs(2 * u - 1);
+          y[i] = qnorm(Math.max(1e-300, Math.min(1 - 1e-16, plo + ui * e)));
+        }
+      }
+      sum += f;
+    }
+    const est = sum / nPts;
+    total += est; total2 += est * est;
+  }
+  const p = total / nShift, v = Math.max(0, total2 / nShift - p * p);
+  return { p, se: nShift > 1 ? Math.sqrt(v / (nShift - 1)) : 0 };
+}
+/* Gauss-Legendre points and weights on (0, 1), n points (cached) */
+const GL_CACHE = new Map();
+function glPoints(n) {
+  if (GL_CACHE.has(n)) return GL_CACHE.get(n);
+  const x = [], w = [];
+  for (let i = 1; i <= n; i++) {
+    let z = Math.cos(Math.PI * (i - 0.25) / (n + 0.5)), pp = 1;
+    for (let it = 0; it < 100; it++) {
+      let p1 = 1, p2 = 0;
+      for (let j = 1; j <= n; j++) { const p3 = p2; p2 = p1; p1 = ((2 * j - 1) * z * p2 - (j - 1) * p3) / j; }
+      pp = n * (z * p1 - p2) / (z * z - 1);
+      const z1 = z; z = z1 - p1 / pp;
+      if (Math.abs(z - z1) < 1e-15) break;
+    }
+    x.push((1 - z) / 2); w.push(1 / ((1 - z * z) * pp * pp));
+  }
+  const out = { x, w };
+  GL_CACHE.set(n, out);
+  return out;
+}
+/* P(Z < b) for three or four statistics (1.4.0), by conditioning: given Z_1 = x the others are normal with means
+   r_i1 x, variances s_i^2 = 1 - r_i1^2 and their partial correlations, so P = integral over x < b_1 of phi(x) times a
+   probability one dimension lower, down to the exact bivariate routine (Genz and Bretz, 2009, section 2.1.2, recursive
+   conditioning). No random numbers, so no Monte Carlo error. The integral is taken in x from -8.5 (below which phi
+   holds less than 1e-17) in panels of width at most COND_W, each with COND_N-point Gauss-Legendre. A conditional bound
+   (b_i - r_i1 x) / s_i passes 0 at x = b_i / r_i1 over a width of about s_i / |r_i1|; where that width is below
+   COND_W the panels are also cut at COND_STEPS widths either side, so the step is followed. A statistic fixed by Z_1
+   (s_i^2 below 1e-12, from a singular R) becomes a limit on x; one nearly fixed is a steep step, followed by the cuts. R: correlation matrix as an array of rows.
+   Checked against mvtnorm (TVPACK, Miwa with 4096 steps, and an exact integral for singular matrices) on 180 random
+   matrices: largest error in P below 1e-8. Lighter panels at the four-statistic level (6 points, width 1.5) keep a
+   four-statistic probability to about 30 ms. */
+let COND_N = 8, COND_W = 1.25, COND_N4 = 6, COND_W4 = 1.5, COND_STEPS = [-6, -2, -0.5, 0.5, 2, 6];
+const COND_XMIN = -8.5;
+function mvnCondLower(b, R) {
+  const m = b.length;
+  if (m === 0) return 1;
+  if (m === 1) return pnormUpper(-b[0]);
+  if (m === 2) return bvnLower(b[0], b[1], Math.max(-1, Math.min(1, R[0][1])));
+  let lo = COND_XMIN, hi = b[0];
+  const keep = [];
+  for (let i = 1; i < m; i++) {
+    const r = R[i][0];
+    if (1 - r * r <= 1e-12) { const lim = b[i] / r; if (r > 0) hi = Math.min(hi, lim); else lo = Math.max(lo, lim); }
+    else keep.push(i);
+  }
+  if (hi > 8.5) hi = 8.5;
+  if (!(hi > lo)) return 0;
+  if (!keep.length) return Math.max(0, pnormUpper(-hi) - pnormUpper(-lo));
+  const s = keep.map(i => Math.sqrt(1 - R[i][0] * R[i][0]));
+  const Rc = keep.map((i, a) => keep.map((j, c) => (a === c ? 1 : Math.max(-1, Math.min(1, (R[i][j] - R[i][0] * R[j][0]) / (s[a] * s[c]))))));
+  const NQ = m >= 4 ? COND_N4 : COND_N, WP = m >= 4 ? COND_W4 : COND_W;
+  const cuts = [lo, hi];
+  const np = Math.ceil((hi - lo) / WP);
+  for (let k = 1; k < np; k++) cuts.push(lo + (hi - lo) * k / np);
+  keep.forEach((i, a) => {
+    const r = R[i][0];
+    if (!(Math.abs(r) > 1e-12) || !Number.isFinite(b[i])) return;
+    const x0 = b[i] / r, wd = s[a] / Math.abs(r);
+    if (!(wd < WP)) return;
+    for (const k of COND_STEPS) { const x = x0 + k * wd; if (x > lo && x < hi) cuts.push(x); }
+  });
+  /* a pair left perfectly correlated given x (singular R) gives an inner probability with a kink where its two
+     bounds cross: cut there too. A pair strongly correlated (a singular R rounded to six decimals leaves |rho| just
+     below 1) bends over a width of about sqrt(2 (1 - |rho|)) in the bounds: where that width in x is below the panel
+     width, cut at COND_STEPS widths either side, so the bend is followed (1.4.0, after the independent review) */
+  keep.forEach((i, a) => keep.forEach((j, c) => {
+    if (c <= a || Math.abs(Rc[a][c]) < 0.5 || !Number.isFinite(b[i]) || !Number.isFinite(b[j])) return;
+    const sg = Rc[a][c] > 0 ? 1 : -1, den = R[i][0] / s[a] - sg * R[j][0] / s[c];
+    if (!(Math.abs(den) > 1e-12)) return;
+    const x0 = (b[i] / s[a] - sg * b[j] / s[c]) / den, wd = Math.sqrt(2 * Math.max(0, 1 - Math.abs(Rc[a][c]))) / Math.abs(den);
+    if (x0 > lo && x0 < hi) cuts.push(x0);
+    if (wd > 0 && wd < WP) for (const k of COND_STEPS) { const x = x0 + k * wd; if (x > lo && x < hi) cuts.push(x); }
+  }));
+  /* the same for three statistics left (nearly) singular given x, with no pair at +-1: the plane they lie on passes
+     through the corner of the bounds where v . u(x) = 0, v the unit eigenvector of the smallest eigenvalue lambda of
+     Rc, and the bend has a width of about sqrt(lambda) / |v . u'(x)| (for a pair this is the rule above) */
+  if (keep.length >= 3 && keep.every(i => Number.isFinite(b[i]))) {
+    const n = keep.length, { val, vec } = symEigen(Float64Array.from(Rc.flat()), n);
+    const k0 = val.indexOf(Math.min(...val)), lam = Math.max(0, val[k0]);
+    if (lam < 0.25) {
+      const v = keep.map((_, a) => vec[k0 * n + a]);
+      const num = keep.reduce((t, i, a) => t + v[a] * b[i] / s[a], 0), den = keep.reduce((t, i, a) => t + v[a] * R[i][0] / s[a], 0);
+      if (Math.abs(den) > 1e-12) {
+        const x0 = num / den, wd = Math.sqrt(lam) / Math.abs(den);
+        if (x0 > lo && x0 < hi) cuts.push(x0);
+        if (wd > 0 && wd < WP) for (const k of COND_STEPS) { const x = x0 + k * wd; if (x > lo && x < hi) cuts.push(x); }
+      }
+    }
+  }
+  cuts.sort((x, y) => x - y);
+  const q = glPoints(NQ), SQ = 1 / Math.sqrt(2 * Math.PI);
+  let tot = 0;
+  for (let k = 0; k + 1 < cuts.length; k++) {
+    const x0 = cuts[k], dx = cuts[k + 1] - x0;
+    if (!(dx > 1e-12)) continue;
+    let part = 0;
+    for (let t = 0; t < NQ; t++) {
+      const x = x0 + q.x[t] * dx;
+      part += q.w[t] * SQ * Math.exp(-x * x / 2) * mvnCondLower(keep.map((i, a) => (b[i] - R[i][0] * x) / s[a]), Rc);
+    }
+    tot += part * dx;
+  }
+  return Math.max(0, Math.min(1, tot));
+}
+/* Largest block integrated by conditioning; larger blocks use the lattice rule */
+let COND_MAX = 4;
+/* P(Z < b) for one block of known correlation (1.4.0): exact for two statistics (bvnLower), by conditioning for three
+   or four (mvnCondLower), by the lattice rule for five or more. R: row-major Float64Array; L: its Cholesky factor
+   (cholesky with psd). The lattice arguments apply to five or more only. Returns {p, se}. */
+function blockLowerSE(b, R, L, m, rand, nPts, nShift, shifts) {
+  if (m === 1) return { p: pnormUpper(-b[0]), se: 0 };
+  if (m === 2) return { p: bvnLower(b[0], b[1], Math.max(-1, Math.min(1, R[1]))), se: 0 };
+  if (m <= COND_MAX) return { p: mvnCondLower(b, Array.from({ length: m }, (_, i) => Array.from(R.subarray(i * m, i * m + m)))), se: 0 };
+  return mvnLowerSE(b, L, m, rand, nPts, nShift, shifts);
+}
+/* ---- Bivariate normal (1.4.0): Genz (2004), Numerical computation of rectangular bivariate and trivariate normal
+   and t probabilities, Statistics and Computing 14:251-260, the BVND routine (Drezner and Wesolowsky's method with
+   Gauss-Legendre points; the routine mvtnorm uses for two dimensions). Accurate to about 1e-15 with an exact normal
+   function; here the error is set by pnormUpper (relative error below 1.2e-7), about 4e-8 at most against mvtnorm. */
+const BVN_GL = [
+  { w: [0.1713244923791705, 0.3607615730481384, 0.4679139345726904], x: [0.9324695142031522, 0.6612093864662647, 0.2386191860831970] },
+  { w: [0.04717533638651177, 0.1069393259953183, 0.1600783285433464, 0.2031674267230659, 0.2334925365383547, 0.2491470458134029], x: [0.9815606342467191, 0.9041172563704750, 0.7699026741943050, 0.5873179542866171, 0.3678314989981802, 0.1252334085114692] },
+  { w: [0.01761400713915212, 0.04060142980038694, 0.06267204833410906, 0.08327674157670475, 0.1019301198172404, 0.1181945319615184, 0.1316886384491766, 0.1420961093183821, 0.1491729864726037, 0.1527533871307259], x: [0.9931285991850949, 0.9639719272779138, 0.9122344282513259, 0.8391169718222188, 0.7463319064601508, 0.6360536807265150, 0.5108670019508271, 0.3737060887154196, 0.2277858511416451, 0.07652652113349733] }
+];
+/* P(X > h, Y > k) for a standard bivariate normal with correlation r, -1 <= r <= 1 */
+function bvnUpper(h, k, r) {
+  if (h === Infinity || k === Infinity) return 0;
+  if (h === -Infinity) return k === -Infinity ? 1 : pnormUpper(k);
+  if (k === -Infinity) return pnormUpper(h);
+  const g = Math.abs(r) < 0.3 ? BVN_GL[0] : Math.abs(r) < 0.75 ? BVN_GL[1] : BVN_GL[2];
+  let hk = h * k, bvn = 0;
+  if (Math.abs(r) < 0.925) {
+    const hs = (h * h + k * k) / 2, asr = Math.asin(r);
+    for (let i = 0; i < g.w.length; i++) for (const s of [-1, 1]) {
+      const sn = Math.sin(asr * (s * g.x[i] + 1) / 2);
+      bvn += g.w[i] * Math.exp((sn * hk - hs) / (1 - sn * sn));
+    }
+    return Math.max(0, Math.min(1, bvn * asr / (4 * Math.PI) + pnormUpper(h) * pnormUpper(k)));
+  }
+  if (r < 0) { k = -k; hk = -hk; }
+  if (Math.abs(r) < 1) {
+    const as = (1 - r) * (1 + r), bs = (h - k) * (h - k), c = (4 - hk) / 8, d = (12 - hk) / 16;
+    let a = Math.sqrt(as);
+    bvn = a * Math.exp(-(bs / as + hk) / 2) * (1 - c * (bs - as) * (1 - d * bs / 5) / 3 + c * d * as * as / 5);
+    if (hk > -160) { const bb = Math.sqrt(bs); bvn -= Math.exp(-hk / 2) * Math.sqrt(2 * Math.PI) * pnormUpper(bb / a) * bb * (1 - c * bs * (1 - d * bs / 5) / 3); }
+    a /= 2;
+    for (let i = 0; i < g.w.length; i++) for (const s of [-1, 1]) {
+      const xs = (a * (s * g.x[i] + 1)) ** 2, rs = Math.sqrt(1 - xs), e = -(bs / xs + hk) / 2;
+      if (e > -100) bvn += a * g.w[i] * Math.exp(e) * (Math.exp(-hk * xs / (2 * (1 + rs) ** 2)) / rs - (1 + c * xs * (1 + d * xs)));
+    }
+    bvn = -bvn / (2 * Math.PI);
+  }
+  if (r > 0) bvn += pnormUpper(Math.max(h, k));
+  else bvn = -bvn + Math.max(0, pnormUpper(h) - pnormUpper(k));
+  return Math.max(0, Math.min(1, bvn));
+}
+/* P(Z1 < b1, Z2 < b2), correlation r */
+const bvnLower = (b1, b2, r) => bvnUpper(-b1, -b2, r);
 /* Correlation blocks: connected components of known (non-null) correlations. Throws if a block is incomplete. */
 function corrBlocks(idx, corrAt) {
   const n = idx.length, seen = new Array(n).fill(false), blocks = [];
@@ -3028,23 +3309,52 @@ function corrBlocks(idx, corrAt) {
   }
   return blocks;
 }
-/* Smallest set of statistics whose correlations cannot all hold at once (null when the block is positive definite).
-   Looks at pairs, then triples (blocks of up to 20), then gives the whole block. */
+/* Smallest set of statistics whose correlations cannot all hold at once (null when they can). Looks at pairs, then
+   triples (blocks of up to 20), then gives the whole block. 1.4.0: a pair must still have a correlation strictly between
+   -1 and 1, but a block of three or more may be singular (positive semi-definite), as for a full population, a
+   subgroup and its complement; corrSingular names such a set. */
+function corrMatrix(s, corrAt) { const n = s.length, R = new Float64Array(n * n); s.forEach((i, a) => s.forEach((j, c) => { R[a * n + c] = i === j ? 1 : corrAt(i, j); })); return R; }
 function corrConflict(block, corrAt) {
-  const pd = s => { const n = s.length, R = new Float64Array(n * n); s.forEach((i, a) => s.forEach((j, c) => { R[a * n + c] = i === j ? 1 : corrAt(i, j); })); return !!cholesky(R, n); };
+  const ok = s => !!cholesky(corrMatrix(s, corrAt), s.length, s.length >= 3);
   const n = block.length;
-  if (n < 2 || pd(block)) return null;
-  for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) if (!pd([block[a], block[b]])) return [block[a], block[b]];
-  if (n <= 20) for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) for (let c = b + 1; c < n; c++) if (!pd([block[a], block[b], block[c]])) return [block[a], block[b], block[c]];
+  if (n < 2) return null;
+  for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) if (!ok([block[a], block[b]])) return [block[a], block[b]];
+  if (ok(block)) return null;
+  if (n <= 20) for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) for (let c = b + 1; c < n; c++) if (!ok([block[a], block[b], block[c]])) return [block[a], block[b], block[c]];
+  return block.slice();
+}
+/* A smallest set of statistics in a valid block that is singular (one an exact combination of the others, so the
+   smallest eigenvalue is within 1e-5 of 0), or null. Triples first (blocks of up to 20), then the whole block. */
+function corrSingular(block, corrAt) {
+  const sing = s => { const e = minEigen(corrMatrix(s, corrAt), s.length); return e >= -PSD_TOL && e <= PSD_TOL; };
+  const n = block.length;
+  if (n < 3 || !sing(block)) return null;
+  if (n <= 20) for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) for (let c = b + 1; c < n; c++) if (sing([block[a], block[b], block[c]])) return [block[a], block[b], block[c]];
   return block.slice();
 }
 /* Plain-English message for a conflicting set of hypothesis labels */
 function corrConflictText(labels, whole) {
   if (labels.length === 2) return `The correlation between ${labels[0]} and ${labels[1]} must lie strictly between −1 and 1.`;
   const list = labels.slice(0, -1).join(', ') + ' and ' + labels[labels.length - 1];
-  return whole && labels.length > 3 ? 'These correlations cannot all hold at once, or they make one statistic an exact combination of the others, as for a full population, a subgroup and its complement (the matrix is not positive definite). Try values closer to 0, or leave one of them out.' : `The correlations between ${list} cannot all hold at once, or they make one statistic an exact combination of the others, as for a full population, a subgroup and its complement (the matrix is not positive definite). Try values closer to 0, or leave one of them out.`;
+  const tail = ' Try values closer to 0. If one statistic is meant to be an exact combination of the others, as for a full population, a subgroup and its complement, enter the correlations to at least six decimal places.';
+  return (whole && labels.length > 3 ? 'These correlations cannot all hold at once (the matrix is not positive semi-definite).' : `The correlations between ${list} cannot all hold at once (the matrix is not positive semi-definite).`) + tail;
 }
-/* c such that P(some Z_i >= z_{1 - c w_i a}) = level, for a block with known correlation. Cached per call context. */
+/* Note for a singular set that is accepted (1.4.0) */
+function corrSingularText(labels) {
+  const list = labels.slice(0, -1).join(', ') + ' and ' + labels[labels.length - 1];
+  return `The correlations between ${list} make one of them an exact combination of the others (or within rounding of one), as for a full population, a subgroup and its complement. That is allowed: the test and the simulation use it.`;
+}
+/* Lattice size for the parametric constant of a block of five or more (Power tab, expected gain). 1024 points and 8
+   shifts, the same at every root-finding step: about 2.5 times the time of 1.3.7 for these blocks (rare). */
+let PARAM_PTS = 1024, PARAM_SHIFTS = 8;
+/* c such that P(some Z_i >= z_{1 - c w_i a}) = level, for a block with known correlation. Cached per call context.
+   1.4.0: two statistics use the exact bivariate routine and three or four the conditioning rule (blockLowerSE), with
+   no Monte Carlo error; five or more use the lattice rule with the same shifts at every root-finding step, so the
+   probability is a smooth function of c. In every case the largest weight comes first (Genz and Bretz, 2009,
+   section 4.1.3, variable ordering; the order is the same for every c, since each bound falls as its weight rises).
+   Up to 1.3.7 every step drew new shifts with 512 points and 4 shifts, which left the constant up to 0.5% out for two
+   statistics and 2.6% for three (methods check of 27 October 2026, section 5.2; Ondra et al. 2016, eq. 1). cholL may
+   be singular (cholesky with psd): R = L L' is rebuilt from it in the new order. */
 function paramConstant(block, w, a, level, cholL, rand, cache) {
   const m = block.length;
   if (m === 1) return 1;
@@ -3052,20 +3362,33 @@ function paramConstant(block, w, a, level, cholL, rand, cache) {
   if (!(wmax > 0)) return 1;
   const key = cache ? block.join(',') + '|' + w.map(x => x.toPrecision(6)).join(',') + '|' + a.toPrecision(6) + '|' + level.toPrecision(6) : null;
   if (cache && cache.has(key)) return cache.get(key);
-  const prob = c => {
-    const b = w.map(wi => (wi > 0 ? qnorm(1 - Math.min(1, c * wi * a)) : Infinity));
-    return 1 - mvnLower(b, cholL, m, rand, 512, 4);
-  };
+  const ord = w.map((_, i) => i).sort((i, j) => w[j] - w[i]);
+  const Rr = new Float64Array(m * m);
+  for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) { const oi = ord[i], oj = ord[j]; let s = 0; for (let k = 0; k <= Math.min(oi, oj); k++) s += cholL[oi * m + k] * cholL[oj * m + k]; Rr[i * m + j] = i === j ? 1 : s; }
+  const Lr = m >= 5 ? cholesky(Rr, m, true) : null, wo = ord.map(i => w[i]);
+  if (m >= 5 && !Lr) throw new Error('The correlation matrix is not positive semi-definite.');
+  const shifts = m >= 5 ? Array.from({ length: PARAM_SHIFTS }, () => Array.from({ length: m - 1 }, () => rand())) : null;
+  const prob = c => 1 - blockLowerSE(wo.map(wi => (wi > 0 ? qnorm(1 - Math.min(1, c * wi * a)) : Infinity)), Rr, Lr, m, rand, PARAM_PTS, PARAM_SHIFTS, shifts).p;
+  /* Root of prob(c) = level on log c: Illinois regula falsi (1.4.0), to a relative error of 2e-5 in c. prob rises with
+     c; it is smooth (exact integration, or the same lattice points at every step), so about 6 to 10 evaluations do,
+     against about 30 for plain bisection. */
   let lo = 1, hi = Math.min(1 / (wmax * a), 1e6), out;
-  if (prob(lo) >= level) out = 1;
-  else if (prob(hi) <= level) out = hi;
+  let flo = prob(lo) - level;
+  if (flo >= 0) out = 1;
   else {
-    for (let it = 0; it < 30; it++) {
-      const mid = Math.sqrt(lo * hi);
-      if (prob(mid) < level) lo = mid; else hi = mid;
-      if (hi / lo < 1.0003) break;
+    let fhi = prob(hi) - level;
+    if (fhi <= 0) out = hi;
+    else {
+      let xl = Math.log(lo), xh = Math.log(hi), side = 0;
+      for (let it = 0; it < 60; it++) {
+        const xm = (xl * fhi - xh * flo) / (fhi - flo);
+        const fm = prob(Math.exp(xm)) - level;
+        if (fm > 0) { xh = xm; fhi = fm; if (side === -1) flo /= 2; side = -1; }
+        else { xl = xm; flo = fm; if (side === 1) fhi /= 2; side = 1; }
+        if (xh - xl < 2e-5 || Math.abs(fm) < 1e-12) break;
+      }
+      out = Math.exp(Math.abs(fhi) < Math.abs(flo) ? xh : xl);
     }
-    out = Math.sqrt(lo * hi);
   }
   if (cache) cache.set(key, out);
   return out;
@@ -3098,9 +3421,10 @@ function intersectionAdjP(mask, m, W, p, test, ctx) {
       if (b.length === 1) return null;
       const R = new Float64Array(b.length * b.length);
       b.forEach((i, a) => b.forEach((j, c) => { R[a * b.length + c] = i === j ? 1 : ctx.corrAt(i, j); }));
-      const L = cholesky(R, b.length);
-      if (!L) throw new Error('The correlation matrix is not positive definite.');
-      return L;
+      /* 1.4.0: a singular but valid block is accepted (psdRepair, cholesky with psd) */
+      const Rp = psdRepair(R, b.length), L = Rp && cholesky(Rp, b.length, true);
+      if (!L) throw new Error('The correlation matrix is not positive semi-definite.');
+      return { R: Rp, L };
     });
     /* Xi, Glimm, Maurer and Bretz (2017), eq. (2) and (7): for each block B with weights w_i (summing to s_B) and
        q_B = min_i p_i / w_i, the p-value of H_J restricted to B is min(1, P_H(min_i P_i / w_i <= q_B) / s_B), where
@@ -3117,12 +3441,14 @@ function intersectionAdjP(mask, m, W, p, test, ctx) {
       if (b.length === 1 || !(q < 1 / Math.max(...wb))) a = Math.min(1, q);
       else {
         const bnd = wb.map(wi => (wi > 0 ? qnorm(1 - Math.min(1, q * wi)) : Infinity));
-        const r = mvnLowerSE(bnd, chols[k], b.length, ctx.rand, 512, 12);
+        /* 1.4.0: blocks of two to four are integrated exactly (blockLowerSE: no Monte Carlo error); five or more by
+           the lattice rule with 512 points and 12 random shifts, as before */
+        const r = blockLowerSE(bnd, chols[k].R, chols[k].L, b.length, ctx.rand, 512, 12);
         /* Exact bounds: q w_max / s_B <= p_B <= q (Bonferroni inequality), so Monte Carlo noise never makes the
            parametric test look weaker than Bonferroni or stronger than a single test. */
         a = Math.min(1, Math.max(q * Math.max(...wb) / sb, Math.min(q, (1 - r.p) / sb)));
         const se = r.se / sb;
-        if (ctx && (ctx.se == null || se > ctx.se)) ctx.se = se;
+        if (ctx && b.length >= 5 && (ctx.se == null || se > ctx.se)) ctx.se = se;
       }
       best = Math.min(best, a);
     });
@@ -3164,8 +3490,8 @@ function closedTestCritical(fg, alpha, test, ctx) {
         if (b.length === 1 || !(sb > 0)) return { b, c: 1 };
         const R = new Float64Array(b.length * b.length);
         b.forEach((i, a) => b.forEach((j, q) => { R[a * b.length + q] = i === j ? 1 : ctx.corrAt(i, j); }));
-        const L = cholesky(R, b.length);
-        if (!L) throw new Error('The correlation matrix is not positive definite.');
+        const L = cholesky(R, b.length, true);
+        if (!L) throw new Error('The correlation matrix is not positive semi-definite.');
         return { b, c: paramConstant(b, wb, alpha, alpha * sb, L, ctx.rand, ctx.cache) };
       });
     }
@@ -3797,6 +4123,69 @@ function runLiteratureSelfTests() {
     }
     return !bad.length || bad.join('; ');
   });
+  /* 1.4.0: exact multivariate normal routines (reference values from mvtnorm 1.x: TVPACK with abseps 1e-14 for two and
+     three statistics, Miwa with 4096 steps for four; the singular value from an exact one-dimensional integral) */
+  check('Bivariate normal (Genz, 2004, BVND): P(Z1 < b1, Z2 < b2) for ten (b1, b2, rho), rho from -0.999 to 0.999, within 1e-7 of mvtnorm (TVPACK); rho = 1 and -1 give Phi(min(b1, b2)) and Phi(b1) + Phi(b2) - 1 exactly', () => {
+    const cases = [[1.96, 1.96, 0.5, 0.954625949406414], [2.24, -0.5, 0.95, 0.308537538725987], [-1, 1, -0.95, 0.030525233099347], [0.3, 2.1, -0.3, 0.602537170900885], [1.5, 1.5, 0.999, 0.930882284854364],
+      [2, 2.5, -0.999, 0.971040202726045], [0, 0, 0.5, 1 / 3], [3, -3, 0.8, 0.001349898031630], [1.2, 0.4, 0.93, 0.654787862409304], [2.5, 1, -0.6, 0.835138007971852]];
+    for (const [b1, b2, r, want] of cases) { const got = bvnLower(b1, b2, r); if (!(Math.abs(got - want) < 1e-7)) return `(${b1}, ${b2}, ${r}): ${got} versus ${want}`; }
+    const Phi = x => pnormUpper(-x);
+    if (Math.abs(bvnLower(1.2, 0.7, 1) - Phi(0.7)) > 1e-15 || Math.abs(bvnLower(1.2, 0.7, -1) - (Phi(1.2) + Phi(0.7) - 1)) > 1e-15) return 'rho = 1 or -1';
+    return true;
+  });
+  check('Recursive conditioning (Genz and Bretz, 2009, section 2.1.2): P(Z < b) for two trivariate and one four-variate case within 1e-7 of mvtnorm (TVPACK, Miwa); a singular full population, subgroup and complement (Thomas et al., 2020, p. 58: corr sqrt(1/2), sqrt(1/2), 0) gives 0.952820218 at b = z(0.98) for all three, the exact integral', () => {
+    const R3 = [[1, .8, .6], [.8, 1, .7], [.6, .7, 1]], R3b = [[1, -.5, .3], [-.5, 1, .2], [.3, .2, 1]], R4 = [[1, .25, .31, .24], [.25, 1, .42, .43], [.31, .42, 1, .67], [.24, .43, .67, 1]];
+    for (const [b, R, want] of [[[2, 2.2, 1.8], R3, 0.944837842454616], [[1.5, 2, 2.5], R3b, 0.906235464865990], [[2.4, 2.2, 2, 1.9], R4, 0.939546731148063]]) {
+      const got = mvnCondLower(b, R); if (!(Math.abs(got - want) < 1e-7)) return `${b.join(', ')}: ${got} versus ${want}`;
+    }
+    const h = Math.SQRT1_2, z = qnorm(0.98), Rs = [[1, h, h], [h, 1, 0], [h, 0, 1]];
+    const got = mvnCondLower([z, z, z], Rs);
+    if (!(Math.abs(got - 0.952820217599207) < 1e-7)) return 'singular F, S, C: ' + got;
+    return true;
+  });
+  check('Parametric constant (1.4.0): exact for two statistics with weights 0.2 and 0.8 at rho sqrt(0.5) and sqrt(0.75), the worst cases of the 27 October methods check (Ondra et al., 2016, eq. 1), and for three with weights 0.1, 0.1, 0.8 at rho 0.9 (2.6% out in 1.3.7): c = 1.1120821, 1.1909560 and 1.2332754 within 0.01% (mvtnorm), the same for any seed', () => {
+    const ch = (m, r) => { const R = new Float64Array(m * m); for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) R[i * m + j] = i === j ? 1 : r; return cholesky(R, m); };
+    for (const [w, r, want] of [[[0.2, 0.8], Math.SQRT1_2, 1.1120820789], [[0.2, 0.8], Math.sqrt(0.75), 1.1909559806], [[0.1, 0.1, 0.8], 0.9, 1.2332753933]]) {
+      for (const seed of [2011, 7]) {
+        const c = paramConstant(w.map((_, i) => i), w, 0.025, 0.025, ch(w.length, r), mulberry32(seed));
+        if (!(Math.abs(c / want - 1) < 1e-4)) return `weights ${w.join(', ')}, rho ${r.toFixed(4)}, seed ${seed}: ${c} versus ${want}`;
+      }
+    }
+    return true;
+  });
+  check('Singular correlation (1.4.0; Thomas et al., 2020, p. 58): a full population F, a subgroup S and its complement C with gamma 1/2 (corr(F, S) = corr(F, C) = sqrt(1/2), corr(S, C) = 0) is accepted as singular, a pair at 1 and a matrix that is not positive semi-definite are still refused; Holm(3), alpha 0.05, p = (0.02, 0.03, 0.4): global adjusted p 0.04718 (exact 0.047179782), H1 rejected, H2 adjusted p 0.05910 (mvtnorm); the same with correlations rounded to six decimals, in all six orders, within 1e-5; two nearly singular blocks give the same adjusted p in every order, within 1e-8 of mvtnorm (TVPACK)', () => {
+    const h = Math.SQRT1_2, R = [[1, h, h], [h, 1, 0], [h, 0, 1]], corrAt = (i, j) => R[i][j];
+    const L = cholesky(Float64Array.from(R.flat()), 3, true);
+    if (!L || !cholSingular(L, 3) || cholesky(Float64Array.from(R.flat()), 3)) return 'factor: singular not recognised';
+    if (corrConflict([0, 1, 2], corrAt) || (corrSingular([0, 1, 2], corrAt) || []).join() !== '0,1,2') return 'conflict or singular check';
+    if ((corrConflict([0, 1], () => 1) || []).join() !== '0,1') return 'a pair at 1 must still be refused';
+    if (!corrConflict([0, 1, 2], (i, j) => (i + j === 3 ? -0.9 : 0.9))) return 'a matrix that is not positive semi-definite must be refused';
+    const G = load(generatedTemplate('holm', 3));
+    const r = closedTest(floatGraph(G), [0.02, 0.03, 0.4], 0.05, 'parametric', { upscale: false, corrAt, rand: mulberry32(2011), cache: new Map() });
+    if (!(Math.abs(r.adj[0] - 0.047179782401) < 1e-7) || !r.rejected[0] || r.rejected[1] || r.rejected[2]) return 'closed test: ' + r.adj.join(', ');
+    if (!(Math.abs(r.adj[1] - 0.0591) < 2e-5)) return 'H2 adjusted p ' + r.adj[1];
+    /* the same correlations rounded to six decimals (0.707107), in every order of the three statistics: accepted as
+       singular, with the global adjusted p within 1e-5 of the exact value */
+    const perm3 = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+    for (const pm of perm3) {
+      const inv = [0, 1, 2].map(i => pm.indexOf(i)), Rr = (i, j) => { const x = R[pm[i]][pm[j]]; return i === j ? 1 : Math.round(x * 1e6) / 1e6; };
+      if (corrConflict([0, 1, 2], Rr) || !corrSingular([0, 1, 2], Rr)) return 'six decimals, order ' + pm.join('') + ': not accepted as singular';
+      const rr = closedTest(floatGraph(G), inv.map(i => [0.02, 0.03, 0.4][i]).map((_, k) => [0.02, 0.03, 0.4][pm[k]]), 0.05, 'parametric', { upscale: false, corrAt: Rr, rand: mulberry32(2011), cache: new Map() });
+      if (!(Math.abs(rr.adj[inv[0]] - 0.047179782401) < 1e-5)) return 'six decimals, order ' + pm.join('') + ': ' + rr.adj.join(', ');
+    }
+    /* nearly singular blocks (independent review, 29 October): the same answer in every order, to 1e-8 of mvtnorm's
+       TVPACK. (a) prevalence 0.248 rounded to six decimals, corr(F, S) = 0.497996, corr(F, C) = 0.867179,
+       p = (0.0101, 0.012, 0.0105), alpha 0.025: 0.0241573267 for all three. (b) two statistics correlated 0.9999995,
+       each 0.5 with a third, p = (0.01, 0.01, 0.2): 0.0187157554 for the pair */
+    const h3 = floatGraph(load(generatedTemplate('holm', 3)));
+    const near = [[[[1, 0.497996, 0.867179], [0.497996, 1, 0], [0.867179, 0, 1]], [0.0101, 0.012, 0.0105], [0.0241573267, 0.0241573267, 0.0241573267]],
+      [[[1, 0.9999995, 0.5], [0.9999995, 1, 0.5], [0.5, 0.5, 1]], [0.01, 0.01, 0.2], [0.0187157554, 0.0187157554, 0.2]]];
+    for (const [Rn, pn, want] of near) for (const pm of perm3) {
+      const rr = closedTest(h3, pm.map(i => pn[i]), 0.025, 'parametric', { upscale: false, corrAt: (i, j) => Rn[pm[i]][pm[j]], rand: mulberry32(2011), cache: new Map() });
+      if (!pm.every((i, k) => Math.abs(rr.adj[k] - want[i]) < 1e-8)) return `nearly singular, order ${pm.join('')}: ${rr.adj.join(', ')}`;
+    }
+    return true;
+  });
 
   /* Batch 4: power simulation (the Power tab's own code path: seed 2009, one-sided z-tests, mean = qnorm(1 - alpha) + qnorm(power)) */
   const power = (G, opts) => {
@@ -4294,6 +4683,22 @@ function runEntangledSelfTests() {
     if (!/appears twice/.test(bad || '')) return 'duplicate not refused';
     return true;
   });
+  check('Default graph, labels with commas (1.3.7): the Hung and Wang (2010) template\'s sequences, written as "Copy as text" writes them ("H1,NI > H1,S > H2,NI > H2,S : 1/4"), read back with the labels H1,NI, H1,S, H2,NI and H2,S and give the same intersection weights; a line without arrows ("H1, H2, H3 : 1/2") still splits on commas', () => {
+    const G = load(templateJSON('hungWang')), dg = defaultGraphOf(G);
+    if (!dg) return 'no decomposition';
+    const lab = id => G.nodes.find(n => n.id === id).label;
+    const text = dg.seqs.map(s => `${s.order.map(lab).join(' > ')} : ${Q.isExactShort(s.c) ? Q.exact(s.c) : Q.dec(s.c)}`).join('\n');
+    if (!/H1,NI > /.test(text)) return 'copy text: ' + text.split('\n')[0];
+    const parsed = parseDefaultGraph(text);
+    if ([...parsed.names].sort().join('|') !== 'H1,NI|H1,S|H2,NI|H2,S') return 'labels read back: ' + parsed.names.join('|');
+    const P = load(defaultGraphJSON(parsed, Array.from({ length: 4 }, (_, i) => ({ x: i * 100, y: 0 })), 0.025));
+    const WG = closureWeights(floatGraph(G)), WP = closureWeights(floatGraph(P));
+    const perm = P.nodes.map(n => G.nodes.findIndex(x => x.label === n.label));
+    for (let mask = 1; mask < 16; mask++) { let maskG = 0; for (let i = 0; i < 4; i++) if (mask & (1 << i)) maskG |= 1 << perm[i]; for (let i = 0; i < 4; i++) if (mask & (1 << i) && !near(WP[mask * 4 + i], WG[maskG * 4 + perm[i]], 1e-12)) return `round trip differs at J = ${mask}, ${P.nodes[i].label}`; }
+    const plainCommas = parseDefaultGraph('H1, H2, H3 : 1/2\nH3, H1 : 1/2');
+    if (plainCommas.names.join() !== 'H1,H2,H3' || plainCommas.seqs[1].order.join() !== '2,0') return 'comma-only lines: ' + JSON.stringify(plainCommas);
+    return true;
+  });
   /* Side by side (Maurer and Bretz, 2013, Fig. 2, p. 1746): one panel per component with the hypotheses in the same places */
   const fq = q => Q.fmt(q);
   const panelNodes = svg => [...svg.matchAll(/<g transform="translate\(([-\d.]+), ([-\d.]+)\)">([\s\S]*?)<\/g>/g)].map(m => ({ dx: +m[1], dy: +m[2], ellipses: [...m[3].matchAll(/<ellipse cx="([-\d.]+)" cy="([-\d.]+)"/g)].map(e => [+e[1], +e[2]]), edges: (m[3].match(/marker-end/g) || []).length, dashed: (m[3].match(/<path [^>]*stroke-dasharray="9 5"/g) || []).length, weights: [...m[3].matchAll(/<text x="[-\d.]+" y="[-\d.]+" font-size="1[13]" text-anchor="middle" fill="#[0-9a-f]+">([^<]*)<\/text>/g)].map(e => e[1]), grey: (m[3].match(/stroke="#9aa0a6" stroke-width="1.8"/g) || []).length }));
@@ -4543,8 +4948,8 @@ function elicitGain(m, reg, regRule, scores, sAll) {
    Delta_i = qnorm(1 - alpha) + qnorm(power_i) (eq. 9, p. 10) and correlation matrix R (m x m, row-major).
    fg: a float graph (floatGraph). Returns the mean gain, its Monte Carlo standard error and the local powers. */
 function expectedGain(fg, powers, R, alpha, gain, n, seed = 2009) {
-  const m = fg.m, L = cholesky(R, m);
-  if (!L) throw new Error('The correlation matrix is not positive definite.');
+  const m = fg.m, L = cholesky(R, m, true);
+  if (!L) throw new Error('The correlation matrix is not positive semi-definite.');
   const mean = powers.map(p => qnorm(1 - alpha) + qnorm(p));
   const tally = { n: 0, rej: new Array(m).fill(0), any: 0, all: 0, total: 0, custom: 0, gain: 0, gain2: 0 };
   simulateChunk(fg, mean, L, alpha, n, normalGen(mulberry32(seed)), tally, { gain });

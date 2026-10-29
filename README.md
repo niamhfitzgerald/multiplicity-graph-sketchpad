@@ -31,7 +31,7 @@ Created by Niamh Fitzgerald.
 | `src/core.js` | Engine: exact rational arithmetic, graph update, closed tests, parsers, exporters, self-tests. No DOM access. |
 | `src/ui.js` | Canvas, panels, events. |
 | `src/build.py` | Joins the three sources into `src/multiplicity-graph-sketchpad.html`. Copy that file to `index.html` after building. |
-| `tests/runtests.js` | Runs the 126 built-in self-tests in Node. |
+| `tests/runtests.js` | Runs the 131 built-in self-tests in Node. |
 | `tests/stress.js` | Engine stress test: random graphs, all test types, independent reference implementations, empirical familywise error. About five minutes. |
 | `tests/browser-stress.js` | Playwright test that drives every control of the built page. |
 | `tests/plain-capture.js`, `tests/make-plain-snapshot.js`, `tests/plain-off-1.3.0.json` | Plain-language checks for the browser test: the 1.3.0 text (with Advanced features on) that the page must show with Plain language off, and the words that must not appear with it on, in the Test tab, the Graph tab, the status line, the drawing and the toolbar. |
@@ -67,19 +67,19 @@ To release a new version: change `APP_VERSION` and `APP_DATE` in `src/core.js`, 
 
 ## Validation
 
-The built-in self-test (More menu, or the "debug" button in the footer) runs 126 checks, including worked examples from Bretz et al. (2009, 2011), Bretz, Maurer and Hommel (2011), Wiens and Dmitrienko (2005), Hommel, Bretz and Maurer (2007), Hommel and Bretz (2008), Genz and Bretz (2009), the gMCP and graphicalMCP vignettes, and ten further papers checked in October 2026 (listed in `docs/CHANGELOG.md`). Results have been cross-checked against the graphicalMCP R package for Bonferroni, Simes and parametric tests (scripts in `R/`). The stress tests check the engine against independent implementations and the empirical familywise error rate under the global null.
+The built-in self-test (More menu, or the "debug" button in the footer) runs 131 checks, including worked examples from Bretz et al. (2009, 2011), Bretz, Maurer and Hommel (2011), Wiens and Dmitrienko (2005), Hommel, Bretz and Maurer (2007), Hommel and Bretz (2008), Genz and Bretz (2009), the gMCP and graphicalMCP vignettes, and ten further papers checked in October 2026 (listed in `docs/CHANGELOG.md`). Results have been cross-checked against the graphicalMCP R package for Bonferroni, Simes and parametric tests (scripts in `R/`). The stress tests check the engine against independent implementations and the empirical familywise error rate under the global null.
 
 ## Limitations
 
 - Closed tests (Simes and parametric) are available for up to 12 hypotheses; the Bonferroni procedure has no such limit.
-- Parametric adjusted p-values are Monte Carlo estimates; the standard error is shown. Confirm them in R before relying on them in a submission.
+- Parametric adjusted p-values are exact for blocks of two to four correlated hypotheses. For blocks of five or more they are Monte Carlo estimates, and the standard error is shown. Confirm them in R before relying on them in a submission.
 - The Simes options need positively dependent one-sided statistics; the parametric option needs one-sided p-values.
 - Entangled graphs: gMCP tests them with Bonferroni only; the Simes and parametric closed tests on an entangled graph follow Maurer and Bretz (2013, p. 1746) and are checked by hand from the exported intersection weights.
 - Not covered: trimmed Simes tests, group sequential and adaptive designs, simultaneous confidence intervals, sample size.
 
 ## Citation
 
-Fitzgerald N (2026). Multiplicity Graph Sketchpad, version 1.3.6. https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad. See `CITATION.cff`.
+Fitzgerald N (2026). Multiplicity Graph Sketchpad, version 1.4.0. https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad. See `CITATION.cff`.
 
 ## Licence
 

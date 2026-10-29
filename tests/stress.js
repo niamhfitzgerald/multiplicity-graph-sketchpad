@@ -288,7 +288,7 @@ check('Parametric monotone in p and never above Bonferroni, never below raw p; b
     prev = a;
   }
   let threw = false;
-  try { C.closedTest(fg, [0.01, 0.02, 0.03], 0.05, 'parametric', { upscale: false, corrAt: (i, j) => (i === 0 && j === 1) || (i === 1 && j === 0) ? 0.9 : ((i === 1 && j === 2) || (i === 2 && j === 1) ? 0.9 : (i === 0 && j === 2) || (i === 2 && j === 0) ? -0.9 : null), rand: C.mulberry32(1), cache: new Map() }); } catch (e) { threw = /positive definite/.test(e.message); }
+  try { C.closedTest(fg, [0.01, 0.02, 0.03], 0.05, 'parametric', { upscale: false, corrAt: (i, j) => (i === 0 && j === 1) || (i === 1 && j === 0) ? 0.9 : ((i === 1 && j === 2) || (i === 2 && j === 1) ? 0.9 : (i === 0 && j === 2) || (i === 2 && j === 0) ? -0.9 : null), rand: C.mulberry32(1), cache: new Map() }); } catch (e) { threw = /positive (semi-)?definite/.test(e.message); }
   if (!threw) return 'non-PD matrix not rejected';
   threw = false;
   try { C.closedTest(fg, [0.01, 0.02, 0.03], 0.05, 'parametric', { upscale: false, corrAt: (i, j) => ((i === 0 && j === 1) || (i === 1 && j === 0) || (i === 1 && j === 2) || (i === 2 && j === 1)) ? 0.5 : null, rand: C.mulberry32(1), cache: new Map() }); } catch (e) { threw = /complete within each block/.test(e.message); }
@@ -758,20 +758,24 @@ check('SAP text over 300 random graphs and every test type: structure, corrected
   }
   return true;
 });
-check('Correlation conflicts: a positive definite matrix gives none; an impossible triple is named exactly; a ±1 pair is named; agrees with the Cholesky test on 500 random matrices', () => {
+check('Correlation conflicts: a positive definite matrix gives none; an impossible triple is named exactly; a ±1 pair is named; agrees with the Cholesky test on 500 random matrices (1.4.0: pairs strictly inside (-1, 1), three or more positive semi-definite); a singular full population, subgroup and complement is not a conflict', () => {
   const at = M => (i, j) => M[i][j];
   if (C.corrConflict([0, 1, 2], at([[1, .5, .5], [.5, 1, .5], [.5, .5, 1]])) !== null) return 'PD matrix flagged';
   const t = C.corrConflict([0, 1, 2, 3], at([[1, .9, .9, 0], [.9, 1, -.9, 0], [.9, -.9, 1, 0], [0, 0, 0, 1]]));
   if (!t || t.join() !== '0,1,2') return 'triple: ' + t;
   const p = C.corrConflict([0, 1, 2], at([[1, 1, 0], [1, 1, 0], [0, 0, 1]]));
   if (!p || p.join() !== '0,1') return 'pair: ' + p;
+  const h = Math.SQRT1_2;
+  if (C.corrConflict([0, 1, 2], at([[1, h, h], [h, 1, 0], [h, 0, 1]])) !== null) return 'singular F, S, C flagged as a conflict';
   for (let k = 0; k < 500; k++) {
     const m = ri(2, 7), M = Array.from({ length: m }, () => Array(m).fill(1));
     for (let i = 0; i < m; i++) for (let j = i + 1; j < m; j++) M[i][j] = M[j][i] = Math.round((rnd() * 2 - 1) * 100) / 100;
     const R = new Float64Array(m * m); for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) R[i * m + j] = M[i][j];
-    const pd = !!C.cholesky(R, m), c = C.corrConflict([...Array(m).keys()], at(M));
+    /* valid: every pair strictly inside (-1, 1) and the matrix positive semi-definite (1.4.0) */
+    const okSet = (s, S) => s.every((i, a) => s.every((j, b) => a >= b || Math.abs(M[i][j]) < 1)) && !!C.cholesky(S, s.length, s.length >= 3);
+    const pd = okSet([...Array(m).keys()], R), c = C.corrConflict([...Array(m).keys()], at(M));
     if (pd !== (c === null)) return `case ${k}: Cholesky ${pd}, conflict ${c}`;
-    if (c && c.length < m) { const S = new Float64Array(c.length ** 2); c.forEach((i, a) => c.forEach((j, b) => { S[a * c.length + b] = M[i][j]; })); if (C.cholesky(S, c.length)) return `case ${k}: named set ${c} is fine on its own`; }
+    if (c && c.length < m) { const S = new Float64Array(c.length ** 2); c.forEach((i, a) => c.forEach((j, b) => { S[a * c.length + b] = M[i][j]; })); if (okSet(c, S)) return `case ${k}: named set ${c} is fine on its own`; }
   }
   return true;
 });

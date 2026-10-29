@@ -1064,6 +1064,14 @@ function testCtx() {
   const groups = [...new Set(G.nodes.map(n => n.group).filter(Boolean))].map(g => new Set(G.nodes.map((n, i) => (n.group === g ? i : -1)).filter(i => i >= 0)));
   return { upscale: !!G.test.upscale, corrAt: testCorrAt, groups, rand: mulberry32(2011), cache: new Map() };
 }
+/* 1.4.0: a note when a block of the parametric test's known correlations is singular but valid ('' otherwise) */
+function corrSingularNote() {
+  if (testType() !== 'parametric') return '';
+  let blocks;
+  try { blocks = corrBlocks(G.nodes.map((_, i) => i), testCorrAt); } catch (e) { return ''; }
+  for (const b of blocks) { const s = corrSingular(b, testCorrAt); if (s) return corrSingularText(s.map(i => G.nodes[i].label)); }
+  return '';
+}
 function corrProblem() {
   if (testType() !== 'parametric') return '';
   if (G.sided === 'two') return 'The parametric test needs one-sided p-values: it assumes that Φ⁻¹(1 − p) is multivariate normal, which does not hold for two-sided p-values (gMCP manual; Bretz et al., 2013, Biometrical Journal 55:266). Switch the p-values to one-sided in the toolbar, or choose another test.';
@@ -1308,7 +1316,7 @@ function closedSection(inTest) {
   if (!m) return '';
   if (CT && CT.sig === testSig()) {
     const adjRows = G.nodes.map((n, i) => `<tr><th scope="row">${esc(n.label)}</th><td class="num">${fmtNum(parseP(n.p))}</td><td class="num">${fmtNum(CT.adj[i])}</td><td>${CT.rejected[i] ? '<span class="status-cell rej">✓ Rejected</span>' : '✕ Not rejected'}</td></tr>`).join('');
-    let h = det('det-adj', 'Adjusted p-values', `<p class="small muted">${TEST_TYPES[CT.type]} closed test. A hypothesis is rejected at level &alpha; exactly when its adjusted p-value is at most &alpha;.${CT.type === 'parametric' ? ` Parametric values come from randomised quasi-Monte Carlo integration of the multivariate normal distribution (Genz and Bretz, 2009; 512 lattice points, 12 random shifts)${CT.se != null ? `; the largest Monte Carlo standard error of an intersection p-value in this run is ${fmtNum(CT.se, 2)}` : ''}.` : ''}</p>
+    let h = det('det-adj', 'Adjusted p-values', `<p class="small muted">${TEST_TYPES[CT.type]} closed test. A hypothesis is rejected at level &alpha; exactly when its adjusted p-value is at most &alpha;.${CT.type === 'parametric' ? ` Parametric values for blocks of two to four correlated hypotheses are computed by exact numerical integration of the multivariate normal distribution (Genz, 2004; Genz and Bretz, 2009, section 2.1.2), with no Monte Carlo error. Blocks of five or more use randomised quasi-Monte Carlo integration (Genz and Bretz, 2009; 512 lattice points, 12 random shifts)${CT.se != null ? `; the largest Monte Carlo standard error of an intersection p-value in this run is ${fmtNum(CT.se, 2)}` : ''}.` : ''}</p>
       <table class="t"><thead><tr><th scope="col">Hyp.</th><th scope="col" class="num">p</th><th scope="col" class="num">Adjusted p</th><th scope="col">At &alpha; = ${fmtNum(G.alpha)}</th></tr></thead><tbody>${adjRows}</tbody></table>`);
     if (!plain && m <= 8) {
       const lab = mask => G.nodes.filter((_, i) => mask & (1 << i)).map(n => n.label).join(' ∩ ');
@@ -1346,6 +1354,7 @@ function testTypeSection() {
     body += `<p class="small muted">Weighted parametric test (Xi et al., 2017, section 4.3, eq. 6): within each block of hypotheses with known correlations the test uses the multivariate normal distribution of the one-sided test statistics, with a separate constant for each block, and blocks are combined by Bonferroni. On an equally weighted Holm graph whose hypotheses form one block this is the step-down Dunnett test (Koenig et al., 2025, p. 4). gMCP uses one common constant for all blocks instead (Bretz et al., 2011, eq. 3), so its results can differ slightly. It assumes that Φ⁻¹(1 − p) is multivariate normal under the null with the correlations entered here, so the p-values must be one-sided. Leave a pair blank when its correlation is unknown; known pairs must form complete blocks.</p>
       <p class="small muted">${CORR_WHAT_TO_ENTER}</p>
       ${prob ? `<p class="${/same as Bonferroni/.test(prob) ? 'small muted' : 'err-text'}">${/same as Bonferroni/.test(prob) ? '' : '✕ '}${esc(prob)}</p>` : ''}
+      ${!prob && corrSingularNote() ? `<p class="small muted" data-note="singular">${esc(corrSingularNote())}</p>` : ''}
       <div class="mx-scroll"><table class="mx"><thead><tr><th></th>${G.nodes.map(n => `<th scope="col">${esc(n.label)}</th>`).join('')}</tr></thead><tbody>${G.nodes.map((a, i) => `<tr><th scope="row">${esc(a.label)}</th>${G.nodes.map((b, j) => j <= i ? `<td style="text-align:center;color:var(--muted)">${j === i ? '1' : ''}</td>` : `<td><input id="tc-${a.id}-${b.id}" data-tcorr="${a.id < b.id ? a.id + '|' + b.id : b.id + '|' + a.id}" value="${testCorrAt(i, j) == null ? '' : esc(String(testCorrAt(i, j)))}" placeholder="?" aria-label="Correlation between ${esc(a.label)} and ${esc(b.label)}"></td>`).join('')}</tr>`).join('')}</tbody></table></div>
       <div class="row-actions" style="align-items:center"><label class="small" for="tcFill">Fill every pair with</label><input class="txt" id="tcFill" value="0.5" style="width:5em"><button class="btn small" data-action="tc-fill">Fill</button><button class="btn small" data-action="tc-clear">Clear all</button>${G.nodes.length > 1 ? '<button class="btn small" data-action="tc-from-sim">Copy from the power simulation</button>' : ''}</div>`;
   }
@@ -1582,6 +1591,15 @@ function simSig() {
   return JSON.stringify({ a: G.alpha, n: G.nodes.map(n => [n.id, Q.exact(n.w)]), e: G.edges.map(e => [e.from, e.to, Q.exact(e.g)]) });
 }
 const pairKey = (a, b) => (a < b ? a + '|' + b : b + '|' + a);
+/* 1.4.0: a note when the Power tab correlations are singular but valid ('' otherwise) */
+function simCorrSingularNote() {
+  const m = G.nodes.length;
+  if (m < 3) return '';
+  const ids = G.nodes.map(n => n.id), val = (i, j) => Number(corrOf(ids[i], ids[j]));
+  for (let i = 0; i < m; i++) for (let j = i + 1; j < m; j++) { const v = val(i, j); if (!(v >= -1 && v <= 1)) return ''; }
+  const s = corrSingular(ids.map((_, i) => i), (i, j) => Math.min(val(i, j), 0.999999));
+  return s ? corrSingularText(s.map(i => G.nodes[i].label)) : '';
+}
 /* Live check of the Power tab correlations: '' when they are usable */
 function simCorrProblem() {
   const m = G.nodes.length;
@@ -1626,7 +1644,8 @@ function simInputsHTML(pre) {
       <div class="form"><label for="${pre}sim-rho">Correlation between test statistics <span class="hint">The same value for every pair, between &minus;1 and 1</span><input class="txt" id="${pre}sim-rho" data-rho="1" value="${esc(String(SIM.rho))}" inputmode="decimal" style="max-width:8em" ${SIM.useMatrix ? 'disabled' : ''}></label></div>
       <p class="small muted">${CORR_WHAT_TO_ENTER}</p>
       ${m > 1 ? det(pre + 'det-corr', 'Set each pair separately', corrTable) : ''}
-      ${!SIM.error && simCorrProblem() ? `<p class="err-text" id="${pre}simCorrMsg">✕ ${esc(simCorrProblem())}</p>` : ''}`;
+      ${!SIM.error && simCorrProblem() ? `<p class="err-text" id="${pre}simCorrMsg">✕ ${esc(simCorrProblem())}</p>` : ''}
+      ${!SIM.error && !simCorrProblem() && simCorrSingularNote() ? `<p class="small muted" data-note="singular">${esc(simCorrSingularNote())}</p>` : ''}`;
 }
 /* A change in one of the shared inputs, from either tab. Returns true when it was one of them. */
 function simInputChange(t) {
@@ -1651,8 +1670,8 @@ function simInputsCheck() {
     Rm[i * m + j] = i === j ? 1 : Math.min(v, 0.999999);
     if (i < j && v > 0.999999) capped++;
   }
-  const L = cholesky(Rm, m);
-  if (!L) return { error: 'Those correlations cannot all hold at once, or they make one statistic an exact combination of the others, as for a full population, a subgroup and its complement (the matrix is not positive definite). Try values closer to 0, or leave one of them out.' };
+  const L = cholesky(Rm, m, true);
+  if (!L) return { error: 'Those correlations cannot all hold at once (the matrix is not positive semi-definite). Try values closer to 0. If one statistic is meant to be an exact combination of the others, as for a full population, a subgroup and its complement, enter the correlations to at least six decimal places.' };
   const za = qnorm(1 - G.alpha);
   return { pw, Rm, L, mean: pw.map(x => za + qnorm(x / 100)), capped };
 }
@@ -2613,8 +2632,8 @@ function runComparePower() {
   const Rm = new Float64Array(m * m);
   let capped = 0;
   for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) { const v = i === j ? 1 : Number(corrOf(G.nodes[i].id, G.nodes[j].id)); if (!(v >= -1 && v <= 1)) { CMP.error = 'Correlations in the Power tab must be numbers between −1 and 1.'; renderComparePanel(); return; } Rm[i * m + j] = i === j ? 1 : Math.min(v, 0.999999); if (i < j && v > 0.999999) capped++; }
-  const L = cholesky(Rm, m);
-  if (!L) { CMP.error = 'The correlations in the Power tab cannot all hold at once, or they make one statistic an exact combination of the others (the matrix is not positive definite).'; renderComparePanel(); return; }
+  const L = cholesky(Rm, m, true);
+  if (!L) { CMP.error = 'The correlations in the Power tab cannot all hold at once (the matrix is not positive semi-definite).'; renderComparePanel(); return; }
   const za = qnorm(1 - G.alpha), mean = pw.map(x => za + qnorm(x / 100));
   const GB = deserializeGraph(B, false, 1).G, fgA = floatGraph(G), fgB = floatGraph(GB);
   const ids = G.nodes.map(n => n.id), sIdx = SIM.success.ids.map(id => ids.indexOf(id)).filter(i => i >= 0);
@@ -3636,7 +3655,8 @@ const REFERENCES = [
   ['FDA2022', 'US Food and Drug Administration (2022). Multiple Endpoints in Clinical Trials: Guidance for Industry. October 2022.', 'Regulatory context; graphical approaches in the Appendix, section 8.'],
   ['EMA2002', 'European Medicines Agency, CPMP (2002). Points to consider on multiplicity issues in clinical trials. CPMP/EWP/908/99.', 'Regulatory context: strong control, prespecification in the protocol or analysis plan.'],
   ['EMA2017', 'European Medicines Agency, CHMP (2017). Guideline on multiplicity issues in clinical trials (draft). EMA/CHMP/44762/2017.', 'Draft to replace the 2002 Points to Consider. Hierarchical testing in sections 5.1 and 6.2; the procedure must be in the protocol. It does not name graphical approaches.'],
-  ['Genz2009', 'Genz A, Bretz F (2009). Computation of Multivariate Normal and t Probabilities. Lecture Notes in Statistics 195. Springer. doi:10.1007/978-3-642-01689-9', 'The randomised lattice rule used for the multivariate normal probabilities in the parametric test.'],
+  ['Genz2004', 'Genz A (2004). Numerical computation of rectangular bivariate and trivariate normal and t probabilities. Statistics and Computing 14:251-260. doi:10.1023/B:STCO.0000035304.20635.31', 'The bivariate normal routine used for blocks of two correlated hypotheses in the parametric test (1.4.0), and inside the integration for blocks of three and four.'],
+  ['Genz2009', 'Genz A, Bretz F (2009). Computation of Multivariate Normal and t Probabilities. Lecture Notes in Statistics 195. Springer. doi:10.1007/978-3-642-01689-9', 'The recursive conditioning used for blocks of three and four correlated hypotheses in the parametric test (section 2.1.2), the variable ordering (section 4.1.3), the treatment of singular correlation matrices (section 4.1.4) and the randomised lattice rule used for blocks of five or more.'],
   ['gMCP', 'Rohmeyer K, Klinglmüller F (2024). gMCP: Graph Based Multiple Comparison Procedures. R package version 0.8-17. https://github.com/kornl/gMCP', 'Templates, ε convention, upscale option, Simes within groups rule; R export.'],
   ['graphicalMCP', 'Xi D, Brockmann E (2025). graphicalMCP: Graphical Multiple Comparison Procedures. R package version 0.3.0. https://openpharma.github.io/graphicalMCP/', 'R export and the validation scripts.'],
   ['Spiers2026', 'Spiers ADV, Grayling MJ, Wheeler GM, Mander AP (2026). Gain-function optimisation of graphical multiple testing procedures for confirmatory clinical trials. arXiv:2609.19994. https://arxiv.org/abs/2609.19994', 'The Optimise tab: gain functions (section 2.3.1), the hurdle form and elicitation (section 2.4, eq. 5, p. 8), expected gain (eq. 3), the optimisation problem (eq. 6), noncentrality from nominal power (eq. 9), re-estimation on a fresh sample (p. 20) and the note that a gain function may be commercially sensitive (p. 19). Examples 3 and 4 are self-tests.'],
@@ -3657,7 +3677,7 @@ function aboutHTML() {
   <p><b>Please check before relying on a result</b></p>
   <ul class="tips">
     <li>The Bonferroni procedure controls the familywise error rate in the strong sense for any dependence between the test statistics. The Simes options need positively dependent (PRDS or MTP2) one-sided statistics; the parametric option needs one-sided p-values whose statistics are multivariate normal with the correlations you enter. The SAP text states the condition for the test you chose.</li>
-    <li>Parametric adjusted p-values are Monte Carlo estimates (512-point lattice, 12 random shifts); the standard error is shown with the result. For a regulatory submission, confirm them in R with graphicalMCP or gMCP using the exported code.</li>
+    <li>Parametric adjusted p-values are exact for blocks of two to four correlated hypotheses. For blocks of five or more they are Monte Carlo estimates (512-point lattice, 12 random shifts), and the standard error is shown with the result. For a regulatory submission, confirm them in R with graphicalMCP or gMCP using the exported code.</li>
     <li>Closed tests are available for up to 12 hypotheses; the step-by-step view, adjusted p-values and power simulation for the Bonferroni graph have no such limit (power up to 10 for closed tests).</li>
     <li>Entangled graphs (Maurer and Bretz, 2013, Statistics in Medicine): gMCP tests them with Bonferroni only and rejects when p is strictly below the level, so a p-value equal to its level is the one case where the two differ. The Simes and parametric closed tests on an entangled graph follow p. 1746 of the paper (the full closure on the Algorithm 2 weights); gMCP does not run them, so confirm those by hand from the intersection weights in the exported code.</li>
     <li>Not covered: trimmed Simes tests, group sequential designs (Maurer and Bretz, 2013, Statistics in Biopharmaceutical Research), adaptive designs (Klinglmueller, Posch and Koenig, 2014), simultaneous confidence intervals (Strassburger and Bretz, 2008; Guilbaud, 2008; Guilbaud, 2018), sample size. The R packages above cover some of these.</li>

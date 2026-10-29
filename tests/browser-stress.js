@@ -326,7 +326,7 @@ async function step(name, fn) {
     const adj = await page.locator('#det-adj').innerText(); if (!/0\.008/.test(adj) || !/0\.022/.test(adj)) return 'adjusted values: ' + adj.slice(0, 200);
   });
 
-  await step('Closed tests through the UI: Simes, Simes within groups (no groups warning), parametric (fill, run, SE shown, two-sided refused, incomplete block, clear)', async () => {
+  await step('Closed tests through the UI: Simes, Simes within groups (no groups warning), parametric (fill, run, exact for a block of four with no SE, two-sided refused, incomplete block, clear)', async () => {
     if ((await ev(() => mode)) === 'test') { await page.click('[data-action="exit-test"]'); await sleep(100); }
     await openDet('det-testtype');
     await page.selectOption('#testType', 'simes'); await sleep(150);
@@ -344,7 +344,7 @@ async function step(name, fn) {
     await page.click('[data-action="run"]'); await sleep(200);
     await page.waitForFunction(() => CT && CT.type === 'parametric', null, { timeout: 20000 }); await sleep(300);
     const adj = await ev(() => CT.adj.map(x => x.toFixed(4)).join(' ')); if (adj !== '0.0076 0.0115 0.0205 0.0300') return 'parametric adj ' + adj;
-    const sec = await page.locator('#det-adj').innerText(); if (!/standard error|SE|±/.test(sec)) return 'SE not shown: ' + sec.slice(0, 300);
+    const sec = await page.locator('#det-adj').innerText(); if (!/exact numerical integration/.test(sec) || /largest Monte Carlo standard error/.test(sec) || (await ev(() => CT.se)) != null) return 'block of four should be exact with no SE: ' + sec.slice(0, 300);
     await page.click('[data-action="exit-test"]'); await sleep(100);
     await openDet('det-testtype');
     await page.selectOption('#sidedSelect', 'two'); await sleep(150);
@@ -386,7 +386,7 @@ async function step(name, fn) {
     const sc2 = page.locator('#tab-power [data-corr]').nth(1); await sc2.fill('0.99'); await sc2.press('Tab');
     const sc3 = page.locator('#tab-power [data-corr]').nth(3); await sc3.fill('0.99'); await sc3.press('Tab'); await sleep(50);
     await page.click('[data-action="sim-run"]'); await sleep(150);
-    if (!/positive definite/.test(await page.locator('#tab-power').innerText())) return 'non-PD message';
+    if (!/positive semi-definite/.test(await page.locator('#tab-power').innerText())) return 'non-PSD message';
     await page.uncheck('#sim-usematrix'); await sleep(80);
     // correlations entered as 1 are capped at 0.999999 and the result text says so (1.1.6)
     await page.fill('#sim-rho', '1'); await page.press('#sim-rho', 'Tab'); await sleep(80);
@@ -877,6 +877,29 @@ async function step(name, fn) {
     await ev(s => { const o = JSON.parse(s.sim); SIM.rho = o.rho; SIM.useMatrix = o.useMatrix; SIM.corr = o.corr; loadGraph(JSON.parse(s.g)); G.sided = s.sided; setPlain(s.pl, true); renderAll(); }, saved);
   });
 
+  await step('Singular correlations (1.4.0): full population, subgroup and complement (sqrt(1/2), sqrt(1/2), 0) accepted with a note in the Test and Power tabs; exact global adjusted p 0.04718 (Thomas et al., 2020) with no Monte Carlo error; the simulation runs', async () => {
+    if ((await ev(() => mode)) === 'test') { await page.click('[data-action="exit-test"]'); await sleep(100); }
+    const saved = await ev(() => ({ g: JSON.stringify(serializeGraph(G)), sided: G.sided, alpha: G.alpha, pl: plain, sim: JSON.stringify({ rho: SIM.rho, useMatrix: SIM.useMatrix, corr: SIM.corr }) }));
+    await ev(() => { setPlain(false, true); loadGraph(generatedTemplate('holm', 3)); G.alpha = 0.05; G.sided = 'one'; const id = G.nodes.map(n => n.id), k = (i, j) => pairKey(id[i], id[j]); const h = '0.707107'; G.test.type = 'parametric'; G.test.corr = { [k(0, 1)]: +h, [k(0, 2)]: +h, [k(1, 2)]: 0 }; G.nodes.forEach((n, i) => { n.p = ['0.02', '0.03', '0.4'][i]; }); SIM.useMatrix = true; SIM.corr = { [k(0, 1)]: h, [k(0, 2)]: h, [k(1, 2)]: '0' }; setTab('test'); renderAll(); });
+    await openDet('det-testtype');
+    let t = await page.locator('#det-testtype').innerText();
+    if (/cannot all hold|not positive/.test(t) || !/That is allowed/.test(t)) return 'Test tab note: ' + t.slice(0, 500);
+    await page.click('[data-action="run"]');
+    await page.waitForFunction(() => CT && CT.type === 'parametric', null, { timeout: 20000 }); await sleep(200);
+    const r = await ev(() => ({ adj: CT.adj, se: CT.se, rej: CT.rejected }));
+    if (Math.abs(r.adj[0] - 0.047180) > 2e-5 || r.se != null) return 'closed test: ' + JSON.stringify(r);
+    await openDet('det-adj');
+    t = await page.locator('#det-adj').innerText();
+    if (!/exact numerical integration/.test(t) || /largest Monte Carlo standard error/.test(t)) return 'adjusted p text: ' + t.slice(0, 400);
+    await page.click('[data-action="exit-test"]'); await sleep(100);
+    await page.click('#tabbtn-power'); await sleep(150);
+    if (await page.locator('#simCorrMsg').count()) return 'Power tab refused: ' + await page.locator('#simCorrMsg').innerText();
+    if (!/That is allowed/.test(await page.locator('#tab-power').innerText())) return 'Power tab note missing';
+    await page.click('[data-action="sim-run"]'); await page.waitForFunction(() => (SIM.result && !SIM.running) || SIM.error, null, { timeout: 30000 }); await sleep(100);
+    const e = await ev(() => SIM.error); if (e) return 'simulation error: ' + e;
+    await ev(s => { const o = JSON.parse(s.sim); SIM.rho = o.rho; SIM.useMatrix = o.useMatrix; SIM.corr = o.corr; loadGraph(JSON.parse(s.g)); G.sided = s.sided; G.alpha = s.alpha; setPlain(s.pl, true); setTab('graph'); renderAll(); }, saved);
+  });
+
   await step('Phone-width layout: no horizontal overflow, tabs and toolbar usable at 390px; the hint box does not cover the graph; a zoomed view is kept on resize', async () => {
     await page.setViewportSize({ width: 390, height: 800 }); await sleep(400);
     const over = await ev(() => document.documentElement.scrollWidth - window.innerWidth);
@@ -1194,6 +1217,14 @@ async function step(name, fn) {
     if (r.labels !== 'H1,H3,H4,H2,H5' || r.n !== 2 || r.ex !== true || r.c !== '1/2,1/2') return 'imported graph: ' + JSON.stringify(r);
     await page.fill('#imp-dg', 'H1 > H1 : 1'); await page.click('[data-action="import-dg"]'); await sleep(100);
     if (!/appears twice/.test(await page.locator('#imp-dg-msg').innerText())) return 'import refusal';
+    /* 1.3.7: labels with commas survive the round trip from "Copy as text" to the import box (Hung and Wang) */
+    await page.evaluate(() => { loadGraph(templateJSON('hungWang')); $('det-default').open = true; $('det-import').open = true; }); await sleep(250);
+    const hwText = await page.evaluate(() => defaultGraphText(defaultGraphOf(G).seqs));
+    if (!/H1,NI > /.test(hwText)) return 'Hung and Wang copy text: ' + hwText.split('\n')[0];
+    await page.fill('#imp-dg', hwText); await page.click('[data-action="import-dg"]'); await sleep(200);
+    const hwMsg = await page.locator('#imp-dg-msg').innerText();
+    r = await ev(() => ({ labels: G.nodes.map(n => n.label).sort().join('|'), ent: isEntangled(G) }));
+    if (!/with 4 hypotheses/.test(hwMsg) || r.labels !== 'H1,NI|H1,S|H2,NI|H2,S' || !r.ent) return 'Hung and Wang round trip: ' + hwMsg + ' ' + JSON.stringify(r);
     /* Holm on 4 and a graph with 7 hypotheses */
     await page.evaluate(() => { loadGraph(cycleTemplate(4)); }); await sleep(250);
     t = await page.locator('#dg-body').innerText();
