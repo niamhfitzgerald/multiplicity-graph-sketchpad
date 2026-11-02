@@ -1373,6 +1373,33 @@ async function step(name, fn) {
     await c.close();
     if (out) return out;
   });
+  /* 1.4.1: the transition panel's hint lost "(advanced)", which pointed to the Advanced features switch removed in 1.3.2.
+     No snapshot holds the Graph tab, so this check keeps the word from coming back. Two doses, two endpoints: the first
+     transition as drawn, then with ε typed into its weight, with Plain language off and on. */
+  await step('Transition panel (1.4.1): never says "advanced". With Plain language off the hint reads "A letter such as ε or γ makes it a variable."; once ε is typed, both views say "Variables are set in the Graph tab."; with Plain language on there is no letter hint', async () => {
+    let out = '';
+    for (const on of [false, true]) {
+      const { c, p } = await freshPage();
+      await p.evaluate(on => setPlain(on), on); await p.waitForTimeout(100);
+      await p.selectOption('#templateSelect', 'bretz'); await p.waitForTimeout(150);
+      await p.evaluate(() => setTab('graph'));
+      await p.evaluate(() => setSel({ type: 'edge', key: gKey(G.edges[0].from, G.edges[0].to) })); await p.waitForTimeout(80);
+      const drawn = await p.locator('#tab-graph').innerText();
+      await p.fill('#edge-g', 'ε'); await p.press('#edge-g', 'Tab'); await p.waitForTimeout(150);
+      const typed = await p.evaluate(() => G.edges[0].expr === 'ε' && sel && sel.type === 'edge');
+      const withVar = await p.locator('#tab-graph').innerText();
+      await c.close();
+      const view = `Plain language ${on ? 'on' : 'off'}`;
+      for (const [when, t] of [['as drawn', drawn], ['with ε', withVar]]) {
+        const m = t.match(/.{0,50}advanc.{0,20}/is);
+        if (m) out += `${view}, ${when}: "${m[0].replace(/\s+/g, ' ')}". `;
+      }
+      if (!typed) out += `${view}: typing ε did not make a variable on the selected transition. `;
+      if (on ? /A letter such as/.test(drawn) : !/A letter such as ε or γ makes it a variable\./.test(drawn)) out += `${view}, as drawn: letter hint ${on ? 'shown' : 'missing or changed'}. `;
+      if (!/= 0\.001 now\. Variables are set in the Graph tab\./.test(withVar)) out += `${view}, with ε: no "= 0.001 now. Variables are set in the Graph tab." `;
+    }
+    if (out) return out;
+  });
 
   for (const r of results) console.log((r.ok ? 'PASS ' : 'FAIL ') + r.name + ` (${r.ms} ms)` + (r.ok ? '' : '\n      ' + r.detail));
   console.log(`\n${results.length - fails}/${results.length} browser checks passed`);

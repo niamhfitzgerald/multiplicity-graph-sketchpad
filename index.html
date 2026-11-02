@@ -195,7 +195,7 @@ body.present .comp-bar, .comp-bar[hidden] { display: none; }
 /* ---- side panel ---- */
 .panel { min-height: 0; min-width: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; }
 /* The clinician view (Plain language ticked, body.clinician) hides the statistician's parts (.adv) and shows
-   .clinician-only ones. (.plain is the plain-language box in the Test tab, so the body class is not .plain.) */
+   .clinician-only ones. (.plain is the plain-language box in the Test and Graph tabs, so the body class is not .plain.) */
 .plain-switch { border-top: 1px solid var(--line); padding: 0 16px; font-size: 13.5px; color: var(--muted); min-height: 34px; }
 body.clinician .adv { display: none !important; }
 body:not(.clinician) .clinician-only { display: none !important; }
@@ -593,8 +593,8 @@ table.t td:first-child { white-space: nowrap; }
 <script>
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.4.0';
-const APP_DATE = '2026-10-29';
+const APP_VERSION = '1.4.1';
+const APP_DATE = '2026-11-02';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
 /* The author's LinkedIn profile; the header byline and About link to it. */
@@ -6607,7 +6607,7 @@ function edgePanel(e) {
   const pl = plain;
   return `<div class="row-actions" style="justify-content:space-between;align-items:center"><h2>${pl ? 'Arrow' : 'Transition'} ${esc(A.label)} → ${esc(B.label)}</h2><button class="btn small" data-action="deselect">Done</button></div>
   <div class="form">
-    <label for="edge-g">${pl ? 'Fraction handed on' : 'Weight'} <span class="hint">${pl ? `The fraction of ${esc(A.label)}'s share that goes to ${esc(B.label)} when ${esc(A.label)} succeeds` : `Share of ${esc(A.label)}'s level passed to ${esc(B.label)} when ${esc(A.label)} is rejected`}</span><input class="txt" id="edge-g" value="${esc(weightText(e.g, e.expr))}" autocomplete="off">${e.expr ? `<span class="hint">= ${esc(fmt(e.g))} now. Variables are set in the Graph tab.</span>` : pl ? '' : '<span class="hint">A letter such as ε or γ makes it a variable (advanced).</span>'}</label>
+    <label for="edge-g">${pl ? 'Fraction handed on' : 'Weight'} <span class="hint">${pl ? `The fraction of ${esc(A.label)}'s share that goes to ${esc(B.label)} when ${esc(A.label)} succeeds` : `Share of ${esc(A.label)}'s level passed to ${esc(B.label)} when ${esc(A.label)} is rejected`}</span><input class="txt" id="edge-g" value="${esc(weightText(e.g, e.expr))}" autocomplete="off">${e.expr ? `<span class="hint">= ${esc(fmt(e.g))} now. Variables are set in the Graph tab.</span>` : pl ? '' : '<span class="hint">A letter such as ε or γ makes it a variable.</span>'}</label>
   </div>
   <p class="small muted">${pl ? `${esc(A.label)} hands on ${handsOnWords(rowSum(A.id))} of its share.` : `${esc(A.label)} passes on ${esc(fmt(rowSum(A.id)))} in total.`}</p>
   ${rev ? `<div class="row-actions"><button class="btn small" data-action="select-edge" data-key="${gKey(e.to, e.from)}">Go to ${esc(B.label)} → ${esc(A.label)}</button></div>` : ''}

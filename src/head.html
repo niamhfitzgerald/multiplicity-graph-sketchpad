@@ -190,7 +190,7 @@ body.present .comp-bar, .comp-bar[hidden] { display: none; }
 /* ---- side panel ---- */
 .panel { min-height: 0; min-width: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; }
 /* The clinician view (Plain language ticked, body.clinician) hides the statistician's parts (.adv) and shows
-   .clinician-only ones. (.plain is the plain-language box in the Test tab, so the body class is not .plain.) */
+   .clinician-only ones. (.plain is the plain-language box in the Test and Graph tabs, so the body class is not .plain.) */
 .plain-switch { border-top: 1px solid var(--line); padding: 0 16px; font-size: 13.5px; color: var(--muted); min-height: 34px; }
 body.clinician .adv { display: none !important; }
 body:not(.clinician) .clinician-only { display: none !important; }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.1 (2026-11-02)
+
+One wording fix in the transition panel, and a browser check that keeps it fixed.
+
+- With Plain language off, the hint under a transition's weight said "A letter such as ε or γ makes it a variable (advanced)." The word "advanced" pointed to the Advanced features switch, which went in 1.3.2. The hint now reads "A letter such as ε or γ makes it a variable." With Plain language on the hint is not shown, as before. Nothing else changes.
+- Neither snapshot holds this hint: `tests/plain-off-1.3.0.json` has no Graph tab text and `tests/views-1.3.0.json` holds ids only. So the checks needed no planned difference. A search of `src/` and of the page text in both views found no other on-screen text naming the old switch.
+- A comment in `src/head.html` now says the `.plain` box is in the Test and Graph tabs. No change on the page.
+- Tests: one new browser check. It opens the first transition of two doses, two endpoints in both views, as drawn and with ε typed into its weight. It fails if the panel says "advanced" or if the hints change. Run against the 1.4.0 page, it fails on the old hint. Browser suite: 46. Self-tests: 131. Engine stress suite: 46.
+
 ## 1.4.0 (2026-10-29)
 
 More exact parametric tests, and singular correlation matrices (F16 and F17 of the methods check of 27 October 2026). The plan is in the project notes (engine precision plan, 29 October 2026).
