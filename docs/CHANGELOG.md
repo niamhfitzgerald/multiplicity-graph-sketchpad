@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.4.2 (2026-11-02)
+
+An edit of the help text for clarity. The meaning, references and numbers are unchanged.
+
+- Help dialog: "Teaching tools", a name used nowhere else in the app, now reads "What if (no p-values)", the button that lets you reject any hypothesis by hand. The Optimise entry is two sentences. In "What the guarantee rests on", two semicolon joins are now separate sentences, and ε is "evaluated numerically as 1/1000", the wording of the Variables section.
+- Test tab, Test type section: the Bonferroni, Weighted Simes, Simes within groups, parametric and upscale notes have shorter sentences. Two sentences without a subject now have one, and the upscale note no longer ends on a contrast.
+- Correlation help ("What to enter") and the file-format help in the Export tab: semicolon joins split, and commas after opening phrases.
+- About, "Please check before relying on a result": seven semicolon joins and two colons that set up a point are now full stops.
+- Left as they were: section headings, button and tab names, the SAP text, the plain-language sentences, errors and warnings, and the text the plain-off snapshot holds. A script compared every number, reference, code name and bold term in `src/ui.js` before and after: all unchanged. No check was changed.
+- Tests: self-tests 131, browser suite 46, engine stress suite 46 (no new checks).
+
 ## 1.4.1 (2026-11-02)
 
 One wording fix in the transition panel, and a browser check that keeps it fixed.
