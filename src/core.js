@@ -1,7 +1,7 @@
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.4.2';
-const APP_DATE = '2026-11-02';
+const APP_VERSION = '1.4.3';
+const APP_DATE = '2026-11-03';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
 /* The author's LinkedIn profile; the header byline and About link to it. */
@@ -442,7 +442,7 @@ const ENTANGLED_TEMPLATES = {
     build() {
       const nodes = [['H1', 0, 0], ['H2', 300, 0], ['H3', 150, 190], ['H4', 0, 380], ['H5', 300, 380]];
       return entangledJSON({
-        note: 'Maurer and Bretz (2013, Statistics in Medicine 32:1739-1753), Figure 2, p. 1747, and section 4. H1, H2: primary hypotheses for the low and high dose (alpha/2 each). H3: a later primary hypothesis, tested once H1 or H2 is rejected. H4, H5: secondary hypotheses paired with H1 and H2. Graph 1 carries the level of H1 and sends it through H3 to H4 (the pair {H1, H4}); graph 2 does the same for H2 and H5. Each component weight c is 1/2. A single graph (Fig. 1, the "two primary then secondary" shape) forgets where the level of H3 came from and can reject H5 without H2; the entangled graph remembers (requirement (III), p. 1741). gMCP: Entangled1Maurer2012.',
+        note: 'Maurer and Bretz (2013, Statistics in Medicine 32:1739-1753), Figure 2, p. 1747, and section 4. H1, H2: primary hypotheses for the low and high dose (alpha/2 each). H3: a later primary hypothesis, tested once H1 or H2 is rejected. H4, H5: secondary hypotheses paired with H1 and H2. Graph 1 carries the level of H1 and sends it through H3 to H4 (the pair {H1, H4}). Graph 2 does the same for H2 and H5. Each component weight c is 1/2. A single graph (Fig. 1, the "two primary then secondary" shape) forgets where the level of H3 came from and can reject H5 without H2. The entangled graph remembers where that level came from (requirement (III), p. 1741). gMCP: Entangled1Maurer2012.',
         nodes,
         c: ['1/2', '1/2'],
         comps: [
@@ -457,7 +457,7 @@ const ENTANGLED_TEMPLATES = {
     build() {
       const nodes = [['H1', 0, 0], ['H2', 300, 0], ['H3', 150, 190], ['H4', 0, 380], ['H5', 300, 380]];
       return entangledJSON({
-        note: 'Maurer and Bretz (2013, Statistics in Medicine 32:1739-1753), Figure 4, p. 1748, and section 5.1. The Fig. 2 procedure written without ε edges: graph 1 is the fixed sequence H1, H3, H4, H2, H5 and graph 2 the fixed sequence H2, H3, H5, H1, H4, each with component weight c = 1/2. This is also the Burman, Sonesson and Guilbaud (2009) default graph with those two sequences (Fig. 4(a)). It gives the same rejections as the Fig. 2 entangled graph; the levels equal the Fig. 2 levels with ε set to 0. gMCP: Entangled2Maurer2012.',
+        note: 'Maurer and Bretz (2013, Statistics in Medicine 32:1739-1753), Figure 4, p. 1748, and section 5.1. The Fig. 2 procedure written without ε edges: graph 1 is the fixed sequence H1, H3, H4, H2, H5 and graph 2 the fixed sequence H2, H3, H5, H1, H4, each with component weight c = 1/2. This is also the Burman, Sonesson and Guilbaud (2009) default graph with those two sequences (Fig. 4(a)). It gives the same rejections as the Fig. 2 entangled graph. The levels equal the Fig. 2 levels with ε set to 0. gMCP: Entangled2Maurer2012.',
         nodes,
         c: ['1/2', '1/2'],
         comps: [
@@ -472,7 +472,7 @@ const ENTANGLED_TEMPLATES = {
     build() {
       const nodes = [['H1', 0, 0], ['H2', 300, 0], ['H3', 150, 190], ['H4', 0, 380], ['H5', 300, 380]];
       return entangledJSON({
-        note: 'Maurer and Bretz (2013, Statistics in Medicine 32:1739-1753), Figure 5, p. 1749. As Fig. 2, but after a primary hypothesis is rejected its level is split: in graph 1 a share γ1 goes to H3 and 1 − γ1 to the other primary H2; in graph 2 a share γ2 goes to H3 and 1 − γ2 to H1. With γ1 = γ2 = 1 this is the Fig. 2 graph. The paper excludes γ = 0, which would make both primaries a fixed sequence before H3. Guilbaud (2018, Fig. 4(b), p. 230) draws the same graph with one γ. The defaults here are γ1 = γ2 = 1/2.',
+        note: 'Maurer and Bretz (2013, Statistics in Medicine 32:1739-1753), Figure 5, p. 1749. As Fig. 2, but after a primary hypothesis is rejected, its level is split. In graph 1 a share γ1 goes to H3 and 1 − γ1 to the other primary H2. In graph 2 a share γ2 goes to H3 and 1 − γ2 to H1. With γ1 = γ2 = 1 this is the Fig. 2 graph. The paper excludes γ = 0, which would make both primaries a fixed sequence before H3. Guilbaud (2018, Fig. 4(b), p. 230) draws the same graph with one γ. The defaults here are γ1 = γ2 = 1/2.',
         nodes,
         c: ['1/2', '1/2'],
         comps: [
@@ -486,7 +486,7 @@ const ENTANGLED_TEMPLATES = {
     name: 'Entangled: parallel gatekeeping with truncated Holm on two primaries (Maurer and Bretz, 2013, section 5.3.1; γ)',
     build() {
       return entangledJSON({
-        note: 'Parallel gatekeeping with a truncated Holm procedure for the primary family (Maurer and Bretz, 2013, section 5.3.1, p. 1750; drawn as in Xi and Bretz, 2019, Fig. 5, pp. 5275-5276). Graph 1 (weight γ) is serial gatekeeping: Holm on H1 and H2, and the secondary pair H3, H4 is reached only once both primaries are rejected (the ε edges). Graph 2 (weight 1 − γ) is a single-step Bonferroni test on the primaries that passes a rejected primary\'s level to the secondaries at once. The entangled graph tests the primaries with truncated Holm (share γ kept in the pair, 1 − γ passed on) and the secondaries with Holm. γ = 1 is serial gatekeeping; γ = 0 is Bonferroni on the primaries with parallel gatekeeping. The single-graph truncated Holm template in the picker is the same procedure for two primaries (Bretz et al., 2011, section 4.1); more primaries need this entangled form.',
+        note: 'Parallel gatekeeping with a truncated Holm procedure for the primary family (Maurer and Bretz, 2013, section 5.3.1, p. 1750; drawn as in Xi and Bretz, 2019, Fig. 5, pp. 5275-5276). Graph 1 (weight γ) is serial gatekeeping: Holm on H1 and H2, and the secondary pair H3, H4 is reached only once both primaries are rejected (the ε edges). Graph 2 (weight 1 − γ) is a single-step Bonferroni test on the primaries that passes a rejected primary\'s level to the secondaries at once. The entangled graph tests the primaries with truncated Holm (share γ kept in the pair, 1 − γ passed on) and the secondaries with Holm. γ = 1 is serial gatekeeping, and γ = 0 is Bonferroni on the primaries with parallel gatekeeping. The single-graph truncated Holm template in the picker is the same procedure for two primaries (Bretz et al., 2011, section 4.1). More primaries need this entangled form.',
         nodes: [['H1', 0, 0], ['H2', 300, 0], ['H3', 0, 220], ['H4', 300, 220]],
         groups: ['primary', 'primary', 'secondary', 'secondary'],
         c: ['γ', '1-γ'],
@@ -504,7 +504,7 @@ function entangledTruncatedHolm(m) {
   const pos = circlePositions(m);
   const holm = []; for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) if (i !== j) holm.push([i, j, m === 2 ? '1' : `1/${m - 1}`]);
   return entangledJSON({
-    note: `Truncated Holm on ${m} hypotheses as an entangled graph (Maurer and Bretz, 2013, section 5.3.1, p. 1750; the procedure is from Dmitrienko, Tamhane and Wiens, 2008): graph 1 is Bonferroni-Holm with weight γ, graph 2 the single-step Bonferroni test (equal weights, no transitions) with weight 1 − γ. A rejected hypothesis passes on a share γ of its level and keeps 1 − γ unspent, so the procedure stops short of full Holm and the unspent part can be given to a later family. γ = 1 is Holm; γ = 0 is Bonferroni. The paper notes that for two hypotheses a single graph suffices (Bretz et al., 2011).`,
+    note: `Truncated Holm on ${m} hypotheses as an entangled graph (Maurer and Bretz, 2013, section 5.3.1, p. 1750; the procedure is from Dmitrienko, Tamhane and Wiens, 2008). Graph 1 is Bonferroni-Holm with weight γ, and graph 2 the single-step Bonferroni test (equal weights, no transitions) with weight 1 − γ. A rejected hypothesis passes on a share γ of its level and keeps 1 − γ unspent, so the procedure stops short of full Holm and the unspent part can be given to a later family. γ = 1 is Holm, and γ = 0 is Bonferroni. The paper notes that for two hypotheses a single graph suffices (Bretz et al., 2011).`,
     nodes: pos.map((p, i) => [`H${i + 1}`, p.x, p.y]),
     c: ['γ', '1-γ'],
     comps: [
@@ -539,10 +539,10 @@ function entangledKOfM(m, k, alpha) {
   const pFrac = (num, den) => { const g = gcd(num, den); return den / g === 1 ? `${num / g}` : `${num / g}/${den / g}`; };
   const xt = k === 1 ? ' With k = 1 this is the k-out-of-n gatekeeping procedure of Xi and Tamhane (2014) with γ = 0.'
     : k === m - 1 ? ` With k = m − 1 this is the k-out-of-n gatekeeping procedure of Xi and Tamhane (2014) with γ = 1 − 2/m = ${pFrac(m - 2, m)}.`
-    : ' It is not the k-out-of-n gatekeeping procedure of Xi and Tamhane (2014), whose secondary level rises in equal steps; both control the familywise error rate.';
+    : ' It is not the k-out-of-n gatekeeping procedure of Xi and Tamhane (2014), whose secondary level rises in equal steps. Both control the familywise error rate.';
   return entangledJSON({
     alpha, nodes, groups: Array.from({ length: m }, () => 'primary').concat(['secondary']),
-    note: `At least ${k} of ${m} primary hypotheses (H1 to H${m}) must be rejected before the secondary hypothesis H${m + 1} is tested (Maurer and Bretz, 2013, section 5.3.2, pp. 1750-1751, and Fig. 6; Guilbaud, 2018, Example 11 and Fig. 5(b), for 2 of 3). One component graph per set of ${k} primaries (${nC} in all, c = 1/${nC} each): Holm within the set, and only the last of the set to be rejected hands its level to H${m + 1} (the ε edge); the other primaries are isolated with weight 0. Taken together, ignoring terms in ε: Holm on the primaries until ${k === 1 ? 'one is' : `${k} are`} rejected. Then H${m + 1} is at α/C(${m}, ${k}) = ${aFrac(1, nC)} and each remaining primary at (1 − 1/C(${m}, ${k}))α/(${m} − ${k}) = ${aFrac(nC - 1, nC * (m - k))}. Each further primary rejection raises the level of H${m + 1}: after r rejections it is C(r, ${k})/C(${m}, ${k}) of α, so α once all ${m} are rejected.${xt}`,
+    note: `At least ${k} of ${m} primary hypotheses (H1 to H${m}) must be rejected before the secondary hypothesis H${m + 1} is tested (Maurer and Bretz, 2013, section 5.3.2, pp. 1750-1751, and Fig. 6; Guilbaud, 2018, Example 11 and Fig. 5(b), for 2 of 3). One component graph per set of ${k} primaries (${nC} in all, c = 1/${nC} each): Holm within the set, and only the last of the set to be rejected hands its level to H${m + 1} (the ε edge). The other primaries are isolated with weight 0. Taken together, ignoring terms in ε, this is Holm on the primaries until ${k === 1 ? 'one is' : `${k} are`} rejected. Then H${m + 1} is at α/C(${m}, ${k}) = ${aFrac(1, nC)} and each remaining primary at (1 − 1/C(${m}, ${k}))α/(${m} − ${k}) = ${aFrac(nC - 1, nC * (m - k))}. Each further primary rejection raises the level of H${m + 1}. After r rejections it is C(r, ${k})/C(${m}, ${k}) of α, so α once all ${m} are rejected.${xt}`,
     c: subsets.map(() => `1/${subsets.length}`),
     comps
   });
@@ -1642,19 +1642,19 @@ const TEMPLATES = {
   },
   fixed: {
     name: 'Fixed sequence (3 hypotheses)',
-    note: 'Fixed-sequence (hierarchical) testing (Maurer, Hothorn and Lehmacher, 1995; Westfall and Krishen, 2001; graph as in Bretz et al., 2009, Fig. 6): H1 gets all of alpha, and each later hypothesis is tested only after the one before it is rejected. The order is the whole design: a hypothesis placed after one that fails can never be tested, whatever its p-value. Choose the order from clinical priority and expected effect sizes, and check it by simulation in the Power tab. With poor estimates of the effects a Holm graph is often safer (Zhang, Wang and Troendle, 2015, section 4; Paux and Dmitrienko, 2018, section 4.2).',
+    note: 'Fixed-sequence (hierarchical) testing (Maurer, Hothorn and Lehmacher, 1995; Westfall and Krishen, 2001; graph as in Bretz et al., 2009, Fig. 6): H1 gets all of alpha, and each later hypothesis is tested only after the one before it is rejected. The order is the whole design, since a hypothesis placed after one that fails can never be tested, whatever its p-value. Choose the order from clinical priority and expected effect sizes, and check it by simulation in the Power tab. With poor estimates of the effects, a Holm graph is often safer (Zhang, Wang and Troendle, 2015, section 4; Paux and Dmitrienko, 2018, section 4.2).',
     nodes: [['H1', '1', 0, 0], ['H2', '0', 220, 0], ['H3', '0', 440, 0]],
     edges: [[0, 1, '1'], [1, 2, '1']]
   },
   fallback: {
     name: 'Fallback (3 hypotheses)',
-    note: 'Fallback procedure (Wiens, 2003, who called it the fixed sequence Bonferroni procedure; named and proved for any number of hypotheses by Wiens and Dmitrienko, 2005; graph as in Bretz et al., 2009, section 2.3): alpha is split across the hypotheses up front, and a rejected hypothesis passes its level to the next one in the sequence. The level of the last hypothesis is lost if it is rejected while earlier ones are still open; see the improved fallback templates.',
+    note: 'Fallback procedure (Wiens, 2003, who called it the fixed sequence Bonferroni procedure; named and proved for any number of hypotheses by Wiens and Dmitrienko, 2005; graph as in Bretz et al., 2009, section 2.3). Alpha is split across the hypotheses up front, and a rejected hypothesis passes its level to the next one in the sequence. The level of the last hypothesis is lost if it is rejected while earlier ones are still open. See the improved fallback templates.',
     nodes: [['H1', '1/3', 0, 0], ['H2', '1/3', 220, 0], ['H3', '1/3', 440, 0]],
     edges: [[0, 1, '1'], [1, 2, '1']]
   },
   parallel: {
     name: 'Two primary + two secondary (parallel gatekeeping)',
-    note: 'Parallel gatekeeping (Dmitrienko, Offen and Westfall, 2003, Table I; drawn as in Bretz et al., 2009, Fig. 2; gMCP: parallelGatekeeping): H1 and H2 are the primary family, H3 and H4 the secondary family. The secondary hypotheses get weight only once a primary hypothesis is rejected. Not alpha-exhaustive: see the improved version with ε edges. Published power comparisons labelled "Bonferroni gatekeeping" often use that ε-improved version (Bretz et al., 2009, Fig. 12), which is the improved parallel gatekeeping template here, so their numbers can differ from this graph\'s.',
+    note: 'Parallel gatekeeping (Dmitrienko, Offen and Westfall, 2003, Table I; drawn as in Bretz et al., 2009, Fig. 2; gMCP: parallelGatekeeping): H1 and H2 are the primary family, H3 and H4 the secondary family. The secondary hypotheses get weight only once a primary hypothesis is rejected. This graph is not alpha-exhaustive. See the improved version with ε edges. Published power comparisons labelled "Bonferroni gatekeeping" often use that ε-improved version (Bretz et al., 2009, Fig. 12), which is the improved parallel gatekeeping template here, so their numbers can differ from this graph\'s.',
     nodes: [['H1', '1/2', 0, 0], ['H2', '1/2', 280, 0], ['H3', '0', 0, 210], ['H4', '0', 280, 210]],
     edges: [[0, 2, '1/2'], [0, 3, '1/2'], [1, 2, '1/2'], [1, 3, '1/2'], [2, 3, '1'], [3, 2, '1']]
   },
@@ -1666,13 +1666,13 @@ const TEMPLATES = {
   },
   bretzFig14Left: {
     name: 'Two doses, three endpoints: each dose in sequence (Bretz et al., 2009, Fig. 14 left)',
-    note: 'Two doses compared with control on three ordered endpoints (Bretz et al., 2009, Fig. 14 left, p. 600, their multiple sclerosis example). H11, H12, H13: dose 1 on endpoints 1, 2 and 3; H21, H22, H23: dose 2 on the same endpoints. Each dose starts with alpha/2 on its first endpoint and the three endpoints are tested in a fixed sequence within the dose; when a dose\'s last hypothesis is rejected, its level passes to the first hypothesis of the other dose. Alpha-exhaustive. The same graph is Fig. 4 of Minini, Paux and Dmitrienko (2026); Li and Zhou (2021, Fig. 7) work both Fig. 14 graphs through with p-values, and Guilbaud and Karlsson (2011, Example 2) show that this one is the default graph of the two sequences 123456 and 456123 with weight 1/2 each.',
+    note: 'Two doses compared with control on three ordered endpoints (Bretz et al., 2009, Fig. 14 left, p. 600, their multiple sclerosis example). H11, H12, H13: dose 1 on endpoints 1, 2 and 3. H21, H22, H23: dose 2 on the same endpoints. Each dose starts with alpha/2 on its first endpoint, and the three endpoints are tested in a fixed sequence within the dose. When a dose\'s last hypothesis is rejected, its level passes to the first hypothesis of the other dose. Alpha-exhaustive. The same graph is Fig. 4 of Minini, Paux and Dmitrienko (2026). Li and Zhou (2021, Fig. 7) work both Fig. 14 graphs through with p-values. Guilbaud and Karlsson (2011, Example 2) show that this one is the default graph of the two sequences 123456 and 456123 with weight 1/2 each.',
     nodes: [['H11', '1/2', 0, 0], ['H12', '0', 260, 0], ['H13', '0', 520, 0], ['H21', '1/2', 520, 230], ['H22', '0', 260, 230], ['H23', '0', 0, 230]],
     edges: [[0, 1, '1'], [1, 2, '1'], [2, 3, '1'], [3, 4, '1'], [4, 5, '1'], [5, 0, '1']]
   },
   bretzFig14Right: {
     name: 'Two doses, three endpoints: shared between doses (Bretz et al., 2009, Fig. 14 right)',
-    note: 'Two doses compared with control on three ordered endpoints (Bretz et al., 2009, Fig. 14 right, p. 600, their multiple sclerosis example). H11, H12, H13: dose 1 on endpoints 1, 2 and 3; H21, H22, H23: dose 2 on the same endpoints. Each dose starts with alpha/2 on its first endpoint. A rejected hypothesis passes half its level to the next endpoint of its own dose and half to the first open hypothesis of the other dose (H11 and H12 to H21; H21 and H22 to H11); a dose\'s last hypothesis passes everything to the other dose. Alpha-exhaustive. The same graph is Fig. 5 of Minini, Paux and Dmitrienko (2026); Li and Zhou (2021, Fig. 7) work both Fig. 14 graphs through with p-values. It is close to, but not the same as, the six-sequence default graph of Guilbaud and Karlsson (2011, Example 2): four of the 63 intersections differ.',
+    note: 'Two doses compared with control on three ordered endpoints (Bretz et al., 2009, Fig. 14 right, p. 600, their multiple sclerosis example). H11, H12, H13: dose 1 on endpoints 1, 2 and 3. H21, H22, H23: dose 2 on the same endpoints. Each dose starts with alpha/2 on its first endpoint. A rejected hypothesis passes half its level to the next endpoint of its own dose and half to the first open hypothesis of the other dose (H11 and H12 to H21; H21 and H22 to H11). A dose\'s last hypothesis passes everything to the other dose. Alpha-exhaustive. The same graph is Fig. 5 of Minini, Paux and Dmitrienko (2026). Li and Zhou (2021, Fig. 7) work both Fig. 14 graphs through with p-values. It is close to, but not the same as, the six-sequence default graph of Guilbaud and Karlsson (2011, Example 2). Four of the 63 intersections differ.',
     nodes: [['H11', '1/2', 0, 0], ['H12', '0', 260, 0], ['H13', '0', 520, 0], ['H21', '1/2', 520, 230], ['H22', '0', 260, 230], ['H23', '0', 0, 230]],
     edges: [[0, 1, '1/2'], [0, 3, '1/2'], [1, 2, '1/2'], [1, 3, '1/2'], [2, 3, '1'], [3, 0, '1/2'], [3, 4, '1/2'], [4, 5, '1/2'], [4, 0, '1/2'], [5, 0, '1']]
   }
@@ -1680,7 +1680,7 @@ const TEMPLATES = {
 Object.assign(TEMPLATES, {
   improvedParallel: {
     name: 'Improved parallel gatekeeping (Bretz et al., 2009, Fig. 12)',
-    note: 'Improved parallel gatekeeping with ε edges (Bretz et al., 2009, Fig. 12; the improvement itself is from Hommel, Bretz and Maurer, 2007, and Guilbaud, 2007): as parallel gatekeeping, but a rejected secondary hypothesis passes a small share ε back to the primary family, so a primary hypothesis can still be rejected once both secondaries are (gMCP: improvedParallelGatekeeping).',
+    note: 'Improved parallel gatekeeping with ε edges (Bretz et al., 2009, Fig. 12; the improvement itself is from Hommel, Bretz and Maurer, 2007, and Guilbaud, 2007). As parallel gatekeeping, but a rejected secondary hypothesis passes a small share ε back to the primary family, so a primary hypothesis can still be rejected once both secondaries are (gMCP: improvedParallelGatekeeping).',
     nodes: [['H1', '1/2', 0, 0], ['H2', '1/2', 280, 0], ['H3', '0', 0, 210], ['H4', '0', 280, 210]],
     edges: [[0, 2, '1/2'], [0, 3, '1/2'], [1, 2, '1/2'], [1, 3, '1/2'], [2, 3, '1-ε'], [2, 0, 'ε'], [3, 2, '1-ε'], [3, 1, 'ε']], groups: ['primary', 'primary', 'secondary', 'secondary']
   },
@@ -1692,37 +1692,37 @@ Object.assign(TEMPLATES, {
   },
   successive: {
     name: 'General successive (Maurer et al., 2011)',
-    note: 'Two doses and two hierarchical endpoints with free parameters γ and δ (written γ₁ and γ₂ in Maurer, Glimm and Bretz, 2011, Fig. 5, and in Bretz, Maurer and Hommel, 2011, Fig. 6; gMCP uses gamma and delta): H1 passes γ to H2 and 1−γ to its own secondary H3; H2 passes δ to H1 and 1−δ to H4. γ = δ = 1/2 gives the two doses, two endpoints template (simple successive II); γ = δ = 0 gives simple successive I (gMCP: generalSuccessive).',
+    note: 'Two doses and two hierarchical endpoints with free parameters γ and δ (written γ₁ and γ₂ in Maurer, Glimm and Bretz, 2011, Fig. 5, and in Bretz, Maurer and Hommel, 2011, Fig. 6; gMCP uses gamma and delta). H1 passes γ to H2 and 1−γ to its own secondary H3. H2 passes δ to H1 and 1−δ to H4. γ = δ = 1/2 gives the two doses, two endpoints template (simple successive II), and γ = δ = 0 gives simple successive I (gMCP: generalSuccessive).',
     nodes: [['H1', '1/2', 0, 0], ['H2', '1/2', 280, 0], ['H3', '0', 0, 210], ['H4', '0', 280, 210]],
     edges: [[0, 1, 'γ'], [0, 2, '1-γ'], [1, 0, 'δ'], [1, 3, '1-δ'], [2, 1, '1'], [3, 0, '1']], groups: ['primary', 'primary', 'secondary', 'secondary']
   },
   successiveI: {
     name: 'Simple successive I (Maurer et al., 2011)',
-    note: 'Each primary hypothesis passes everything to its own secondary; a rejected secondary passes everything to the other primary (Maurer, Glimm and Bretz, 2011, Fig. 2(a); the same graph is Example 1 of Bretz et al., 2011; gMCP: simpleSuccessiveI).',
+    note: 'Each primary hypothesis passes everything to its own secondary. A rejected secondary passes everything to the other primary (Maurer, Glimm and Bretz, 2011, Fig. 2(a); the same graph is Example 1 of Bretz et al., 2011; gMCP: simpleSuccessiveI).',
     nodes: [['H1', '1/2', 0, 0], ['H2', '1/2', 280, 0], ['H3', '0', 0, 210], ['H4', '0', 280, 210]],
     edges: [[0, 2, '1'], [1, 3, '1'], [2, 1, '1'], [3, 0, '1']], groups: ['primary', 'primary', 'secondary', 'secondary']
   },
   improvedFallbackI: {
     name: 'Improved fallback I (Wiens and Dmitrienko, 2005)',
-    note: 'Alpha-exhaustive fallback (Wiens and Dmitrienko, 2005, section 3.2; Bretz et al., 2009, Fig. 7): the level of the last hypothesis is returned to the earlier ones in proportion to their initial weights (r = α₂/(α₁ + α₂) to H2 and 1 − r to H1, so 1/2 each here), so no alpha is lost. The two return transitions are stored as 1/2 and do not follow the weights: if you change the weights, re-enter them as w₁/(w₁ + w₂) and w₂/(w₁ + w₂), or choose "Improved fallback I for any m" in the template picker, which works them out from the weights you type (gMCP: improvedFallbackI, which also keeps 1/2, 1/2; graphicalMCP: fallback_improved_1, which works them out). Any split 0 ≤ r ≤ 1 keeps the procedure valid (Huque, Dmitrienko and D\'Agostino, 2013, Fig. 4); this r is the choice of Wiens and Dmitrienko (2005).',
+    note: 'Alpha-exhaustive fallback (Wiens and Dmitrienko, 2005, section 3.2; Bretz et al., 2009, Fig. 7). The level of the last hypothesis is returned to the earlier ones in proportion to their initial weights (r = α₂/(α₁ + α₂) to H2 and 1 − r to H1, so 1/2 each here), so no alpha is lost. The two return transitions are stored as 1/2 and do not follow the weights. If you change the weights, re-enter the transitions as w₁/(w₁ + w₂) and w₂/(w₁ + w₂), or choose "Improved fallback I for any m" in the template picker, which works them out from the weights you type. gMCP\'s improvedFallbackI also keeps 1/2, 1/2, and graphicalMCP\'s fallback_improved_1 works them out. Any split 0 ≤ r ≤ 1 keeps the procedure valid (Huque, Dmitrienko and D\'Agostino, 2013, Fig. 4). This r is the choice of Wiens and Dmitrienko (2005).',
     nodes: [['H1', '1/3', 0, 0], ['H2', '1/3', 220, 0], ['H3', '1/3', 440, 0]],
     edges: [[0, 1, '1'], [1, 2, '1'], [2, 0, '1/2', -60], [2, 1, '1/2']]
   },
   efficacySafety: {
     name: 'Efficacy and safety for three treatments (Bretz et al., 2009, Fig. 8)',
-    note: 'Three treatments, each with an efficacy hypothesis and a safety hypothesis (Bretz et al., 2009, Fig. 8, p. 594). HE1, HE2, HE3 (efficacy) share alpha equally; HS1, HS2, HS3 (safety) start at 0. A treatment\'s safety hypothesis is tested only once its efficacy hypothesis is rejected, which passes it the whole level; a rejected safety hypothesis passes its level equally to the efficacy hypotheses of the other two treatments. Alpha-exhaustive. The paper gives the graph only, with no worked numbers. Koenig et al. (2025, Fig. 5, p. 10, and Table 7, p. 11) use the same graph for a primary and a secondary endpoint with three doses against placebo.',
+    note: 'Three treatments, each with an efficacy hypothesis and a safety hypothesis (Bretz et al., 2009, Fig. 8, p. 594). HE1, HE2, HE3 (efficacy) share alpha equally. HS1, HS2, HS3 (safety) start at 0. A treatment\'s safety hypothesis is tested only once its efficacy hypothesis is rejected, which passes it the whole level. A rejected safety hypothesis passes its level equally to the efficacy hypotheses of the other two treatments. Alpha-exhaustive. The paper gives the graph only, with no worked numbers. Koenig et al. (2025, Fig. 5, p. 10, and Table 7, p. 11) use the same graph for a primary and a secondary endpoint with three doses against placebo.',
     nodes: [['HE1', '1/3', 0, 0], ['HE2', '1/3', 260, 0], ['HE3', '1/3', 520, 0], ['HS1', '0', 0, 230], ['HS2', '0', 260, 230], ['HS3', '0', 520, 230]],
     edges: [[0, 3, '1'], [1, 4, '1'], [2, 5, '1'], [3, 1, '1/2'], [3, 2, '1/2'], [4, 0, '1/2'], [4, 2, '1/2'], [5, 0, '1/2'], [5, 1, '1/2']], groups: ['efficacy', 'efficacy', 'efficacy', 'safety', 'safety', 'safety']
   },
   hungWang: {
     name: 'Hung and Wang (2010): non-inferiority then superiority, two endpoints',
-    note: 'Non-inferiority and superiority on a primary and a secondary endpoint (Hung and Wang, 2010, Biometrical Journal 52:747-756, Fig. 1, p. 751; section 7, p. 754). H1,NI (non-inferiority on the primary endpoint) holds all of alpha. When it is rejected, a share ν goes to superiority on the primary endpoint (H1,S) and 1−ν to non-inferiority on the secondary endpoint (H2,NI). H1,S passes τ to H2,S and 1−τ to H2,NI; H2,NI passes ω to H1,S and 1−ω to H2,S. H2,S (superiority on the secondary endpoint) passes nothing on, so the graph is not alpha-exhaustive and validation shows that one warning. The paper warns (p. 754) that τ = ω = 1 lets H2,S be tested without H2,NI having been rejected, and then H2,S can never be tested unless H1,S is. More generally, H2,S can be rejected without H2,NI whenever ν > 0 and τ > 0 (Guilbaud, 2011, Biometrical Journal 53:927-937, p. 930). The defaults here are ν = τ = ω = 1/2. gMCP\'s HungEtWang2010(nu, tau, omega) has the same nodes in the same order but puts its tau on the H1,S → H2,NI edge, the other way round from the figure, so this graph is HungEtWang2010(nu = ν, tau = 1 − τ, omega = ω); the gMCP export writes the matrix in full.',
+    note: 'Non-inferiority and superiority on a primary and a secondary endpoint (Hung and Wang, 2010, Biometrical Journal 52:747-756, Fig. 1, p. 751; section 7, p. 754). H1,NI (non-inferiority on the primary endpoint) holds all of alpha. When it is rejected, a share ν goes to superiority on the primary endpoint (H1,S) and 1−ν to non-inferiority on the secondary endpoint (H2,NI). H1,S passes τ to H2,S and 1−τ to H2,NI. H2,NI passes ω to H1,S and 1−ω to H2,S. H2,S (superiority on the secondary endpoint) passes nothing on, so the graph is not alpha-exhaustive and validation shows that one warning. The paper warns (p. 754) that τ = ω = 1 lets H2,S be tested without H2,NI having been rejected, and then H2,S can never be tested unless H1,S is. More generally, H2,S can be rejected without H2,NI whenever ν > 0 and τ > 0 (Guilbaud, 2011, Biometrical Journal 53:927-937, p. 930). The defaults here are ν = τ = ω = 1/2. gMCP\'s HungEtWang2010(nu, tau, omega) has the same nodes in the same order, but puts its tau on the H1,S → H2,NI edge, the other way round from the figure. So this graph is HungEtWang2010(nu = ν, tau = 1 − τ, omega = ω). The gMCP export writes the matrix in full.',
     nodes: [['H1,NI', '1', 0, 0], ['H1,S', '0', 300, 0], ['H2,NI', '0', 0, 220], ['H2,S', '0', 300, 220]],
     edges: [[0, 1, 'ν'], [0, 2, '1-ν'], [1, 3, 'τ'], [1, 2, '1-τ'], [2, 1, 'ω'], [2, 3, '1-ω']]
   },
   improvedFallbackII: {
     name: 'Improved fallback II (Bretz et al., 2009, Fig. 11)',
-    note: 'Fallback that returns a rejected level to the first hypothesis still open in the hierarchy (Bretz et al., 2009, Fig. 11, answering the criticism in Hommel and Bretz, 2008): H2 passes 1 − ε back to H1 and only ε onward to H3, so H3 receives H2\'s level only once H1 is rejected; H3 returns everything to H1 (gMCP: improvedFallbackII; graphicalMCP: fallback_improved_2).',
+    note: 'Fallback that returns a rejected level to the first hypothesis still open in the hierarchy (Bretz et al., 2009, Fig. 11, answering the criticism in Hommel and Bretz, 2008). H2 passes 1 − ε back to H1 and only ε onward to H3, so H3 receives H2\'s level only once H1 is rejected. H3 returns everything to H1 (gMCP: improvedFallbackII; graphicalMCP: fallback_improved_2).',
     nodes: [['H1', '1/3', 0, 0], ['H2', '1/3', 220, 0], ['H3', '1/3', 440, 0]],
     edges: [[0, 1, '1'], [1, 0, '1-ε'], [1, 2, 'ε'], [2, 0, '1', -60]]
   }
@@ -1747,7 +1747,7 @@ function cycleTemplate(m) {
 /* Truncated Holm (gMCP: truncatedHolm): Holm on H1, H2 with a share 1 - gamma passed to the secondary pair */
 function truncatedHolmTemplate() {
   return {
-    format: 'multiplicity-graph', alpha: 0.025, note: 'Truncated Holm (Dmitrienko, Tamhane and Wiens, 2008, eq. 6; Bretz et al., 2011, section 4.1; gMCP: truncatedHolm): the primary pair is tested with a truncated Holm procedure that keeps a share γ within the pair and passes 1−γ to the secondary pair, which is then tested with Holm at (1−γ)α/2 or at α. γ = 0 is Bonferroni on the primaries. Dmitrienko et al. define it for γ < 1: at γ = 1 the two primaries exchange their whole level and the secondaries can never be tested, so use γ = 1−ε for Holm on the primaries. A single graph represents truncated Holm for two primary hypotheses only; more need entangled graphs (Maurer and Bretz, 2013, Statistics in Medicine 32:1739-1753).',
+    format: 'multiplicity-graph', alpha: 0.025, note: 'Truncated Holm (Dmitrienko, Tamhane and Wiens, 2008, eq. 6; Bretz et al., 2011, section 4.1; gMCP: truncatedHolm). The primary pair is tested with a truncated Holm procedure that keeps a share γ within the pair and passes 1−γ to the secondary pair. The secondary pair is then tested with Holm at (1−γ)α/2 or at α. γ = 0 is Bonferroni on the primaries. Dmitrienko et al. define it for γ < 1. At γ = 1 the two primaries exchange their whole level and the secondaries can never be tested, so use γ = 1−ε for Holm on the primaries. A single graph represents truncated Holm for two primary hypotheses only. More primary hypotheses need entangled graphs (Maurer and Bretz, 2013, Statistics in Medicine 32:1739-1753).',
     nodes: [{ id: '0', label: 'H1', weight: '1/2', x: 0, y: 0, p: '', group: 'primary' }, { id: '1', label: 'H2', weight: '1/2', x: 280, y: 0, p: '', group: 'primary' }, { id: '2', label: 'H3', weight: '0', x: 0, y: 210, p: '', group: 'secondary' }, { id: '3', label: 'H4', weight: '0', x: 280, y: 210, p: '', group: 'secondary' }],
     edges: [{ from: '0', to: '1', weight: '0', expr: 'γ' }, { from: '0', to: '2', weight: '0', expr: '(1-γ)/2' }, { from: '0', to: '3', weight: '0', expr: '(1-γ)/2' }, { from: '1', to: '0', weight: '0', expr: 'γ' }, { from: '1', to: '2', weight: '0', expr: '(1-γ)/2' }, { from: '1', to: '3', weight: '0', expr: '(1-γ)/2' }, { from: '2', to: '3', weight: '1' }, { from: '3', to: '2', weight: '1' }]
   };
@@ -2420,12 +2420,12 @@ const TEMPLATE_GEN = {
     };
   },
   fixed: m => ({
-    note: `Fixed-sequence (hierarchical) testing with ${m} hypotheses (Maurer, Hothorn and Lehmacher, 1995; Westfall and Krishen, 2001; Bretz et al., 2009, Fig. 6): H1 gets all of alpha, and each later hypothesis is tested only after the one before it is rejected. The order is the whole design: a hypothesis placed after one that fails can never be tested, whatever its p-value. Choose the order from clinical priority and expected effect sizes, and check it by simulation in the Power tab. With poor estimates of the effects a Holm graph is often safer (Zhang, Wang and Troendle, 2015, section 4; Paux and Dmitrienko, 2018, section 4.2).`,
+    note: `Fixed-sequence (hierarchical) testing with ${m} hypotheses (Maurer, Hothorn and Lehmacher, 1995; Westfall and Krishen, 2001; Bretz et al., 2009, Fig. 6): H1 gets all of alpha, and each later hypothesis is tested only after the one before it is rejected. The order is the whole design, since a hypothesis placed after one that fails can never be tested, whatever its p-value. Choose the order from clinical priority and expected effect sizes, and check it by simulation in the Power tab. With poor estimates of the effects, a Holm graph is often safer (Zhang, Wang and Troendle, 2015, section 4; Paux and Dmitrienko, 2018, section 4.2).`,
     pos: rowPositions(m), w: i => (i === 0 ? '1' : '0'),
     edges: () => Array.from({ length: m - 1 }, (_, i) => [i, i + 1, '1'])
   }),
   fallback: m => ({
-    note: `Fallback procedure (Wiens, 2003; named and proved for any number of hypotheses by Wiens and Dmitrienko, 2005) with ${m} hypotheses: alpha is split equally up front, and a rejected hypothesis passes its level to the next one in the sequence. The last hypothesis's level is lost if it is rejected while earlier ones are open; the improved fallback templates return it.`,
+    note: `Fallback procedure (Wiens, 2003; named and proved for any number of hypotheses by Wiens and Dmitrienko, 2005) with ${m} hypotheses: alpha is split equally up front, and a rejected hypothesis passes its level to the next one in the sequence. The last hypothesis's level is lost if it is rejected while earlier ones are open. The improved fallback templates return it.`,
     pos: rowPositions(m), w: () => `1/${m}`,
     edges: () => Array.from({ length: m - 1 }, (_, i) => [i, i + 1, '1'])
   }),
@@ -2443,7 +2443,7 @@ const TEMPLATE_GEN = {
     const ret = w.slice(0, m - 1).map(q => Q.div(q, S));
     const list = w.map(q => Q.exact(q)).join(', '), rets = ret.map(q => Q.exact(q)).join(', ');
     return {
-      note: `Improved fallback I with ${m} hypotheses (Wiens and Dmitrienko, 2005, section 3.2; Bretz et al., 2009, Fig. 7): the fallback chain, with the level of the last hypothesis returned to the earlier ones in proportion to their initial weights, wᵢ/(w₁ + … + wₘ₋₁), so no alpha is lost. Built from the weights ${list}, which give return transitions ${rets}. These transitions do not follow the weights if you edit them later, so create the template again instead. For three hypotheses this is the paper's graph; for any number it is graphicalMCP's fallback_improved_1 (gMCP's improvedFallbackI has three hypotheses and keeps 1/2, 1/2 whatever the weights are).`,
+      note: `Improved fallback I with ${m} hypotheses (Wiens and Dmitrienko, 2005, section 3.2; Bretz et al., 2009, Fig. 7). It is the fallback chain, with the level of the last hypothesis returned to the earlier ones in proportion to their initial weights, wᵢ/(w₁ + … + wₘ₋₁), so no alpha is lost. Built from the weights ${list}, which give return transitions ${rets}. These transitions do not follow the weights if you edit them later, so create the template again instead. For three hypotheses this is the paper's graph. For any number it is graphicalMCP's fallback_improved_1 (gMCP's improvedFallbackI has three hypotheses and keeps 1/2, 1/2 whatever the weights are).`,
       pos: rowPositions(m), w: i => Q.exact(w[i]),
       edges: () => Array.from({ length: m - 1 }, (_, i) => [i, i + 1, '1']).concat(ret.map((q, i) => [m - 1, i, Q.exact(q)]).filter(r => r[2] !== '0'))
     };

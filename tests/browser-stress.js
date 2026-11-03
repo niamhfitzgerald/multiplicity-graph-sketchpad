@@ -1401,6 +1401,61 @@ async function step(name, fn) {
     if (out) return out;
   });
 
+  /* 1.4.3: the clinician view hides the Power tab. So with Plain language on, the Compare tab's opening line names only
+     the Test tab, and the power note adds a pointer. Plain language off keeps the 1.4.2 last sentence and power note. The
+     opening line's first sentences are the 1.4.3 voice edit, the same in both views, and the check reads the whole line.
+     Neither snapshot holds the Compare text, so this check guards both sentences. Two doses, two endpoints against
+     parallel gatekeeping (the same labels), read before B is chosen and with the power section open. In the clinician
+     view the box is then unticked and ticked again on the Compare tab. */
+  await step('Compare tab (1.4.3): the whole opening line reads as in 1.4.3; with Plain language off it ends on the Test and Power tabs and the power note reads as in 1.4.2; with it on the opening line names only the Test tab and the power note adds "Untick Plain language to see them."; "Power tab" never shows without that pointer; the text follows the box on the Compare tab', async () => {
+    const OPEN_START = 'A is the graph on the canvas. Keep a copy of it, change it, and compare the two. You can also compare it with a template or a pasted graph. ';
+    const OPEN_OFF = 'Tests and power use the settings from the Test and Power tabs for both graphs.';
+    const OPEN_ON = 'Tests use the settings from the Test tab for both graphs.';
+    const NOTE = 'with the settings of the Power tab: marginal powers, correlation, success rule and number of simulations.';
+    const POINTER = ' Untick Plain language to see them.';
+    const AFTER = ' The difference B − A is shown with its standard error.';
+    const read = p => p.locator('#tab-compare').innerText();
+    /* what each view must show; the empty string when it does */
+    const judge = (on, where, t, withB) => {
+      let s = '';
+      if (on) {
+        if (!t.includes(OPEN_START + OPEN_ON) || t.includes(OPEN_OFF)) s += `${where}: opening line not the clinician one. `;
+        if (withB && !t.includes(NOTE + POINTER + AFTER)) s += `${where}: power note without "Untick Plain language to see them." `;
+        for (const line of t.split('\n')) if (/Power tab/.test(line) && !/Untick Plain language/.test(line)) s += `${where}: "Power tab" without the pointer in "${line.slice(0, 80)}". `;
+      } else {
+        if (!t.includes(OPEN_START + OPEN_OFF)) s += `${where}: opening line changed. `;
+        if (withB && !t.includes(NOTE + AFTER)) s += `${where}: power note changed. `;
+        if (/Untick Plain language/.test(t)) s += `${where}: shows "Untick Plain language". `;
+      }
+      return s;
+    };
+    let out = '';
+    for (const on of [false, true]) {
+      const { c, p } = await freshPage();
+      const view = `Plain language ${on ? 'on' : 'off'}`;
+      await p.evaluate(on => setPlain(on), on); await p.waitForTimeout(100);
+      await p.selectOption('#templateSelect', 'bretz'); await p.waitForTimeout(150);
+      await p.click('#tabbtn-compare'); await p.waitForTimeout(100);
+      out += judge(on, `${view}, before B`, await read(p), false);
+      await p.selectOption('#cmpWith', 'tpl:parallel'); await p.waitForTimeout(200);
+      const d = p.locator('#det-cmp-power');
+      if (!(await d.count())) out += `${view}: no power section with B chosen. `;
+      else {
+        if (!(await d.evaluate(x => x.open))) { await d.locator('summary').click(); await p.waitForTimeout(80); }
+        out += judge(on, `${view}, with B`, await read(p), true);
+        if (on) {
+          await p.uncheck('#plainToggle'); await p.waitForTimeout(150);
+          if ((await p.evaluate(() => activeTab)) !== 'compare') out += 'Unticking the box left the Compare tab. ';
+          out += judge(false, 'Unticked on the Compare tab', await read(p), true);
+          await p.check('#plainToggle'); await p.waitForTimeout(150);
+          out += judge(true, 'Ticked again on the Compare tab', await read(p), true);
+        }
+      }
+      await c.close();
+    }
+    if (out) return out;
+  });
+
   for (const r of results) console.log((r.ok ? 'PASS ' : 'FAIL ') + r.name + ` (${r.ms} ms)` + (r.ok ? '' : '\n      ' + r.detail));
   console.log(`\n${results.length - fails}/${results.length} browser checks passed`);
   console.log('page errors:', errors.length ? errors : 'none');

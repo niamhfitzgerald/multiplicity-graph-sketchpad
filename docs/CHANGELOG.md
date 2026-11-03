@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.3 (2026-11-03)
+
+Two changes. An edit of the in-app notes that 1.4.2 did not cover, with a fuller Export entry in the Help dialog. Two sentences on the Compare tab in the clinician view, with a browser check that keeps them right. The edit of the notes keeps their meaning, references and numbers.
+
+- Template notes (every template, the entangled graphs and the "for any m" templates): long sentences split, and semicolon joins and colons that set up a point made into full stops. Sentences over 40 words went from 16 to 2, and semicolon joins outside brackets from 28 to 1. The Fig. 2 note of Maurer and Bretz (2013) no longer ends on "the entangled graph remembers". It now says that the entangled graph remembers where that level came from.
+- About: the opening and Validation paragraphs, and 8 of the 60 reference notes, have clause joins split. Semicolons that separate items in a list are kept, and so is "instead" in the Bretz et al. (2011) note, since it says that the app differs from graphicalMCP there.
+- Tabs: the notes in the Graph, Matrix, Optimise, Compare and Export tabs, and the weights box of the "for any m" templates, have semicolon joins and set-up colons split. In the Graph tab's entangled graph section, "which one graph cannot" (a contrast at the end) now opens the sentence: "Unlike a single graph, it can remember where a level came from." The Matrix tab's import help says "Undo", as the Graph tab does. The Power tab notes needed no change.
+- Help dialog: the Export entry now names every export in the Export tab. It adds the SVG picture, the beamer frames, the SAP or protocol text and "Open a saved graph", and, for an entangled graph, "Graphs side by side" and its tick box.
+- Compare tab, clinician view: the clinician view (Plain language ticked) hides the Power tab, but the Compare tab named it twice. With the box ticked, the opening line now ends "Tests use the settings from the Test tab for both graphs." The note in "Power on the same trials" keeps its text and adds "Untick Plain language to see them." after the list of settings. Simulate both still uses the Power tab's settings, as before. With Plain language off, these two sentences read as in 1.4.2. The rest of the opening line is the edit above, the same in both views.
+- Left as they were: section headings, button and tab names, the SAP text, the plain-language sentences, errors, warnings and status lines, the text the plain-off snapshot holds, and every phrase a self-test or browser check reads. In the Compare tab, the line "A is …; B is …" keeps its semicolon, since a browser check reads it. Neither snapshot holds the Compare text, so the checks needed no planned difference. A script compared every number, reference, code name and bold term in `src/core.js` and `src/ui.js` before and after the edit of the notes: all unchanged. No existing check was changed.
+- Tests: one new browser check, for the Compare tab. In both views it reads the whole opening line and the power note. In the clinician view it also checks that no line names the Power tab without the pointer, and it unticks and ticks the box on the Compare tab. Browser suite: 47. Self-tests: 131. Engine stress suite: 46.
+
 ## 1.4.2 (2026-11-02)
 
 An edit of the help text for clarity. The meaning, references and numbers are unchanged.
