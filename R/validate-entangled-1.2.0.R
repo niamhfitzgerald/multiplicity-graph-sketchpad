@@ -1,53 +1,71 @@
 # validate-entangled-1.2.0.R: entangled graphs (Maurer and Bretz, 2013, Statistics in Medicine 32:1739-1753)
-# Written by Multiplicity Graph Sketchpad 1.2.0 from its gMCP and graphicalMCP exports.
+# Written by Multiplicity Graph Sketchpad 1.2.0 from its gMCP and graphicalMCP exports. From 1.4.6 every case also
+# compares gMCP's and graphicalMCP's intersection weights with the Sketchpad's.
 #
-# Two checks per case:
+# Three checks per case:
 #   1. gMCP (needs Java): gMCP(entangledMCP, pvalues, alpha), Bonferroni, and generateWeights() against the
 #      Sketchpad's intersection weight table (Algorithm 2, p. 1745). Skipped when gMCP is not installed.
 #   2. Base R only: a Bonferroni closed test by hand on the Sketchpad's weight table, which equals the
 #      step-by-step procedure (p. 1745). Runs on any machine with R.
-# Each case prints the rejections next to the expected ones from the Sketchpad self-tests.
+#   3. graphicalMCP: graph_generate_weights() for each component graph, combined with the component weights c,
+#      against the same table. Skipped when graphicalMCP is not installed.
+# Each case prints the rejections next to the expected ones from the Sketchpad self-tests, and the largest difference
+# between each package's weights and the Sketchpad's table (0 up to rounding: the table has 12 significant digits).
 # Note: gMCP rejects when p < level (strict), the Sketchpad when p <= level; none of these cases has a tie.
 # ε = 1/1000 and γ1 = γ2 = γ = 1/2 as in the Sketchpad.
 
 have_gmcp <- requireNamespace("gMCP", quietly = TRUE)
 if (have_gmcp) suppressMessages(library(gMCP))
+have_graphicalmcp <- requireNamespace("graphicalMCP", quietly = TRUE)
 show <- function(label, got, expected) cat(sprintf("%-14s %s   (expected %s)\n", label, paste(got, collapse = " "), expected))
+# graphicalMCP's graph_generate_weights() returns a numeric matrix with 2^m - 1 rows. Columns 1 to m say which
+# hypotheses are in the intersection (1 = in), and columns m + 1 to 2m give the weights. Its rows run in the reverse
+# order of the Sketchpad's table (and gMCP's). Both halves of its column names are the hypothesis names, so the code
+# indexes by position. The same steps as the Sketchpad's graphicalMCP export (1.4.6).
+graphicalmcp_table <- function(transitions, weights, c_weights) {
+  m <- nrow(transitions[[1]])
+  graphs <- Map(function(tr, w) graphicalMCP::graph_create(hypotheses = w, transitions = unname(tr), hyp_names = rownames(tr)),
+    transitions, weights)
+  gw <- lapply(graphs, graphicalMCP::graph_generate_weights)
+  gw_weights <- Reduce(`+`, Map(function(g, ch) ch * g[, m + (1:m)], gw, c_weights))
+  unname(cbind(gw[[1]][, 1:m], gw_weights))[(2^m - 1):1, ]
+}
 
 
 ## ---- Case 1. Self-test B: Maurer and Bretz (2013) Fig. 2, section 3.1 p-values (p. 1742), alpha 0.025. Expected: reject all five (H1, H3, H4, H2, H5 in that order; Fig. 3, p. 1747). ----
 cat("\nCase 1: Self-test B: Maurer and Bretz (2013) Fig. 2, section 3.1 p-values (p. 1742), alpha 0.025.\n")
+# Entangled graph (Maurer and Bretz, 2013): 2 component graphs on the same hypotheses, joined with the
+# component weights c. Each hypothesis is tested at alpha * sum_h c_h w_hi (Algorithm 1, p. 1743).
+# Symbolic weights evaluated with ε = 1/1000
+
+# Graph 1 (c = 1/2)
+m_1 <- matrix(c(
+  0, 0, 1, 0, 0,
+  0, 0, 1, 0, 0,
+  0, 0, 0, 999/1000, 1/1000,
+  0, 1, 0, 0, 0,
+  0, 0, 0, 0, 0
+), nrow = 5, byrow = TRUE)
+weights_1 <- c(1, 0, 0, 0, 0)
+rownames(m_1) <- colnames(m_1) <- c("H1", "H2", "H3", "H4", "H5")
+
+# Graph 2 (c = 1/2)
+m_2 <- matrix(c(
+  0, 0, 1, 0, 0,
+  0, 0, 1, 0, 0,
+  0, 0, 0, 1/1000, 999/1000,
+  0, 0, 0, 0, 0,
+  1, 0, 0, 0, 0
+), nrow = 5, byrow = TRUE)
+weights_2 <- c(0, 1, 0, 0, 0)
+rownames(m_2) <- colnames(m_2) <- c("H1", "H2", "H3", "H4", "H5")
+
+c_weights <- c(1/2, 1/2)
 if (have_gmcp) {
-  # Entangled graph (Maurer and Bretz, 2013): 2 component graphs on the same hypotheses, joined with the
-  # component weights c. Each hypothesis is tested at alpha * sum_h c_h w_hi (Algorithm 1, p. 1743).
-  # Symbolic weights evaluated with ε = 1/1000
-  
-  # Graph 1 (c = 1/2)
-  m_1 <- matrix(c(
-    0, 0, 1, 0, 0,
-    0, 0, 1, 0, 0,
-    0, 0, 0, 999/1000, 1/1000,
-    0, 1, 0, 0, 0,
-    0, 0, 0, 0, 0
-  ), nrow = 5, byrow = TRUE)
-  weights_1 <- c(1, 0, 0, 0, 0)
-  rownames(m_1) <- colnames(m_1) <- c("H1", "H2", "H3", "H4", "H5")
   graph_1 <- matrix2graph(m_1, weights_1)
-  
-  # Graph 2 (c = 1/2)
-  m_2 <- matrix(c(
-    0, 0, 1, 0, 0,
-    0, 0, 1, 0, 0,
-    0, 0, 0, 1/1000, 999/1000,
-    0, 0, 0, 0, 0,
-    1, 0, 0, 0, 0
-  ), nrow = 5, byrow = TRUE)
-  weights_2 <- c(0, 1, 0, 0, 0)
-  rownames(m_2) <- colnames(m_2) <- c("H1", "H2", "H3", "H4", "H5")
   graph_2 <- matrix2graph(m_2, weights_2)
-  
   graph <- new("entangledMCP", subgraphs = list(graph_1, graph_2),
-    weights = c(1/2, 1/2))
+    weights = c_weights)
   res <- gMCP(graph, pvalues = c(0.01, 0.022, 0.005, 0.012, 0.001), alpha = 0.025)
   show("gMCP:", res@rejected, "TRUE TRUE TRUE TRUE TRUE")
 }
@@ -97,40 +115,42 @@ rej_int <- apply(in_set & (matrix(p, nrow(w), m, byrow = TRUE) <= w * alpha), 1,
 rejected <- sapply(1:m, function(i) all(rej_int[in_set[, i]]))
 names(rejected) <- hyp_names
 show("by hand:", rejected, "TRUE TRUE TRUE TRUE TRUE")
-if (have_gmcp) cat("max |generateWeights(graph) - sketchpad_weights| =", max(abs(generateWeights(graph) - sketchpad_weights)), "(expected 0 up to rounding)\n")
+if (have_gmcp) cat("gMCP generateWeights():              max |difference| =", max(abs(generateWeights(graph) - sketchpad_weights)), "(expected 0 up to rounding)\n")
+if (have_graphicalmcp) cat("graphicalMCP graph_generate_weights(): max |difference| =", max(abs(graphicalmcp_table(list(m_1, m_2), list(weights_1, weights_2), c_weights) - sketchpad_weights)), "(expected 0 up to rounding)\n")
 
 ## ---- Case 2. Self-test C: Fig. 4(b), the same as two fixed sequences, same p-values. Expected: all five. ----
 cat("\nCase 2: Self-test C: Fig. 4(b), the same as two fixed sequences, same p-values.\n")
+# Entangled graph (Maurer and Bretz, 2013): 2 component graphs on the same hypotheses, joined with the
+# component weights c. Each hypothesis is tested at alpha * sum_h c_h w_hi (Algorithm 1, p. 1743).
+
+# Graph 1 (c = 1/2)
+m_1 <- matrix(c(
+  0, 0, 1, 0, 0,
+  0, 0, 0, 0, 1,
+  0, 0, 0, 1, 0,
+  0, 1, 0, 0, 0,
+  0, 0, 0, 0, 0
+), nrow = 5, byrow = TRUE)
+weights_1 <- c(1, 0, 0, 0, 0)
+rownames(m_1) <- colnames(m_1) <- c("H1", "H2", "H3", "H4", "H5")
+
+# Graph 2 (c = 1/2)
+m_2 <- matrix(c(
+  0, 0, 0, 1, 0,
+  0, 0, 1, 0, 0,
+  0, 0, 0, 0, 1,
+  0, 0, 0, 0, 0,
+  1, 0, 0, 0, 0
+), nrow = 5, byrow = TRUE)
+weights_2 <- c(0, 1, 0, 0, 0)
+rownames(m_2) <- colnames(m_2) <- c("H1", "H2", "H3", "H4", "H5")
+
+c_weights <- c(1/2, 1/2)
 if (have_gmcp) {
-  # Entangled graph (Maurer and Bretz, 2013): 2 component graphs on the same hypotheses, joined with the
-  # component weights c. Each hypothesis is tested at alpha * sum_h c_h w_hi (Algorithm 1, p. 1743).
-  
-  # Graph 1 (c = 1/2)
-  m_1 <- matrix(c(
-    0, 0, 1, 0, 0,
-    0, 0, 0, 0, 1,
-    0, 0, 0, 1, 0,
-    0, 1, 0, 0, 0,
-    0, 0, 0, 0, 0
-  ), nrow = 5, byrow = TRUE)
-  weights_1 <- c(1, 0, 0, 0, 0)
-  rownames(m_1) <- colnames(m_1) <- c("H1", "H2", "H3", "H4", "H5")
   graph_1 <- matrix2graph(m_1, weights_1)
-  
-  # Graph 2 (c = 1/2)
-  m_2 <- matrix(c(
-    0, 0, 0, 1, 0,
-    0, 0, 1, 0, 0,
-    0, 0, 0, 0, 1,
-    0, 0, 0, 0, 0,
-    1, 0, 0, 0, 0
-  ), nrow = 5, byrow = TRUE)
-  weights_2 <- c(0, 1, 0, 0, 0)
-  rownames(m_2) <- colnames(m_2) <- c("H1", "H2", "H3", "H4", "H5")
   graph_2 <- matrix2graph(m_2, weights_2)
-  
   graph <- new("entangledMCP", subgraphs = list(graph_1, graph_2),
-    weights = c(1/2, 1/2))
+    weights = c_weights)
   res <- gMCP(graph, pvalues = c(0.01, 0.022, 0.005, 0.012, 0.001), alpha = 0.025)
   show("gMCP:", res@rejected, "TRUE TRUE TRUE TRUE TRUE")
 }
@@ -180,40 +200,43 @@ rej_int <- apply(in_set & (matrix(p, nrow(w), m, byrow = TRUE) <= w * alpha), 1,
 rejected <- sapply(1:m, function(i) all(rej_int[in_set[, i]]))
 names(rejected) <- hyp_names
 show("by hand:", rejected, "TRUE TRUE TRUE TRUE TRUE")
+if (have_gmcp) cat("gMCP generateWeights():              max |difference| =", max(abs(generateWeights(graph) - sketchpad_weights)), "(expected 0 up to rounding)\n")
+if (have_graphicalmcp) cat("graphicalMCP graph_generate_weights(): max |difference| =", max(abs(graphicalmcp_table(list(m_1, m_2), list(weights_1, weights_2), c_weights) - sketchpad_weights)), "(expected 0 up to rounding)\n")
 
 ## ---- Case 3. Self-test D: Fig. 5 with gamma1 = gamma2 = 1/2, same p-values. Expected: H1 and H3 only (H2 stays at 0.01875, H4 at (1 - eps) 0.00625). ----
 cat("\nCase 3: Self-test D: Fig. 5 with gamma1 = gamma2 = 1/2, same p-values.\n")
+# Entangled graph (Maurer and Bretz, 2013): 2 component graphs on the same hypotheses, joined with the
+# component weights c. Each hypothesis is tested at alpha * sum_h c_h w_hi (Algorithm 1, p. 1743).
+# Symbolic weights evaluated with γ1 = 1/2, ε = 1/1000, γ2 = 1/2
+
+# Graph 1 (c = 1/2)
+m_1 <- matrix(c(
+  0, 1/2, 1/2, 0, 0,
+  0, 0, 1, 0, 0,
+  0, 0, 0, 999/1000, 1/1000,
+  0, 1, 0, 0, 0,
+  0, 0, 0, 0, 0
+), nrow = 5, byrow = TRUE)
+weights_1 <- c(1, 0, 0, 0, 0)
+rownames(m_1) <- colnames(m_1) <- c("H1", "H2", "H3", "H4", "H5")
+
+# Graph 2 (c = 1/2)
+m_2 <- matrix(c(
+  0, 0, 1, 0, 0,
+  1/2, 0, 1/2, 0, 0,
+  0, 0, 0, 1/1000, 999/1000,
+  0, 0, 0, 0, 0,
+  1, 0, 0, 0, 0
+), nrow = 5, byrow = TRUE)
+weights_2 <- c(0, 1, 0, 0, 0)
+rownames(m_2) <- colnames(m_2) <- c("H1", "H2", "H3", "H4", "H5")
+
+c_weights <- c(1/2, 1/2)
 if (have_gmcp) {
-  # Entangled graph (Maurer and Bretz, 2013): 2 component graphs on the same hypotheses, joined with the
-  # component weights c. Each hypothesis is tested at alpha * sum_h c_h w_hi (Algorithm 1, p. 1743).
-  # Symbolic weights evaluated with γ1 = 1/2, ε = 1/1000, γ2 = 1/2
-  
-  # Graph 1 (c = 1/2)
-  m_1 <- matrix(c(
-    0, 1/2, 1/2, 0, 0,
-    0, 0, 1, 0, 0,
-    0, 0, 0, 999/1000, 1/1000,
-    0, 1, 0, 0, 0,
-    0, 0, 0, 0, 0
-  ), nrow = 5, byrow = TRUE)
-  weights_1 <- c(1, 0, 0, 0, 0)
-  rownames(m_1) <- colnames(m_1) <- c("H1", "H2", "H3", "H4", "H5")
   graph_1 <- matrix2graph(m_1, weights_1)
-  
-  # Graph 2 (c = 1/2)
-  m_2 <- matrix(c(
-    0, 0, 1, 0, 0,
-    1/2, 0, 1/2, 0, 0,
-    0, 0, 0, 1/1000, 999/1000,
-    0, 0, 0, 0, 0,
-    1, 0, 0, 0, 0
-  ), nrow = 5, byrow = TRUE)
-  weights_2 <- c(0, 1, 0, 0, 0)
-  rownames(m_2) <- colnames(m_2) <- c("H1", "H2", "H3", "H4", "H5")
   graph_2 <- matrix2graph(m_2, weights_2)
-  
   graph <- new("entangledMCP", subgraphs = list(graph_1, graph_2),
-    weights = c(1/2, 1/2))
+    weights = c_weights)
   res <- gMCP(graph, pvalues = c(0.01, 0.022, 0.005, 0.012, 0.001), alpha = 0.025)
   show("gMCP:", res@rejected, "TRUE FALSE TRUE FALSE FALSE")
 }
@@ -263,64 +286,67 @@ rej_int <- apply(in_set & (matrix(p, nrow(w), m, byrow = TRUE) <= w * alpha), 1,
 rejected <- sapply(1:m, function(i) all(rej_int[in_set[, i]]))
 names(rejected) <- hyp_names
 show("by hand:", rejected, "TRUE FALSE TRUE FALSE FALSE")
+if (have_gmcp) cat("gMCP generateWeights():              max |difference| =", max(abs(generateWeights(graph) - sketchpad_weights)), "(expected 0 up to rounding)\n")
+if (have_graphicalmcp) cat("graphicalMCP graph_generate_weights(): max |difference| =", max(abs(graphicalmcp_table(list(m_1, m_2), list(weights_1, weights_2), c_weights) - sketchpad_weights)), "(expected 0 up to rounding)\n")
 
 ## ---- Case 4. Self-test E: at least 3 of 4 primaries (section 5.3.2, Fig. 6, p. 1751), alpha 0.05, p = (0.01, 0.01, 0.01, 0.04, 0.01). Expected: H1, H2, H3, H5 (H4 retained at 3 alpha / 4 = 0.0375). ----
 cat("\nCase 4: Self-test E: at least 3 of 4 primaries (section 5.3.2, Fig. 6, p. 1751), alpha 0.05, p = (0.01, 0.01, 0.01, 0.04, 0.01).\n")
+# Entangled graph (Maurer and Bretz, 2013): 4 component graphs on the same hypotheses, joined with the
+# component weights c. Each hypothesis is tested at alpha * sum_h c_h w_hi (Algorithm 1, p. 1743).
+# Symbolic weights evaluated with ε = 1/1000
+
+# Graph 1 (c = 1/4)
+m_1 <- matrix(c(
+  0, 1/2, 1/2, 0, 0,
+  1/2, 0, 1/2, 0, 0,
+  499/1000, 1/2, 0, 0, 1/1000,
+  0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0
+), nrow = 5, byrow = TRUE)
+weights_1 <- c(1/3, 1/3, 1/3, 0, 0)
+rownames(m_1) <- colnames(m_1) <- c("H1", "H2", "H3", "H4", "H5")
+
+# Graph 2 (c = 1/4)
+m_2 <- matrix(c(
+  0, 1/2, 0, 1/2, 0,
+  1/2, 0, 0, 1/2, 0,
+  0, 0, 0, 0, 0,
+  499/1000, 1/2, 0, 0, 1/1000,
+  0, 0, 0, 0, 0
+), nrow = 5, byrow = TRUE)
+weights_2 <- c(1/3, 1/3, 0, 1/3, 0)
+rownames(m_2) <- colnames(m_2) <- c("H1", "H2", "H3", "H4", "H5")
+
+# Graph 3 (c = 1/4)
+m_3 <- matrix(c(
+  0, 0, 1/2, 1/2, 0,
+  0, 0, 0, 0, 0,
+  1/2, 0, 0, 1/2, 0,
+  499/1000, 0, 1/2, 0, 1/1000,
+  0, 0, 0, 0, 0
+), nrow = 5, byrow = TRUE)
+weights_3 <- c(1/3, 0, 1/3, 1/3, 0)
+rownames(m_3) <- colnames(m_3) <- c("H1", "H2", "H3", "H4", "H5")
+
+# Graph 4 (c = 1/4)
+m_4 <- matrix(c(
+  0, 0, 0, 0, 0,
+  0, 0, 1/2, 1/2, 0,
+  0, 1/2, 0, 1/2, 0,
+  0, 499/1000, 1/2, 0, 1/1000,
+  0, 0, 0, 0, 0
+), nrow = 5, byrow = TRUE)
+weights_4 <- c(0, 1/3, 1/3, 1/3, 0)
+rownames(m_4) <- colnames(m_4) <- c("H1", "H2", "H3", "H4", "H5")
+
+c_weights <- c(1/4, 1/4, 1/4, 1/4)
 if (have_gmcp) {
-  # Entangled graph (Maurer and Bretz, 2013): 4 component graphs on the same hypotheses, joined with the
-  # component weights c. Each hypothesis is tested at alpha * sum_h c_h w_hi (Algorithm 1, p. 1743).
-  # Symbolic weights evaluated with ε = 1/1000
-  
-  # Graph 1 (c = 1/4)
-  m_1 <- matrix(c(
-    0, 1/2, 1/2, 0, 0,
-    1/2, 0, 1/2, 0, 0,
-    499/1000, 1/2, 0, 0, 1/1000,
-    0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0
-  ), nrow = 5, byrow = TRUE)
-  weights_1 <- c(1/3, 1/3, 1/3, 0, 0)
-  rownames(m_1) <- colnames(m_1) <- c("H1", "H2", "H3", "H4", "H5")
   graph_1 <- matrix2graph(m_1, weights_1)
-  
-  # Graph 2 (c = 1/4)
-  m_2 <- matrix(c(
-    0, 1/2, 0, 1/2, 0,
-    1/2, 0, 0, 1/2, 0,
-    0, 0, 0, 0, 0,
-    499/1000, 1/2, 0, 0, 1/1000,
-    0, 0, 0, 0, 0
-  ), nrow = 5, byrow = TRUE)
-  weights_2 <- c(1/3, 1/3, 0, 1/3, 0)
-  rownames(m_2) <- colnames(m_2) <- c("H1", "H2", "H3", "H4", "H5")
   graph_2 <- matrix2graph(m_2, weights_2)
-  
-  # Graph 3 (c = 1/4)
-  m_3 <- matrix(c(
-    0, 0, 1/2, 1/2, 0,
-    0, 0, 0, 0, 0,
-    1/2, 0, 0, 1/2, 0,
-    499/1000, 0, 1/2, 0, 1/1000,
-    0, 0, 0, 0, 0
-  ), nrow = 5, byrow = TRUE)
-  weights_3 <- c(1/3, 0, 1/3, 1/3, 0)
-  rownames(m_3) <- colnames(m_3) <- c("H1", "H2", "H3", "H4", "H5")
   graph_3 <- matrix2graph(m_3, weights_3)
-  
-  # Graph 4 (c = 1/4)
-  m_4 <- matrix(c(
-    0, 0, 0, 0, 0,
-    0, 0, 1/2, 1/2, 0,
-    0, 1/2, 0, 1/2, 0,
-    0, 499/1000, 1/2, 0, 1/1000,
-    0, 0, 0, 0, 0
-  ), nrow = 5, byrow = TRUE)
-  weights_4 <- c(0, 1/3, 1/3, 1/3, 0)
-  rownames(m_4) <- colnames(m_4) <- c("H1", "H2", "H3", "H4", "H5")
   graph_4 <- matrix2graph(m_4, weights_4)
-  
   graph <- new("entangledMCP", subgraphs = list(graph_1, graph_2, graph_3, graph_4),
-    weights = c(1/4, 1/4, 1/4, 1/4))
+    weights = c_weights)
   res <- gMCP(graph, pvalues = c(0.01, 0.01, 0.01, 0.04, 0.01), alpha = 0.05)
   show("gMCP:", res@rejected, "TRUE TRUE TRUE FALSE TRUE")
 }
@@ -370,64 +396,67 @@ rej_int <- apply(in_set & (matrix(p, nrow(w), m, byrow = TRUE) <= w * alpha), 1,
 rejected <- sapply(1:m, function(i) all(rej_int[in_set[, i]]))
 names(rejected) <- hyp_names
 show("by hand:", rejected, "TRUE TRUE TRUE FALSE TRUE")
+if (have_gmcp) cat("gMCP generateWeights():              max |difference| =", max(abs(generateWeights(graph) - sketchpad_weights)), "(expected 0 up to rounding)\n")
+if (have_graphicalmcp) cat("graphicalMCP graph_generate_weights(): max |difference| =", max(abs(graphicalmcp_table(list(m_1, m_2, m_3, m_4), list(weights_1, weights_2, weights_3, weights_4), c_weights) - sketchpad_weights)), "(expected 0 up to rounding)\n")
 
 ## ---- Case 5. Self-test E, case 2: p = (0.01, 0.01, 0.01, 0.03, 0.04). Expected: all five (H5 at alpha once all four primaries are rejected). ----
 cat("\nCase 5: Self-test E, case 2: p = (0.01, 0.01, 0.01, 0.03, 0.04).\n")
+# Entangled graph (Maurer and Bretz, 2013): 4 component graphs on the same hypotheses, joined with the
+# component weights c. Each hypothesis is tested at alpha * sum_h c_h w_hi (Algorithm 1, p. 1743).
+# Symbolic weights evaluated with ε = 1/1000
+
+# Graph 1 (c = 1/4)
+m_1 <- matrix(c(
+  0, 1/2, 1/2, 0, 0,
+  1/2, 0, 1/2, 0, 0,
+  499/1000, 1/2, 0, 0, 1/1000,
+  0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0
+), nrow = 5, byrow = TRUE)
+weights_1 <- c(1/3, 1/3, 1/3, 0, 0)
+rownames(m_1) <- colnames(m_1) <- c("H1", "H2", "H3", "H4", "H5")
+
+# Graph 2 (c = 1/4)
+m_2 <- matrix(c(
+  0, 1/2, 0, 1/2, 0,
+  1/2, 0, 0, 1/2, 0,
+  0, 0, 0, 0, 0,
+  499/1000, 1/2, 0, 0, 1/1000,
+  0, 0, 0, 0, 0
+), nrow = 5, byrow = TRUE)
+weights_2 <- c(1/3, 1/3, 0, 1/3, 0)
+rownames(m_2) <- colnames(m_2) <- c("H1", "H2", "H3", "H4", "H5")
+
+# Graph 3 (c = 1/4)
+m_3 <- matrix(c(
+  0, 0, 1/2, 1/2, 0,
+  0, 0, 0, 0, 0,
+  1/2, 0, 0, 1/2, 0,
+  499/1000, 0, 1/2, 0, 1/1000,
+  0, 0, 0, 0, 0
+), nrow = 5, byrow = TRUE)
+weights_3 <- c(1/3, 0, 1/3, 1/3, 0)
+rownames(m_3) <- colnames(m_3) <- c("H1", "H2", "H3", "H4", "H5")
+
+# Graph 4 (c = 1/4)
+m_4 <- matrix(c(
+  0, 0, 0, 0, 0,
+  0, 0, 1/2, 1/2, 0,
+  0, 1/2, 0, 1/2, 0,
+  0, 499/1000, 1/2, 0, 1/1000,
+  0, 0, 0, 0, 0
+), nrow = 5, byrow = TRUE)
+weights_4 <- c(0, 1/3, 1/3, 1/3, 0)
+rownames(m_4) <- colnames(m_4) <- c("H1", "H2", "H3", "H4", "H5")
+
+c_weights <- c(1/4, 1/4, 1/4, 1/4)
 if (have_gmcp) {
-  # Entangled graph (Maurer and Bretz, 2013): 4 component graphs on the same hypotheses, joined with the
-  # component weights c. Each hypothesis is tested at alpha * sum_h c_h w_hi (Algorithm 1, p. 1743).
-  # Symbolic weights evaluated with ε = 1/1000
-  
-  # Graph 1 (c = 1/4)
-  m_1 <- matrix(c(
-    0, 1/2, 1/2, 0, 0,
-    1/2, 0, 1/2, 0, 0,
-    499/1000, 1/2, 0, 0, 1/1000,
-    0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0
-  ), nrow = 5, byrow = TRUE)
-  weights_1 <- c(1/3, 1/3, 1/3, 0, 0)
-  rownames(m_1) <- colnames(m_1) <- c("H1", "H2", "H3", "H4", "H5")
   graph_1 <- matrix2graph(m_1, weights_1)
-  
-  # Graph 2 (c = 1/4)
-  m_2 <- matrix(c(
-    0, 1/2, 0, 1/2, 0,
-    1/2, 0, 0, 1/2, 0,
-    0, 0, 0, 0, 0,
-    499/1000, 1/2, 0, 0, 1/1000,
-    0, 0, 0, 0, 0
-  ), nrow = 5, byrow = TRUE)
-  weights_2 <- c(1/3, 1/3, 0, 1/3, 0)
-  rownames(m_2) <- colnames(m_2) <- c("H1", "H2", "H3", "H4", "H5")
   graph_2 <- matrix2graph(m_2, weights_2)
-  
-  # Graph 3 (c = 1/4)
-  m_3 <- matrix(c(
-    0, 0, 1/2, 1/2, 0,
-    0, 0, 0, 0, 0,
-    1/2, 0, 0, 1/2, 0,
-    499/1000, 0, 1/2, 0, 1/1000,
-    0, 0, 0, 0, 0
-  ), nrow = 5, byrow = TRUE)
-  weights_3 <- c(1/3, 0, 1/3, 1/3, 0)
-  rownames(m_3) <- colnames(m_3) <- c("H1", "H2", "H3", "H4", "H5")
   graph_3 <- matrix2graph(m_3, weights_3)
-  
-  # Graph 4 (c = 1/4)
-  m_4 <- matrix(c(
-    0, 0, 0, 0, 0,
-    0, 0, 1/2, 1/2, 0,
-    0, 1/2, 0, 1/2, 0,
-    0, 499/1000, 1/2, 0, 1/1000,
-    0, 0, 0, 0, 0
-  ), nrow = 5, byrow = TRUE)
-  weights_4 <- c(0, 1/3, 1/3, 1/3, 0)
-  rownames(m_4) <- colnames(m_4) <- c("H1", "H2", "H3", "H4", "H5")
   graph_4 <- matrix2graph(m_4, weights_4)
-  
   graph <- new("entangledMCP", subgraphs = list(graph_1, graph_2, graph_3, graph_4),
-    weights = c(1/4, 1/4, 1/4, 1/4))
+    weights = c_weights)
   res <- gMCP(graph, pvalues = c(0.01, 0.01, 0.01, 0.03, 0.04), alpha = 0.05)
   show("gMCP:", res@rejected, "TRUE TRUE TRUE TRUE TRUE")
 }
@@ -477,49 +506,52 @@ rej_int <- apply(in_set & (matrix(p, nrow(w), m, byrow = TRUE) <= w * alpha), 1,
 rejected <- sapply(1:m, function(i) all(rej_int[in_set[, i]]))
 names(rejected) <- hyp_names
 show("by hand:", rejected, "TRUE TRUE TRUE TRUE TRUE")
+if (have_gmcp) cat("gMCP generateWeights():              max |difference| =", max(abs(generateWeights(graph) - sketchpad_weights)), "(expected 0 up to rounding)\n")
+if (have_graphicalmcp) cat("graphicalMCP graph_generate_weights(): max |difference| =", max(abs(graphicalmcp_table(list(m_1, m_2, m_3, m_4), list(weights_1, weights_2, weights_3, weights_4), c_weights) - sketchpad_weights)), "(expected 0 up to rounding)\n")
 
 ## ---- Case 6. Self-test G: Guilbaud (2018) Example 11 and Fig. 5(b), p. 230, at least 2 of 3, alpha 0.05, p = (0.01, 0.02, 0.04, 0.015). Expected: H1, H2, H4 (H3 retained at 1/30). ----
 cat("\nCase 6: Self-test G: Guilbaud (2018) Example 11 and Fig. 5(b), p. 230, at least 2 of 3, alpha 0.05, p = (0.01, 0.02, 0.04, 0.015).\n")
+# Entangled graph (Maurer and Bretz, 2013): 3 component graphs on the same hypotheses, joined with the
+# component weights c. Each hypothesis is tested at alpha * sum_h c_h w_hi (Algorithm 1, p. 1743).
+# Symbolic weights evaluated with ε = 1/1000
+
+# Graph 1 (c = 1/3)
+m_1 <- matrix(c(
+  0, 1, 0, 0,
+  999/1000, 0, 0, 1/1000,
+  0, 0, 0, 0,
+  0, 0, 0, 0
+), nrow = 4, byrow = TRUE)
+weights_1 <- c(1/2, 1/2, 0, 0)
+rownames(m_1) <- colnames(m_1) <- c("H1", "H2", "H3", "H4")
+
+# Graph 2 (c = 1/3)
+m_2 <- matrix(c(
+  0, 0, 1, 0,
+  0, 0, 0, 0,
+  999/1000, 0, 0, 1/1000,
+  0, 0, 0, 0
+), nrow = 4, byrow = TRUE)
+weights_2 <- c(1/2, 0, 1/2, 0)
+rownames(m_2) <- colnames(m_2) <- c("H1", "H2", "H3", "H4")
+
+# Graph 3 (c = 1/3)
+m_3 <- matrix(c(
+  0, 0, 0, 0,
+  0, 0, 1, 0,
+  0, 999/1000, 0, 1/1000,
+  0, 0, 0, 0
+), nrow = 4, byrow = TRUE)
+weights_3 <- c(0, 1/2, 1/2, 0)
+rownames(m_3) <- colnames(m_3) <- c("H1", "H2", "H3", "H4")
+
+c_weights <- c(1/3, 1/3, 1/3)
 if (have_gmcp) {
-  # Entangled graph (Maurer and Bretz, 2013): 3 component graphs on the same hypotheses, joined with the
-  # component weights c. Each hypothesis is tested at alpha * sum_h c_h w_hi (Algorithm 1, p. 1743).
-  # Symbolic weights evaluated with ε = 1/1000
-  
-  # Graph 1 (c = 1/3)
-  m_1 <- matrix(c(
-    0, 1, 0, 0,
-    999/1000, 0, 0, 1/1000,
-    0, 0, 0, 0,
-    0, 0, 0, 0
-  ), nrow = 4, byrow = TRUE)
-  weights_1 <- c(1/2, 1/2, 0, 0)
-  rownames(m_1) <- colnames(m_1) <- c("H1", "H2", "H3", "H4")
   graph_1 <- matrix2graph(m_1, weights_1)
-  
-  # Graph 2 (c = 1/3)
-  m_2 <- matrix(c(
-    0, 0, 1, 0,
-    0, 0, 0, 0,
-    999/1000, 0, 0, 1/1000,
-    0, 0, 0, 0
-  ), nrow = 4, byrow = TRUE)
-  weights_2 <- c(1/2, 0, 1/2, 0)
-  rownames(m_2) <- colnames(m_2) <- c("H1", "H2", "H3", "H4")
   graph_2 <- matrix2graph(m_2, weights_2)
-  
-  # Graph 3 (c = 1/3)
-  m_3 <- matrix(c(
-    0, 0, 0, 0,
-    0, 0, 1, 0,
-    0, 999/1000, 0, 1/1000,
-    0, 0, 0, 0
-  ), nrow = 4, byrow = TRUE)
-  weights_3 <- c(0, 1/2, 1/2, 0)
-  rownames(m_3) <- colnames(m_3) <- c("H1", "H2", "H3", "H4")
   graph_3 <- matrix2graph(m_3, weights_3)
-  
   graph <- new("entangledMCP", subgraphs = list(graph_1, graph_2, graph_3),
-    weights = c(1/3, 1/3, 1/3))
+    weights = c_weights)
   res <- gMCP(graph, pvalues = c(0.01, 0.02, 0.04, 0.015), alpha = 0.05)
   show("gMCP:", res@rejected, "TRUE TRUE FALSE TRUE")
 }
@@ -553,36 +585,39 @@ rej_int <- apply(in_set & (matrix(p, nrow(w), m, byrow = TRUE) <= w * alpha), 1,
 rejected <- sapply(1:m, function(i) all(rej_int[in_set[, i]]))
 names(rejected) <- hyp_names
 show("by hand:", rejected, "TRUE TRUE FALSE TRUE")
+if (have_gmcp) cat("gMCP generateWeights():              max |difference| =", max(abs(generateWeights(graph) - sketchpad_weights)), "(expected 0 up to rounding)\n")
+if (have_graphicalmcp) cat("graphicalMCP graph_generate_weights(): max |difference| =", max(abs(graphicalmcp_table(list(m_1, m_2, m_3), list(weights_1, weights_2, weights_3), c_weights) - sketchpad_weights)), "(expected 0 up to rounding)\n")
 
 ## ---- Case 7. Truncated Holm on 3 hypotheses as an entangled graph (section 5.3.1, p. 1750), gamma = 1/2, alpha 0.025, p = (0.004, 0.012, 0.02). Expected: H1 at alpha/3 = 0.008333 rejected; H2 then at (gamma/2 + (1 - gamma)/3) alpha = 0.010417 retained; H3 retained. ----
 cat("\nCase 7: Truncated Holm on 3 hypotheses as an entangled graph (section 5.3.1, p. 1750), gamma = 1/2, alpha 0.025, p = (0.004, 0.012, 0.02).\n")
+# Entangled graph (Maurer and Bretz, 2013): 2 component graphs on the same hypotheses, joined with the
+# component weights c. Each hypothesis is tested at alpha * sum_h c_h w_hi (Algorithm 1, p. 1743).
+# Symbolic weights evaluated with γ = 1/2
+
+# Graph 1 (c = γ = 1/2)
+m_1 <- matrix(c(
+  0, 1/2, 1/2,
+  1/2, 0, 1/2,
+  1/2, 1/2, 0
+), nrow = 3, byrow = TRUE)
+weights_1 <- c(1/3, 1/3, 1/3)
+rownames(m_1) <- colnames(m_1) <- c("H1", "H2", "H3")
+
+# Graph 2 (c = 1−γ = 1/2)
+m_2 <- matrix(c(
+  0, 0, 0,
+  0, 0, 0,
+  0, 0, 0
+), nrow = 3, byrow = TRUE)
+weights_2 <- c(1/3, 1/3, 1/3)
+rownames(m_2) <- colnames(m_2) <- c("H1", "H2", "H3")
+
+c_weights <- c(1/2, 1/2)
 if (have_gmcp) {
-  # Entangled graph (Maurer and Bretz, 2013): 2 component graphs on the same hypotheses, joined with the
-  # component weights c. Each hypothesis is tested at alpha * sum_h c_h w_hi (Algorithm 1, p. 1743).
-  # Symbolic weights evaluated with γ = 1/2
-  
-  # Graph 1 (c = γ = 1/2)
-  m_1 <- matrix(c(
-    0, 1/2, 1/2,
-    1/2, 0, 1/2,
-    1/2, 1/2, 0
-  ), nrow = 3, byrow = TRUE)
-  weights_1 <- c(1/3, 1/3, 1/3)
-  rownames(m_1) <- colnames(m_1) <- c("H1", "H2", "H3")
   graph_1 <- matrix2graph(m_1, weights_1)
-  
-  # Graph 2 (c = 1−γ = 1/2)
-  m_2 <- matrix(c(
-    0, 0, 0,
-    0, 0, 0,
-    0, 0, 0
-  ), nrow = 3, byrow = TRUE)
-  weights_2 <- c(1/3, 1/3, 1/3)
-  rownames(m_2) <- colnames(m_2) <- c("H1", "H2", "H3")
   graph_2 <- matrix2graph(m_2, weights_2)
-  
   graph <- new("entangledMCP", subgraphs = list(graph_1, graph_2),
-    weights = c(1/2, 1/2))
+    weights = c_weights)
   res <- gMCP(graph, pvalues = c(0.004, 0.012, 0.02), alpha = 0.025)
   show("gMCP:", res@rejected, "TRUE FALSE FALSE")
 }
@@ -608,3 +643,5 @@ rej_int <- apply(in_set & (matrix(p, nrow(w), m, byrow = TRUE) <= w * alpha), 1,
 rejected <- sapply(1:m, function(i) all(rej_int[in_set[, i]]))
 names(rejected) <- hyp_names
 show("by hand:", rejected, "TRUE FALSE FALSE")
+if (have_gmcp) cat("gMCP generateWeights():              max |difference| =", max(abs(generateWeights(graph) - sketchpad_weights)), "(expected 0 up to rounding)\n")
+if (have_graphicalmcp) cat("graphicalMCP graph_generate_weights(): max |difference| =", max(abs(graphicalmcp_table(list(m_1, m_2), list(weights_1, weights_2), c_weights) - sketchpad_weights)), "(expected 0 up to rounding)\n")

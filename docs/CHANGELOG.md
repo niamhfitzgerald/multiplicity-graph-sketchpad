@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.6 (2026-11-04)
+
+Two R cross-checks parked since 1.2.0, now run, and one export that uses them.
+
+- Export, graphicalMCP code for an entangled graph: for up to 8 hypotheses the code now builds graphicalMCP's own intersection weights with `graph_generate_weights()`, one table per graph, combines them with the graph weights c and prints the largest difference from the Sketchpad's table (0, up to rounding). Up to 1.4.5 it only named the function.
+- `R/validate-entangled-1.2.0.R`: every case now compares the Sketchpad's intersection weights with gMCP's `generateWeights()` (case 1 only before) and with graphicalMCP's `graph_generate_weights()`. The graphicalMCP part runs without Java.
+- Checked in R with gMCP 0.8-17 and graphicalMCP 0.3.0.9000: all seven cases of the script give the self-tests' rejections, and both packages' weights agree with the Sketchpad's. graphicalMCP also agrees with the new export for every entangled template, truncated Holm for 2 to 8 hypotheses, at least k of m and 40 random entangled graphs (largest difference 6e-13).
+- Tests: two new engine checks, the export's new lines and (with R and graphicalMCP installed) a run of the exports in R. Both fail on the 1.4.5 engine. Engine stress suite: 48. Self-tests: 131. Browser suite: 56.
+
 ## 1.4.5 (2026-11-04)
 
 One fix, found on a real iPhone in the 1.4.4 checks.

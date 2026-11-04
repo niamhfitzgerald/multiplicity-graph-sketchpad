@@ -611,7 +611,7 @@ table.t td:first-child { white-space: nowrap; }
 <script>
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.4.5';
+const APP_VERSION = '1.4.6';
 const APP_DATE = '2026-11-04';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
@@ -1692,9 +1692,12 @@ function exportGraphicalMCPEntangled(G) {
     s += `\n${entCompComment(G, k)}\ngraph_${k + 1} <- graph_create(\n  hypotheses = c(${c.weights}),\n  transitions = matrix(c(\n${c.rows.join(',\n')}\n  ), nrow = ${m}, byrow = TRUE),\n  hyp_names = ${names}\n)\n`;
   }
   s += `\nc_weights <- c(${G.ent.c.map(rNum).join(', ')})\nhyp_names <- ${names}\n\n${entWeightTableR(G)}`;
-  if (m <= 8) s += `# The same weights follow from graph_generate_weights(graph_1), graph_generate_weights(graph_2), ... combined\n# with c_weights (see that function's help page for the layout of its result).\n`;
+  /* graph_generate_weights() layout, read from the graphicalMCP 0.3.0.9000 source and checked with str() on the Fig. 2
+     export (4 November 2026): a numeric matrix, 2^m - 1 rows and 2m columns, membership (1 = in) then weights; the
+     hypothesis names twice as column names; rows in the reverse of gMCP's order (the whole set first). */
+  if (m <= 8) s += `\n# The same weights from graphicalMCP. graph_generate_weights() gives one table per component graph, and the code\n# combines them with c_weights as for the table above. Each table is a numeric matrix. Columns 1 to m say which\n# hypotheses are in the intersection (1 = in), and columns m + 1 to 2m give the weights. Its rows run in the reverse\n# order of the table above. Both halves of its column names are the hypothesis names, so the code indexes by position.\n# max(abs(gw_table - sketchpad_weights)) should print 0, up to rounding.\nm <- ${m}\ngw <- lapply(list(${G.ent.comps.map((_, k) => `graph_${k + 1}`).join(', ')}), graph_generate_weights)\ngw_weights <- Reduce(\`+\`, Map(function(g, ch) ch * g[, m + (1:m)], gw, c_weights))\ngw_table <- unname(cbind(gw[[1]][, 1:m], gw_weights))[(2^m - 1):1, ]\nmax(abs(gw_table - sketchpad_weights))\n`;
   if (pv && m <= 8) {
-    s += `\np <- ${pv}\nalpha <- ${fmtNum(G.alpha, 12)}\nm <- ${m}\nin_set <- sketchpad_weights[, 1:m] == 1\nw <- sketchpad_weights[, m + (1:m)]\n`;
+    s += `\np <- ${pv}\nalpha <- ${fmtNum(G.alpha, 12)}\nin_set <- sketchpad_weights[, 1:m] == 1\nw <- sketchpad_weights[, m + (1:m)]\n`;
     s += `# Bonferroni closed test: an intersection is rejected when some member has p <= weight * alpha; H_i is rejected\n# when every intersection containing it is rejected. This equals the step-by-step procedure (Maurer and Bretz,\n# 2013, p. 1745).\nrej_int <- apply(in_set & (matrix(p, nrow(w), m, byrow = TRUE) <= w * alpha), 1, any)\nrejected <- sapply(1:m, function(i) all(rej_int[in_set[, i]]))\nnames(rejected) <- hyp_names\nrejected\n`;
     if (t.type !== 'bonferroni') s += `# The Sketchpad's test type here is ${t.type === 'parametric' ? 'parametric' : 'Simes'}: replace the Bonferroni test of each intersection with that test on the same weights.\n`;
   } else if (pv) s += `\n# Enter up to 8 hypotheses to get the closed test by hand here.\n`;

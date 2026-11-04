@@ -4,7 +4,7 @@ if (!process.argv[2]) process.argv[2] = require('path').join(__dirname, '..', 's
 const src = fs.readFileSync(process.argv[2], 'utf8');
 const ctx = { console, performance, TextEncoder, TextDecoder, btoa, atob, setTimeout, clearTimeout };
 vm.createContext(ctx);
-vm.runInContext(src + '\nthis.__X = { Q, gKey, NODE_R, TEMPLATES, TEMPLATE_GEN, TEST_TYPES, pnormUpper, PRIMES, GREEK, SKETCHPAD_JSON_R };', ctx);
+vm.runInContext(src + '\nthis.__X = { Q, gKey, NODE_R, TEMPLATES, TEMPLATE_GEN, TEST_TYPES, pnormUpper, PRIMES, GREEK, SKETCHPAD_JSON_R, ENTANGLED_TEMPLATES };', ctx);
 const C = Object.assign({}, ctx, ctx.__X);
 const { Q } = C;
 
@@ -1061,6 +1061,73 @@ check('Optimised graph: the SAP text describes the choice of the graph, gives th
   if (!s2.tables.some(t => /Table \[X\.4\]/.test(t.title)) || !/given in Table \[X\.4\]/.test(s2.paragraphs.find(x => x.startsWith('Choice of the graph.')))) return 'X.4 missing for pairwise correlations';
   const plain = toG(C.templateJSON('parallel'));
   if (plain.opt || C.sapText(plain).paragraphs.some(x => x.startsWith('Choice of the graph.')) || C.serializeGraph(plain).optimisation || C.decodeShare(C.encodeShare(plain)).optimisation) return 'block invented for an ordinary graph';
+  return true;
+});
+
+/* ---------- entangled graphicalMCP export: graph_generate_weights() (1.4.6) ---------- */
+/* The export combines graphicalMCP's graph_generate_weights() tables with c and compares them with the Sketchpad's
+   intersection weights. The cases use their own seeded generator, so the suite's random stream is unchanged. */
+function entangledExportCases() {
+  let s = 20261104;
+  const r = () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648, rr = (a, b) => a + Math.floor(r() * (b - a + 1));
+  const withP = o => { o.nodes.forEach(n => { n.p = String((rr(1, 600) / 10000).toFixed(4)); }); return o; };
+  const cases = Object.keys(C.ENTANGLED_TEMPLATES).map(k => ({ name: k, o: withP(C.entangledTemplateJSON(k)) }));
+  cases.push({ name: 'maurerFig2, no p-values', o: C.entangledTemplateJSON('maurerFig2') });
+  for (let m = 2; m <= 9; m++) cases.push({ name: `truncated Holm, m = ${m}`, o: withP(C.entangledTruncatedHolm(m)) });
+  for (const [k, m] of [[2, 3], [3, 4], [2, 5], [4, 6]]) cases.push({ name: `at least ${k} of ${m}`, o: withP(C.entangledKOfM(m, k, 0.025)) });
+  for (let t = 0; t < 20; t++) {
+    const m = rr(2, 8), nc = rr(2, 4), cRaw = Array.from({ length: nc }, () => rr(1, 5)), cs = cRaw.reduce((a, b) => a + b, 0), comps = [];
+    for (let h = 0; h < nc; h++) {
+      const raw = Array.from({ length: m }, () => (r() < 0.4 ? 0 : rr(1, 5))); if (raw.every(v => !v)) raw[rr(0, m - 1)] = 1;
+      const tot = raw.reduce((a, b) => a + b, 0) + (r() < 0.3 ? rr(1, 3) : 0), edges = [];
+      for (let i = 0; i < m; i++) {
+        const row = Array.from({ length: m }, (_, j) => (i === j || r() < 0.5 ? 0 : rr(1, 4)));
+        const rs = row.reduce((a, b) => a + b, 0) + (r() < 0.3 ? rr(1, 2) : 0);
+        row.forEach((v, j) => { if (v) edges.push([i, j, `${v}/${rs}`]); });
+      }
+      comps.push({ w: raw.map(v => `${v}/${tot}`), edges });
+    }
+    const nodes = Array.from({ length: m }, (_, i) => [`H${i + 1}`, i * 120, (i % 2) * 120]);
+    cases.push({ name: `random ${t + 1} (m = ${m}, ${nc} components)`, o: withP(C.entangledJSON({ note: '', nodes, c: cRaw.map(v => `${v}/${cs}`), comps })) });
+  }
+  return cases.map(c => { const G = toG(c.o); return { name: c.name, G, m: G.nodes.length, n: G.ent.comps.length, r: C.exportGraphicalMCP(G) }; });
+}
+check('Entangled graphicalMCP export: graph_generate_weights() for each component, combined with c_weights and compared with the Sketchpad table when m <= 8, none when m > 8; m defined once, before it is used; no $ or @ (templates, both generators, 20 random graphs)', () => {
+  const code = x => x.replace(/^\s*#.*$/gm, '');
+  for (const c of entangledExportCases()) {
+    const r = code(c.r), uses = (r.match(/graph_generate_weights/g) || []).length, mDefs = (r.match(/^m <- /gm) || []).length;
+    if (/\$|@/.test(r)) return `${c.name}: a field name with $ or @`;
+    if (c.m > 8) { if (uses || mDefs) return `${c.name}: comparison written for m = ${c.m}`; continue; }
+    const list = Array.from({ length: c.n }, (_, k) => `graph_${k + 1}`).join(', ');
+    if (uses !== 1 || !r.includes(`gw <- lapply(list(${list}), graph_generate_weights)`)) return `${c.name}: graph_generate_weights call`;
+    if (mDefs !== 1 || !r.includes(`\nm <- ${c.m}\n`)) return `${c.name}: m defined ${mDefs} times`;
+    if (!r.includes('max(abs(gw_table - sketchpad_weights))')) return `${c.name}: no comparison line`;
+    const at = s => r.indexOf(s);
+    if (!(at('sketchpad_weights <- matrix') < at('\nm <- ') && at('\nm <- ') < at('gw <- ') && (at('in_set <- ') < 0 || at('gw_table <- ') < at('in_set <- ')))) return `${c.name}: order of the parts`;
+    if (c.G.nodes.every(n => n.p) !== at('rejected <- ') > 0) return `${c.name}: closed test by hand`;
+  }
+  if (/graph_generate_weights/.test(C.exportGraphicalMCP(toG(C.templateJSON('parallel'))))) return 'an ordinary graph mentions graph_generate_weights';
+  return true;
+});
+/* With Rscript and graphicalMCP installed the exports run in R; otherwise the check passes with a note in its name. */
+const gmcpInstalled = haveR && (() => { try { return cp.execSync('Rscript -e "cat(requireNamespace(\'graphicalMCP\', quietly = TRUE))"', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).includes('TRUE'); } catch (e) { return false; } })();
+check('Entangled graphicalMCP export runs in R and graph_generate_weights() matches the Sketchpad table to 1e-10 in every case with m <= 8 (needs Rscript and graphicalMCP)', () => {
+  if (!gmcpInstalled) return true;
+  const path = require('path'), dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mgs-ent-')), cases = entangledExportCases();
+  cases.forEach((c, i) => fs.writeFileSync(path.join(dir, `case${i}.R`), c.r));
+  const runner = path.join(dir, 'run.R');
+  fs.writeFileSync(runner, `suppressMessages(library(graphicalMCP))\nfor (i in 0:${cases.length - 1}) {\n  e <- new.env()\n  res <- tryCatch({ sys.source(file.path("${dir.replace(/\\/g, '/')}", paste0("case", i, ".R")), envir = e); if (exists("gw_table", envir = e, inherits = FALSE)) sprintf("%.3g %s", max(abs(e$gw_table - e$sketchpad_weights)), all(e$gw_table[, 1:e$m] == e$sketchpad_weights[, 1:e$m])) else "none" }, error = function(err) paste("ERROR", conditionMessage(err)))\n  cat("CASE", i, res, "\\n")\n}\n`);
+  let out;
+  try { out = cp.execSync(`Rscript "${runner}"`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 600000 }); }
+  catch (e) { return 'R failed: ' + (e.stderr || e.stdout || String(e)).slice(-400); }
+  const lines = out.split('\n').filter(l => l.startsWith('CASE '));
+  if (lines.length !== cases.length) return `${lines.length} results for ${cases.length} cases: ${out.slice(-300)}`;
+  for (const l of lines) {
+    const [, i, a, b] = l.trim().split(/\s+/), c = cases[+i];
+    if (a === 'ERROR') return `${c.name}: ${l}`;
+    if (c.m > 8) { if (a !== 'none') return `${c.name}: compared for m = ${c.m}`; continue; }
+    if (!(Number(a) <= 1e-10) || b !== 'TRUE') return `${c.name}: max difference ${a}, same rows ${b}`;
+  }
   return true;
 });
 
