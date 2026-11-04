@@ -3796,12 +3796,17 @@ window.addEventListener('hashchange', () => {
 /* Refit when the canvas gets wider or narrower (window resized, phone turned), unless the user has moved the view.
    From 1.4.4 also refit, even after a zoom or pan, when the page switches between the wide layout and the narrow one
    (900px): the drawing changes shape completely, and a kept zoom left the graph under the hint box or outside the drawing
-   (release check 29, and a tablet turned from landscape to portrait). Within one layout a moved view is kept, as before. */
-let lastCanvasW = 0, lastNarrowLayout = narrowLayout();
+   (release check 29, and a tablet turned from landscape to portrait). Within one layout a moved view is kept, as before.
+   From 1.4.5, in presentation mode also refit when the screen turns between upright and sideways, even after a drag:
+   that mode has no Fit button, and on a real iPhone a drag sideways left the graph at its sideways size once turned
+   upright. A resize that does not turn the screen keeps a moved view, and design mode is as in 1.4.4. */
+const portraitView = () => window.matchMedia('(orientation: portrait)').matches;
+let lastCanvasW = 0, lastNarrowLayout = narrowLayout(), lastPortrait = portraitView();
 new ResizeObserver(() => {
   const w = Math.round(svg.getBoundingClientRect().width), nl = narrowLayout(), switched = nl !== lastNarrowLayout;
-  if (lastCanvasW && ((autoFit && Math.abs(w - lastCanvasW) > 2) || switched)) fitView(); else applyView();
-  lastCanvasW = w; lastNarrowLayout = nl;
+  const pv = portraitView(), turned = presenting && pv !== lastPortrait;
+  if (lastCanvasW && ((autoFit && Math.abs(w - lastCanvasW) > 2) || switched || turned)) fitView(); else applyView();
+  lastCanvasW = w; lastNarrowLayout = nl; lastPortrait = pv;
 }).observe(svg);
 /* Presentation mode in the narrow layout (1.4.4): a longer caption makes the bar taller, so refit unless the presenter has zoomed */
 let lastBarH = 0;

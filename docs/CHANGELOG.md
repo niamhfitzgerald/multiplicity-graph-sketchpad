@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.5 (2026-11-04)
+
+One fix, found on a real iPhone in the 1.4.4 checks.
+
+- Presentation mode: turning a phone or tablet between upright and sideways refits the graph, even after it has been moved. Up to 1.4.4 a drag on the drawing (easy to make by mistake while scrolling the page) stopped every later refit, and presentation mode has no Fit button. So a graph moved while the phone was sideways stayed at its sideways size once the phone was turned upright. A resize that does not turn the screen keeps a moved view, and design mode is unchanged.
+- User guide: the phone section says how to scroll the page past the drawing, and that turning the phone refits the graph in presentation mode.
+- Tests: one new browser check, which fails on the 1.4.4 page. Browser suite: 56. Self-tests: 131. Engine stress suite: 46.
+
 ## 1.4.4 (2026-11-04)
 
 Phones and tablets. Eight fixes from the touch and phone plan of 4 November 2026 and the 1.4.3 release checks. With a mouse on a desktop the page behaves and reads as in 1.4.3, apart from fixes 4 and 5, which also mend desktop faults.

@@ -1,6 +1,6 @@
 # Multiplicity Graph Sketchpad User Guide
 
-Niamh Fitzgerald · version 1.4.4
+Niamh Fitzgerald · version 1.4.5
 
 The Sketchpad draws, tests and explains graphical multiple testing procedures (Bretz et al., 2009) in the browser. Nothing you enter leaves your computer. This guide covers how to use the Sketchpad.
 
@@ -23,7 +23,7 @@ Start from a template or from an empty canvas. The template picker in the toolba
 - **Bend an arrow:** drag its weight label, or use the curvature slider in the Graph panel.
 - **Remove:** select, then press Delete. Undo and redo with the arrow buttons or Ctrl+Z and Ctrl+Y.
 - **Matrix tab:** edit the weight vector and transition matrix as numbers. It stays in step with the canvas.
-- **Fit:** the Fit button fits the whole graph in view. The view also refits by itself when the window changes width, unless you have zoomed or moved it. It always refits when the side panel moves below the drawing or back, for example when you turn a tablet. On a phone the graph is fitted below the hint box.
+- **Fit:** the Fit button fits the whole graph in view. The view also refits by itself when the window changes width, unless you have zoomed or moved it. It always refits when the side panel moves below the drawing or back, for example when you turn a tablet. In presentation mode it also always refits when you turn a phone or tablet. On a phone the graph is fitted below the hint box.
 - **Description and group:** each hypothesis has optional fields such as "dose 1, primary endpoint" and "primary". They feed the plain-language text, the SAP text and the group bands on the canvas.
 
 Alpha is set in the toolbar (default 0.025). Next to it, say whether your p-values are one-sided or two-sided; the SAP text repeats the choice, and the parametric test accepts one-sided p-values only.
@@ -150,7 +150,8 @@ Every export can be downloaded or copied.
 - **Add and connect:** double-tap empty space to add a hypothesis. Tap a hypothesis to select it, then drag its blue dot onto another one, or tap the dot and then the target.
 - **Test:** in Test mode, tap a hypothesis to reject it (or claim it, with Plain language ticked).
 - **Zoom:** pinching does not zoom the drawing. Use +, − and Fit.
-- **Present:** the caption sits above the Next, Back, Reset and Exit buttons, and the graph is fitted above them. It works upright and sideways.
+- **Scroll the page:** start with your finger outside the drawing. A finger on the drawing moves the graph; Fit puts it back.
+- **Present:** the caption sits above the Next, Back, Reset and Exit buttons, and the graph is fitted above them. It works upright and sideways. Turning the phone fits the graph again, even if you have moved it.
 - **More menu:** if it is taller than the screen, scroll inside it.
 - **Downloads:** files go to Downloads (on an iPhone or iPad, the Files app). A note under the button says so. If nothing was saved, press Copy, or touch and hold the picture to save it. A browser inside a mail or chat app may not save files at all; open the page in Safari or Chrome instead.
 - **Help:** the hint and the Help dialog speak of taps on a touch screen.

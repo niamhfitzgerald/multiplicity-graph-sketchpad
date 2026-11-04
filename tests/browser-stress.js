@@ -1844,6 +1844,52 @@ async function step(name, fn) {
     if (out) return out;
   });
 
+  /* 1.4.5: presentation mode refits when the phone turns, even after a drag. In 1.4.4 a drag on empty drawing switched
+     the refit off, and presentation mode has no Fit button, so on a real iPhone a drag sideways left the graph at its
+     sideways size once the phone was turned upright. A resize that does not turn the screen keeps a moved view, and so
+     does design mode, as in 1.4.4. */
+  await step('Presentation mode, phone turned (1.4.5): after a drag the graph refits when the screen turns either way and the bar covers no hypothesis; a moved view is still kept on a resize that does not turn the screen, and in design mode', async () => {
+    let out = '';
+    const UP = { width: 390, height: 664 }, SIDE = { width: 750, height: 342 };
+    const state = p => p.evaluate(() => {
+      const bar = $('presentBar').getBoundingClientRect();
+      const nodes = [...document.querySelectorAll('#canvas [data-node] .node-body')].map(e => e.getBoundingClientRect());
+      const covered = presenting ? nodes.filter(n => Math.min(n.bottom, bar.bottom) - Math.max(n.top, bar.top) > 0 && Math.min(n.right, bar.right) - Math.max(n.left, bar.left) > 0).length : 0;
+      return { k: view.k, cx: view.cx, cy: view.cy, autoFit, covered };
+    });
+    const drag = async p => { /* a drag on empty drawing near its top left corner */
+      const s = await p.$eval('#canvas', e => { const r = e.getBoundingClientRect(); return { x: r.left + 30, y: r.top + 30 }; });
+      await p.mouse.move(s.x, s.y); await p.mouse.down(); await p.mouse.move(s.x + 12, s.y + 30, { steps: 6 }); await p.mouse.up();
+      await p.waitForTimeout(200);
+      return (await state(p)).autoFit === false;
+    };
+    const present = async p => { await p.click('#presentBtn'); await p.waitForTimeout(400); };
+    const fitted = async vp => { const { c, p } = await page144({ viewport: vp }); await present(p); const s = await state(p); await c.close(); return s; };
+    const near = (a, b) => Math.abs(a.k - b.k) < 0.005 && Math.abs(a.cx - b.cx) < 1 && Math.abs(a.cy - b.cy) < 1;
+    const fit = { up: await fitted(UP), side: await fitted(SIDE) };
+    for (const [from, to, want, name] of [[SIDE, UP, fit.up, 'Sideways to upright'], [UP, SIDE, fit.side, 'Upright to sideways']]) {
+      const { c, p } = await page144({ viewport: from });
+      await present(p);
+      if (!(await drag(p))) out += `${name}: the drag did not switch the refit off. `;
+      await p.setViewportSize(to); await p.waitForTimeout(500);
+      const s = await state(p);
+      if (!near(s, want)) out += `${name} after a drag: zoom ${s.k.toFixed(3)}, centre (${s.cx.toFixed(1)}, ${s.cy.toFixed(1)}); fitted ${want.k.toFixed(3)}, (${want.cx.toFixed(1)}, ${want.cy.toFixed(1)}). `;
+      if (s.covered) out += `${name}: ${s.covered} hypotheses under the bar. `;
+      await c.close();
+    }
+    for (const [mode, from, to] of [['Presentation mode, 390 x 664 to 420 x 700', UP, { width: 420, height: 700 }], ['Design mode, upright to sideways', UP, SIDE]]) {
+      const { c, p } = await page144({ viewport: from });
+      if (mode.startsWith('Presentation')) await present(p);
+      if (!(await drag(p))) out += `${mode}: the drag did not switch the refit off. `;
+      const a = await state(p);
+      await p.setViewportSize(to); await p.waitForTimeout(500);
+      const b2 = await state(p);
+      if (!near(a, b2) || b2.autoFit) out += `${mode} after a drag: the view changed (zoom ${a.k.toFixed(3)} to ${b2.k.toFixed(3)}). `;
+      await c.close();
+    }
+    if (out) return out;
+  });
+
   for (const r of results) console.log((r.ok ? 'PASS ' : 'FAIL ') + r.name + ` (${r.ms} ms)` + (r.ok ? '' : '\n      ' + r.detail));
   console.log(`\n${results.length - fails}/${results.length} browser checks passed`);
   console.log('page errors:', errors.length ? errors : 'none');
