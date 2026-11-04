@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.4.4 (2026-11-04)
+
+Phones and tablets. Eight fixes from the touch and phone plan of 4 November 2026 and the 1.4.3 release checks. With a mouse on a desktop the page behaves and reads as in 1.4.3, apart from fixes 4 and 5, which also mend desktop faults.
+
+- Presentation mode on a phone: below 640 px wide the caption has its own row above Back, Next, Reset and Exit. Up to 1.4.3 it shared one row with them, got about 20 px of width on an iPhone, and the bar grew taller than the drawing and hid every hypothesis. When the side panel sits below the drawing (below 900 px), presentation mode now uses the full screen height and fits the graph above the bar, upright or sideways. The desktop view is unchanged.
+- Finger taps: with a finger or a pen, a tap may wander 10 px before it counts as a drag (4 px before), and the two taps of a double-tap may land 30 px apart (9 px before). Up to 1.4.3 a small wobble moved a hypothesis in Test mode instead of claiming it, and nudged the drawing on empty space. A mouse keeps 4 px and 9 px.
+- More menu on a phone: the menu stays on the screen and scrolls inside itself. Up to 1.4.3 it ran off the left edge, so its Plain language box could not be tapped, and off the bottom, where About and Clear graph sat at or below the edge of an iPhone screen. On a desktop the menu is as before.
+- Refit: the drawing refits whenever the side panel moves below it or back (a window narrowed past 900 px, or a tablet turned), even after a zoom. Up to 1.4.3 a zoom stopped every later refit, so after narrowing the window the hint box could cover the graph (release check 29). Within one layout a zoom is still kept.
+- Compare tab: the "Compare A with (B)" box is as wide as the side panel. Up to 1.4.3 it was as wide as its longest entry, a template name of 111 characters, and the tab scrolled sideways on a desktop, a tablet and a phone.
+- Downloads: a downloaded file stays available for a minute (5 seconds before), since Safari on an iPhone or iPad asks first and reads the file only after the tap. On a touch screen, a note under the button says where the file goes and what to do if nothing was saved. If a download fails, a note says so on any device. A desktop download shows no note.
+- Touch screens: the hint, "How to edit", the What-if line, the Help dialog, the presentation caption, the start panel on an empty canvas and the PNG note say "tap", "double-tap" and "touch and hold" instead of "click", "double-click" and "right-click". Hypothesis labels are never changed. Hover styles apply only where the device can hover, so a tapped button or hypothesis no longer keeps its hover look. With a mouse both are as before.
+- Safe area: the page no longer asks to run under an iPhone's notch and home bar, so Safari keeps it clear of them.
+- Tests: eight new browser checks, one per fix, each failing on the page without its fix. One existing check changed on purpose: the phone-width check of 1.1.5 now keeps a zoom on a resize within the narrow layout (390 to 600 px), since a resize from 390 to 1400 px now refits. Browser suite: 55. Self-tests: 131. Engine stress suite: 46.
+
 ## 1.4.3 (2026-11-03)
 
 Two changes. An edit of the in-app notes that 1.4.2 did not cover, with a fuller Export entry in the Help dialog. Two sentences on the Compare tab in the clinician view, with a browser check that keeps them right. The edit of the notes keeps their meaning, references and numbers.

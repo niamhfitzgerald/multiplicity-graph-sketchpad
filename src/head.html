@@ -58,14 +58,17 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .brand svg { flex: none; }
 .brand .titles { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
 .brand .byline { font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; text-decoration: none; }
-.brand a.byline:hover, .brand a.byline:focus-visible { text-decoration: underline; }
+/* Hover styles apply only where the main input can hover (1.4.4). On a touch screen a tapped button or hypothesis kept its
+   hover look until the next tap; in What if mode the last tapped hypothesis kept a coloured outline. */
+.brand a.byline:focus-visible { text-decoration: underline; }
+@media (hover: hover) { .brand a.byline:hover { text-decoration: underline; } }
 a.ext { color: var(--accent); text-decoration: underline; }
 .group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .btn { min-height: 36px; padding: 0 12px; border: 1px solid var(--line-strong); background: var(--surface); border-radius: 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.btn:hover:not(:disabled) { background: var(--surface-2); }
+@media (hover: hover) { .btn:hover:not(:disabled) { background: var(--surface-2); } }
 .btn:disabled { opacity: .45; cursor: default; }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-.btn.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
+@media (hover: hover) { .btn.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); } }
 .btn.danger { color: var(--err); border-color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, var(--line)); }
 .btn.small { min-height: 30px; padding: 0 9px; font-size: 14px; }
 .btn.icon { width: 36px; padding: 0; justify-content: center; }
@@ -140,9 +143,10 @@ body.present .comp-bar, .comp-bar[hidden] { display: none; }
 .node { cursor: grab; }
 .node-body { fill: var(--node); stroke: var(--node-stroke); stroke-width: 2; transition: fill .4s, stroke .4s; }
 .node-ring { fill: none; stroke: transparent; stroke-width: 13; cursor: crosshair; }
-.design .node:hover .node-ring { stroke: var(--accent-soft); }
+@media (hover: hover) { .design .node:hover .node-ring { stroke: var(--accent-soft); } }
 .handle { fill: var(--accent); stroke: var(--canvas); stroke-width: 2; opacity: 0; cursor: crosshair; transition: opacity .15s; }
-.design .node:hover .handle, .design .node.sel .handle, .design .node:focus-visible .handle { opacity: 1; }
+.design .node.sel .handle, .design .node:focus-visible .handle { opacity: 1; }
+@media (hover: hover) { .design .node:hover .handle { opacity: 1; } }
 .test .node-ring, .test .handle { display: none; }
 .node.sel .node-body { stroke: var(--accent); stroke-width: 3.2; }
 .node:focus-visible { outline: none; }
@@ -176,9 +180,9 @@ body.present .comp-bar, .comp-bar[hidden] { display: none; }
 .ncap.lvl { font-weight: 700; fill: var(--ink); font-size: 13.5px; }
 .ncap.ok { fill: var(--ok); font-weight: 700; }
 .linking .node { cursor: pointer; }
-.linking .node:hover .node-body { stroke: var(--accent); stroke-width: 4; }
+@media (hover: hover) { .linking .node:hover .node-body { stroke: var(--accent); stroke-width: 4; } }
 .linking .handle { opacity: 0 !important; }
-.manual .node:not(.rejected):hover .node-body { stroke: var(--flow); stroke-width: 3; }
+@media (hover: hover) { .manual .node:not(.rejected):hover .node-body { stroke: var(--flow); stroke-width: 3; } }
 .badge circle { fill: var(--err); }
 .badge text { fill: var(--surface); font-size: 12px; font-weight: 700; text-anchor: middle; }
 .temp-link { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 4; fill: none; }
@@ -258,7 +262,7 @@ table.mx .lock:disabled { opacity: .55; cursor: default; }
 footer { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; color: var(--muted); font-size: 13px; padding-bottom: 2px; }
 footer .lock { display: inline-flex; gap: 6px; align-items: center; }
 .ghost { border: 0; background: none; color: var(--muted); opacity: .55; cursor: pointer; font-size: 12px; padding: 2px 4px; margin-left: auto; }
-.ghost:hover { opacity: 1; }
+@media (hover: hover) { .ghost:hover { opacity: 1; } }
 
 .cmp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .cmp-grid > div { min-width: 0; }
@@ -285,7 +289,7 @@ footer .lock { display: inline-flex; gap: 6px; align-items: center; }
 .menu-field { display: grid; gap: 4px; font-size: 14px; color: var(--muted); padding: 4px 0; }
 .menu-field .sel { max-width: none; color: var(--ink); }
 .menu-item { text-align: left; border: 0; background: none; padding: 8px 6px; border-radius: 6px; cursor: pointer; min-height: 38px; }
-.menu-item:hover { background: var(--surface-2); }
+@media (hover: hover) { .menu-item:hover { background: var(--surface-2); } }
 .menu-item.danger { color: var(--err); }
 .menu-confirm { border: 1px solid var(--err); background: var(--err-soft); border-radius: 8px; padding: 10px; display: grid; gap: 8px; font-size: 14px; }
 .menu-confirm p { margin: 0; }
@@ -297,7 +301,7 @@ footer .lock { display: inline-flex; gap: 6px; align-items: center; }
 .canvas-hint.test { background: var(--accent-soft); border-color: var(--accent); }
 .hint-ic { flex: none; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 700; display: inline-grid; place-items: center; font-style: italic; font-family: Georgia, serif; margin-top: 1px; }
 .hint-x { flex: none; border: 0; background: none; cursor: pointer; font-size: 18px; line-height: 1; padding: 0 6px; color: var(--muted); border-radius: 4px; min-height: 24px; }
-.hint-x:hover { background: var(--surface-2); color: var(--ink); }
+@media (hover: hover) { .hint-x:hover { background: var(--surface-2); color: var(--ink); } }
 .starter { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; overflow-y: auto; pointer-events: none; }
 .starter-box { pointer-events: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; width: min(640px, 100%); display: grid; gap: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.08); }
 .starter-box h2 { margin: 0; font-size: 19px; }
@@ -311,7 +315,7 @@ footer .lock { display: inline-flex; gap: 6px; align-items: center; }
 .starter-weights .row-actions { flex-wrap: nowrap; }
 .starter-weights .txt { flex: 1 1 auto; min-width: 0; font-family: var(--f-mono); }
 .start-card { display: grid; gap: 4px; text-align: left; border: 1px solid var(--line-strong); background: var(--canvas); border-radius: 10px; padding: 10px; cursor: pointer; }
-.start-card:hover { border-color: var(--accent); background: var(--accent-soft); }
+@media (hover: hover) { .start-card:hover { border-color: var(--accent); background: var(--accent-soft); } }
 .start-card svg { width: 100%; height: 58px; }
 .start-card b { font-size: 14.5px; }
 .start-card span { font-size: 13px; color: var(--muted); }
@@ -342,7 +346,7 @@ table.t td.num, table.t th.num { text-align: right; }
 .arrange-pop { width: 300px; }
 .shape-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .shape-btn { display: grid; justify-items: center; gap: 2px; border: 1px solid var(--line-strong); background: var(--canvas); border-radius: 8px; padding: 6px 4px; cursor: pointer; font-size: 13px; }
-.shape-btn:hover { border-color: var(--accent); background: var(--accent-soft); }
+@media (hover: hover) { .shape-btn:hover { border-color: var(--accent); background: var(--accent-soft); } }
 .shape-btn svg { width: 64px; height: 34px; }
 .shape-btn circle { fill: var(--node); stroke: var(--edge); stroke-width: 1.4; }
 .swatches { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -391,6 +395,20 @@ table.t td:first-child { white-space: nowrap; }
   .panel { max-height: none; }
   .brand .sub { display: none; }
   .tabs button { font-size: 12.5px; padding: 0 2px; }
+}
+/* Presentation mode in the narrow layout (1.4.4): the drawing fills the screen, since the toolbar and panel are hidden.
+   The graph is fitted into the space above the bar (fitView). vh first for Safari before 15.4, which has no dvh. */
+@media (max-width: 900px) {
+  body.present .canvas-wrap { height: calc(100vh - 16px); height: calc(100dvh - 16px); min-height: 0; }
+  .present-bar { max-height: calc(100% - 20px); overflow-y: auto; }
+}
+/* Presentation mode on a phone (1.4.4): the caption gets its own row above the four buttons. Up to 1.4.3 it shared one
+   row with them and got about 20 px of width, so the bar grew taller than the drawing. */
+@media (max-width: 640px) {
+  .present-bar { flex-wrap: wrap; gap: 6px; padding: 8px; }
+  .present-caption { order: -1; flex: 1 0 100%; padding: 0 2px; min-height: 4.5em; }
+  .present-bar .btn { flex: 1 1 0; min-width: 0; padding: 0 6px; }
+  .present-bar .btn:last-child { margin-left: 0; }
 }
 /* iPhone Safari zooms the page in when a text box smaller than 16px gets focus; touch screens get 16px boxes */
 @media (pointer: coarse) {

@@ -900,7 +900,7 @@ async function step(name, fn) {
     await ev(s => { const o = JSON.parse(s.sim); SIM.rho = o.rho; SIM.useMatrix = o.useMatrix; SIM.corr = o.corr; loadGraph(JSON.parse(s.g)); G.sided = s.sided; G.alpha = s.alpha; setPlain(s.pl, true); setTab('graph'); renderAll(); }, saved);
   });
 
-  await step('Phone-width layout: no horizontal overflow, tabs and toolbar usable at 390px; the hint box does not cover the graph; a zoomed view is kept on resize', async () => {
+  await step('Phone-width layout: no horizontal overflow, tabs and toolbar usable at 390px; the hint box does not cover the graph; a zoomed view is kept on a resize within one layout', async () => {
     await page.setViewportSize({ width: 390, height: 800 }); await sleep(400);
     const over = await ev(() => document.documentElement.scrollWidth - window.innerWidth);
     if (over > 2) return 'horizontal overflow ' + over + 'px';
@@ -920,11 +920,14 @@ async function step(name, fn) {
     await ev(() => setMode('test')); await sleep(300);
     o = await overlap(); if (o > 0) return 'in test mode, the hint covers a hypothesis by ' + Math.round(o) + 'px';
     await ev(() => setMode('design')); await sleep(200);
-    /* a view the user has zoomed is kept when the window changes width */
+    /* a view the user has zoomed is kept when the window changes width within one layout. From 1.4.4 a switch between
+       the narrow and wide layouts (900px) refits instead; the 1.4.4 layout-switch check covers that. Up to 1.4.3 this
+       step resized from 390 to 1400 wide and expected the zoom kept. */
     await page.click('#zoomIn'); await sleep(100);
     const k1 = await ev(() => view.k);
+    await page.setViewportSize({ width: 600, height: 800 }); await sleep(300);
+    if (Math.abs((await ev(() => view.k)) - k1) > 1e-9) return 'zoomed view was refitted on a resize within the narrow layout';
     await page.setViewportSize({ width: 1400, height: 900 }); await sleep(300);
-    if (Math.abs((await ev(() => view.k)) - k1) > 1e-9) return 'zoomed view was refitted on resize';
     await ev(s => { loadGraph(JSON.parse(s)); }, saved); await sleep(100);
   });
 
@@ -1453,6 +1456,391 @@ async function step(name, fn) {
       }
       await c.close();
     }
+    if (out) return out;
+  });
+
+  /* 1.4.4: touch screens and phones. A fresh page at a given size, with options such as hasTouch. */
+  const page144 = async (opts) => {
+    const c = await b.newContext(Object.assign({ viewport: { width: 1400, height: 900 } }, opts)); c.setDefaultTimeout(8000);
+    const p = await c.newPage();
+    p.on('pageerror', e => errors.push('1.4.4 pageerror: ' + e.message));
+    await p.goto(FILE); await p.waitForTimeout(700);
+    return { c, p };
+  };
+
+  /* 1.4.4 fix 1: presentation mode on a phone. Up to 1.4.3 the caption shared one row with the four buttons, got about
+     20 px of width at 390 px, and the bar grew taller than the drawing and hid every hypothesis. Example graph, both
+     views, every step to the end and after Reset. On a desktop the view and the bar are as in 1.4.3. */
+  await step('Presentation mode on a phone (1.4.4): the bar covers no hypothesis and stays on screen at every step, the caption has a row of its own below 640 px, and the desktop view is as in 1.4.3', async () => {
+    let out = '';
+    const states = async (p) => {
+      const snap = () => p.evaluate(() => {
+        const bar = $('presentBar').getBoundingClientRect(), cap = $('presentCaption').getBoundingClientRect();
+        const nodes = [...document.querySelectorAll('#canvas [data-node] .node-body')].map(e => e.getBoundingClientRect());
+        const covered = nodes.filter(n => Math.min(n.bottom, bar.bottom) - Math.max(n.top, bar.top) > 0 && Math.min(n.right, bar.right) - Math.max(n.left, bar.left) > 0).length;
+        return { covered, barTop: bar.top, barBottom: bar.bottom, barH: bar.height, capW: cap.width, capTop: cap.top - bar.top, vh: innerHeight, k: view.k, cx: view.cx, cy: view.cy, caption: $('presentCaption').textContent.slice(0, 40) };
+      });
+      const got = [await snap()];
+      for (let i = 0; i < 10; i++) {
+        await p.waitForFunction(() => !animating, null, { timeout: 8000 });
+        const more = await p.evaluate(() => { const nb = document.querySelector('[data-action="pres-next"]'); if (nb.disabled) return false; nb.click(); return true; });
+        if (!more) break;
+        await p.waitForTimeout(150); await p.waitForFunction(() => !animating, null, { timeout: 8000 }); await p.waitForTimeout(150);
+        got.push(await snap());
+      }
+      await p.evaluate(() => document.querySelector('[data-action="pres-reset"]').click()); await p.waitForTimeout(500); got.push(await snap());
+      return got;
+    };
+    for (const [w, h, minCap] of [[390, 664, 300], [320, 568, 250], [750, 342, 0]]) {
+      for (const on of [false, true]) {
+        const { c, p } = await page144({ viewport: { width: w, height: h } });
+        if (on) { await p.evaluate(() => setPlain(true)); await p.waitForTimeout(100); }
+        await p.evaluate(() => enterPresent()); await p.waitForTimeout(400);
+        const got = await states(p);
+        await c.close();
+        got.forEach((s, i) => {
+          const at = `${w} x ${h}, Plain language ${on ? 'on' : 'off'}, state ${i} ("${s.caption}")`;
+          if (s.covered) out += `${at}: the bar covers ${s.covered} hypotheses. `;
+          if (s.barTop < -0.5 || s.barBottom > s.vh + 0.5) out += `${at}: the bar runs off the screen (${Math.round(s.barTop)} to ${Math.round(s.barBottom)} of ${s.vh}). `;
+          if (s.capTop < -0.5) out += `${at}: the caption starts above the bar. `;
+          if (s.capW < minCap) out += `${at}: the caption is ${Math.round(s.capW)} px wide. `;
+        });
+        if (got.length < 6 || !/^(Stopped|Finished)/.test(got[got.length - 2].caption)) out += `${w} x ${h}, Plain language ${on ? 'on' : 'off'}: did not reach the end (${got.length - 2} steps, last caption "${got[got.length - 2].caption}"). `;
+      }
+    }
+    { /* a caption that grows after the fit: the graph is fitted again, so the taller bar still covers no hypothesis */
+      const { c, p } = await page144({ viewport: { width: 390, height: 664 } });
+      await p.evaluate(() => enterPresent()); await p.waitForTimeout(400);
+      await p.evaluate(() => { $('presentCaption').textContent = 'A much longer caption than usual. '.repeat(12); }); await p.waitForTimeout(400);
+      const r = await p.evaluate(() => { const bar = $('presentBar').getBoundingClientRect(); const nodes = [...document.querySelectorAll('#canvas [data-node] .node-body')].map(e => e.getBoundingClientRect()); return { barH: Math.round(bar.height), covered: nodes.filter(n => Math.min(n.bottom, bar.bottom) - Math.max(n.top, bar.top) > 0 && Math.min(n.right, bar.right) - Math.max(n.left, bar.left) > 0).length }; });
+      if (r.covered) out += `390 x 664, a longer caption (bar ${r.barH} px): the bar covers ${r.covered} hypotheses, so the graph was not fitted again. `;
+      await c.close();
+    }
+    /* the desktop and a tablet in landscape keep the 1.4.3 view: k = 1.35, centre (140, 102.5), a one-row bar */
+    for (const [w, h] of [[1400, 900], [1024, 768]]) {
+      const { c, p } = await page144({ viewport: { width: w, height: h } });
+      await p.evaluate(() => enterPresent()); await p.waitForTimeout(400);
+      const got = await states(p);
+      await c.close();
+      got.forEach((s, i) => {
+        if (Math.abs(s.k - 1.35) > 1e-9 || Math.abs(s.cx - 140) > 1e-9 || Math.abs(s.cy - 102.5) > 1e-9 || s.barH > 66.5 || s.covered) out += `${w} x ${h}, state ${i}: k ${s.k}, centre (${s.cx}, ${s.cy}), bar ${s.barH} px, ${s.covered} covered; 1.4.3 had k 1.35, (140, 102.5), at most 66 px. `;
+      });
+    }
+    if (out) return out;
+  });
+
+  /* 1.4.4 fix 2: finger taps. Real touch events through Chromium's DevTools protocol, so the page gets pointer events
+     with pointerType "touch". Up to 1.4.3 a wobble of 4 px made a tap a drag, and the taps of a double-tap had to land
+     within 9 px. A mouse keeps both limits. */
+  await step('Finger taps (1.4.4): a tap that wobbles 6 px claims H1 in Test mode and leaves it in place; two taps 20 px apart add a hypothesis, 60 px apart do not; an 8 px wobble on empty space leaves the view alone; a 20 px drag still moves; a mouse keeps 4 px and 9 px', async () => {
+    let out = '';
+    const touch = async (cdp, pts) => {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: pts[0][0], y: pts[0][1] }] });
+      for (const q of pts.slice(1)) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: q[0], y: q[1] }] });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    };
+    const empty = p => p.evaluate(() => { const r = svg.getBoundingClientRect(); for (let y = r.bottom - 40; y > r.top + 120; y -= 15) for (let x = r.left + 30; x < r.right - 30; x += 15) { const e = document.elementFromPoint(x, y); if (e === svg || e === $('gridRect')) return [x, y]; } return null; });
+    const centre = (p, i) => p.evaluate(i => { const r = document.querySelector(`#canvas [data-node="${G.nodes[i].id}"] .node-body`).getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, i);
+    const phone = { viewport: { width: 390, height: 664 }, hasTouch: true, isMobile: true };
+    { /* Test mode: a tap with a 6 px wobble claims H1 (p = 0.004) */
+      const { c, p } = await page144(phone); const cdp = await c.newCDPSession(p);
+      await p.evaluate(() => setMode('test')); await p.waitForTimeout(500);
+      const [x, y] = await centre(p, 0), at = await p.evaluate(() => [G.nodes[0].x, G.nodes[0].y]);
+      await touch(cdp, [[x, y], [x + 3, y + 2], [x + 6, y + 1]]);
+      await p.waitForFunction(() => !animating, null, { timeout: 8000 }); await p.waitForTimeout(100);
+      const r = await p.evaluate(at => ({ claimed: T.rejected.has(G.nodes[0].id), moved: G.nodes[0].x !== at[0] || G.nodes[0].y !== at[1] }), at);
+      if (!r.claimed || r.moved) out += `Test mode, a tap on H1 with a 6 px wobble: ${r.claimed ? 'claimed' : 'not claimed'}, ${r.moved ? 'moved' : 'not moved'}. `;
+      await c.close();
+    }
+    for (const [gap, want] of [[20, 1], [60, 0]]) { /* double-tap on empty space */
+      const { c, p } = await page144(phone); const cdp = await c.newCDPSession(p);
+      const [x, y] = await empty(p), n0 = await p.evaluate(() => G.nodes.length);
+      await touch(cdp, [[x, y]]); await p.waitForTimeout(120); await touch(cdp, [[x + gap, y]]); await p.waitForTimeout(250);
+      const added = await p.evaluate(n0 => G.nodes.length - n0, n0);
+      if (added !== want) out += `Two taps ${gap} px apart on empty space added ${added} hypotheses, not ${want}. `;
+      await c.close();
+    }
+    { /* an 8 px wobble on empty space: no pan, the refit stays on */
+      const { c, p } = await page144(phone); const cdp = await c.newCDPSession(p);
+      const [x, y] = await empty(p), v0 = await p.evaluate(() => JSON.stringify(view));
+      await touch(cdp, [[x, y], [x + 4, y + 3], [x + 8, y]]); await p.waitForTimeout(200);
+      const r = await p.evaluate(v0 => ({ same: JSON.stringify(view) === v0, autoFit }), v0);
+      if (!r.same || !r.autoFit) out += `A tap on empty space with an 8 px wobble ${r.same ? '' : 'moved the view'}${!r.same && !r.autoFit ? ' and ' : ''}${r.autoFit ? '' : 'switched off the refit'}. `;
+      await c.close();
+    }
+    { /* a 20 px finger drag still moves H1 in Design mode */
+      const { c, p } = await page144(phone); const cdp = await c.newCDPSession(p);
+      const [x, y] = await centre(p, 0), at = await p.evaluate(() => [G.nodes[0].x, G.nodes[0].y]);
+      await touch(cdp, [[x, y], [x + 10, y], [x + 20, y]]); await p.waitForTimeout(200);
+      if (!(await p.evaluate(at => G.nodes[0].x !== at[0], at))) out += 'A 20 px finger drag did not move H1. ';
+      await c.close();
+    }
+    { /* a mouse: 5 px still moves H1; two clicks 12 px apart are two clicks; a double-click adds a hypothesis */
+      const { c, p } = await page144({ viewport: { width: 1400, height: 900 } });
+      const [x, y] = await centre(p, 0), at = await p.evaluate(() => [G.nodes[0].x, G.nodes[0].y]);
+      await p.mouse.move(x, y); await p.mouse.down(); await p.mouse.move(x + 5, y, { steps: 2 }); await p.mouse.up(); await p.waitForTimeout(150);
+      if (!(await p.evaluate(at => G.nodes[0].x !== at[0], at))) out += 'Mouse: a 5 px drag did not move H1. ';
+      const [ex, ey] = await empty(p), n0 = await p.evaluate(() => G.nodes.length);
+      await p.mouse.click(ex, ey); await p.waitForTimeout(80); await p.mouse.click(ex + 12, ey); await p.waitForTimeout(250);
+      if (await p.evaluate(n0 => G.nodes.length !== n0, n0)) out += 'Mouse: two clicks 12 px apart added a hypothesis. ';
+      await p.waitForTimeout(500); await p.mouse.dblclick(ex, ey); await p.waitForTimeout(250);
+      if (await p.evaluate(n0 => G.nodes.length !== n0 + 1, n0)) out += 'Mouse: a double-click did not add a hypothesis. ';
+      await c.close();
+    }
+    if (out) return out;
+  });
+
+  /* 1.4.4 fix 3: the More menu on a phone. Up to 1.4.3 the flipped menu ran off the left edge, so its Plain language box
+     could not be reached; at 390 x 664 About sat 2 px from the bottom edge and Clear graph below it; at 320 x 568 all
+     three buttons were below the screen. The menu now stays on screen and scrolls inside. */
+  await step('More menu on a phone (1.4.4): the menu stays on screen on all four sides, its Plain language box can be tapped, every button can be scrolled into view inside it, a tap on About opens it, and Clear graph shows its question on screen; on a desktop the menu has no scroll bar and no inline position', async () => {
+    let out = '';
+    for (const [w, h] of [[390, 664], [320, 568]]) {
+      for (const on of [false, true]) {
+        const at = `${w} x ${h}, Plain language ${on ? 'on' : 'off'}`;
+        const { c, p } = await page144({ viewport: { width: w, height: h }, hasTouch: true, isMobile: true });
+        if (on) { await p.evaluate(() => setPlain(true)); await p.waitForTimeout(100); }
+        await p.tap('#moreMenu > summary'); await p.waitForTimeout(200);
+        const r = await p.evaluate(() => {
+          const pop = document.querySelector('#moreMenu .menu-pop'), pr = pop.getBoundingClientRect(), vh = innerHeight;
+          const box = $('plainMenuToggle').getBoundingClientRect(), boxHit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+          const btns = ['selftestBtn', 'aboutBtn', 'clearBtn'].map(id => {
+            const el = $(id); el.scrollIntoView({ block: 'nearest' });
+            const b = el.getBoundingClientRect(), hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+            return { id, ok: b.top >= pop.getBoundingClientRect().top - 0.5 && b.bottom <= vh - 6 && (hit === el || el.contains(hit)) };
+          });
+          return { open: $('moreMenu').open, popBottom: pr.bottom, popLeft: pr.left, popRight: pr.right, vw: innerWidth, vh, btns, plainBox: boxHit === $('plainMenuToggle') };
+        });
+        if (!r.open) out += `${at}: the menu did not open. `;
+        if (r.popBottom > r.vh + 0.5) out += `${at}: the menu runs ${Math.round(r.popBottom - r.vh)} px below the screen. `;
+        if (r.popLeft < -0.5 || r.popRight > r.vw + 0.5) out += `${at}: the menu runs off the side (${Math.round(r.popLeft)} to ${Math.round(r.popRight)} of ${r.vw}). `;
+        if (!r.plainBox) out += `${at}: the menu's Plain language box cannot be tapped. `;
+        r.btns.filter(x => !x.ok).forEach(x => { out += `${at}: ${x.id} cannot be brought into view. `; });
+        await p.tap('#aboutBtn'); await p.waitForTimeout(250);
+        if (!(await p.evaluate(() => !$('modal').hidden && /About/.test($('modalTitle').textContent)))) out += `${at}: a tap on About did not open it. `;
+        await p.evaluate(() => closeModal()); await p.waitForTimeout(100);
+        await p.tap('#moreMenu > summary'); await p.waitForTimeout(200);
+        await p.evaluate(() => $('clearBtn').scrollIntoView({ block: 'nearest' }));
+        await p.tap('#clearBtn'); await p.waitForTimeout(200);
+        const q = await p.evaluate(() => { const b = $('clearYes').getBoundingClientRect(); return !$('clearConfirm').hidden && b.top >= 0 && b.bottom <= innerHeight - 6; });
+        if (!q) out += `${at}: Clear graph's question is not on screen. `;
+        await c.close();
+      }
+    }
+    { /* a phone turned with the menu open: the menu is placed again and stays on the screen */
+      const { c, p } = await page144({ viewport: { width: 390, height: 664 }, hasTouch: true, isMobile: true });
+      await p.tap('#moreMenu > summary'); await p.waitForTimeout(200);
+      await p.setViewportSize({ width: 664, height: 390 }); await p.waitForTimeout(400);
+      const r = await p.evaluate(() => { const pr = document.querySelector('#moreMenu .menu-pop').getBoundingClientRect(); return { open: $('moreMenu').open, bottom: pr.bottom, left: pr.left, right: pr.right, vw: innerWidth, vh: innerHeight }; });
+      if (r.open && (r.bottom > r.vh + 0.5 || r.left < -0.5 || r.right > r.vw + 0.5)) out += `Phone turned with the menu open: the menu runs off the screen (${Math.round(r.left)}-${Math.round(r.right)} of ${r.vw}, bottom ${Math.round(r.bottom)} of ${r.vh}). `;
+      await c.close();
+    }
+    /* a desktop with a mouse, including short windows: no inline style, no scroll bar inside the menu, flipped as in 1.4.3 */
+    for (const [w, h, on, clear] of [[1400, 900, false, false], [1400, 900, true, false], [1366, 638, false, true], [1400, 500, false, false], [1400, 500, true, true]]) {
+      const { c, p } = await page144({ viewport: { width: w, height: h } });
+      if (on) { await p.evaluate(() => setPlain(true)); await p.waitForTimeout(100); }
+      await p.click('#moreMenu > summary'); await p.waitForTimeout(200);
+      if (clear) { await p.click('#clearBtn'); await p.waitForTimeout(150); }
+      const r = await p.evaluate(() => { const pop = document.querySelector('#moreMenu .menu-pop'); return { style: pop.getAttribute('style') || '', scroll: pop.scrollHeight > pop.clientHeight + 1, flip: pop.classList.contains('flip') }; });
+      if (r.style || r.scroll || !r.flip) out += `${w} x ${h}, Plain language ${on ? 'on' : 'off'}${clear ? ', Clear graph pressed' : ''}: the menu has ${r.style ? 'the inline style "' + r.style + '"' : ''}${r.scroll ? ' a scroll bar' : ''}${r.flip ? '' : ' lost its flip'}. `;
+      await c.close();
+    }
+    if (out) return out;
+  });
+
+  /* 1.4.4 fix 4: refit when the layout switches. Up to 1.4.3, after one wheel step the zoom was kept when the window
+     went from 1400 to 850 px wide, and the hint box covered 2 items while 3 sat outside the drawing (release check 29).
+     Within one layout a zoomed view is still kept. */
+  await step('Layout switch (1.4.4): after a zoom, going from the wide layout to the narrow one (and back, and a tablet turned) refits the graph clear of the hint box and inside the drawing; within one layout the zoom is kept', async () => {
+    let out = '';
+    const look = p => p.evaluate(() => {
+      const h = $('hintChip'), hr = h && !h.hidden ? h.getBoundingClientRect() : null, s = svg.getBoundingClientRect();
+      const items = [...document.querySelectorAll('#canvas [data-node] .node-body, #canvas .elabel rect')].map(e => e.getBoundingClientRect());
+      const under = hr ? items.filter(n => Math.min(n.bottom, hr.bottom) - Math.max(n.top, hr.top) > 0 && Math.min(n.right, hr.right) - Math.max(n.left, hr.left) > 0).length : 0;
+      const outside = items.filter(n => n.left < s.left || n.right > s.right || n.top < s.top || n.bottom > s.bottom).length;
+      return { under, outside, k: view.k, autoFit };
+    });
+    const wheel = async p => { const r = await p.evaluate(() => { const b = svg.getBoundingClientRect(); return [b.left + b.width / 2, b.bottom - 30]; }); await p.mouse.move(r[0], r[1]); await p.mouse.wheel(0, -100); await p.waitForTimeout(200); };
+    { /* wide to narrow after a zoom */
+      const { c, p } = await page144({ viewport: { width: 1400, height: 900 } });
+      await wheel(p);
+      await p.setViewportSize({ width: 850, height: 900 }); await p.waitForTimeout(500);
+      const r = await look(p);
+      if (r.under || r.outside || !r.autoFit) out += `1400 to 850 after a wheel step: ${r.under} under the hint, ${r.outside} outside the drawing, refit ${r.autoFit ? 'on' : 'off'}. `;
+      await wheel(p); /* narrow to wide after a zoom */
+      await p.setViewportSize({ width: 1400, height: 900 }); await p.waitForTimeout(500);
+      const r2 = await look(p);
+      if (r2.under || r2.outside || !r2.autoFit) out += `850 to 1400 after a wheel step: ${r2.under} under the hint, ${r2.outside} outside the drawing, refit ${r2.autoFit ? 'on' : 'off'}. `;
+      await c.close();
+    }
+    { /* within the wide layout the zoom is kept */
+      const { c, p } = await page144({ viewport: { width: 1400, height: 900 } });
+      await wheel(p);
+      const k0 = await p.evaluate(() => view.k);
+      await p.setViewportSize({ width: 1200, height: 900 }); await p.waitForTimeout(500);
+      const r = await look(p);
+      if (Math.abs(r.k - k0) > 1e-9 || r.autoFit) out += `1400 to 1200 after a wheel step: zoom ${k0} became ${r.k}, refit ${r.autoFit ? 'on' : 'off'} (should be kept). `;
+      await c.close();
+    }
+    { /* a tablet turned from landscape to portrait after a zoom with the + button */
+      const { c, p } = await page144({ viewport: { width: 1024, height: 768 }, hasTouch: true, isMobile: true });
+      await p.tap('#zoomIn'); await p.waitForTimeout(200);
+      await p.setViewportSize({ width: 768, height: 1024 }); await p.waitForTimeout(500);
+      const r = await look(p);
+      if (r.under || r.outside || !r.autoFit) out += `Tablet turned 1024 to 768 after a zoom: ${r.under} under the hint, ${r.outside} outside the drawing, refit ${r.autoFit ? 'on' : 'off'}. `;
+      await c.close();
+    }
+    if (out) return out;
+  });
+
+  /* 1.4.4 fix 5: the Compare box. Up to 1.4.3 it was as wide as its longest entry, an entangled template name of 111
+     characters (797 px in Chromium), so the Compare tab scrolled sideways on a desktop, a tablet and a phone. */
+  await step('Compare box (1.4.4): the "Compare A with (B)" box ends inside the side panel and the Compare tab does not scroll sideways, before and after the longest entry is chosen as B, at 1400 x 900, 1024 x 768 and 390 x 664', async () => {
+    let out = '';
+    for (const [w, h] of [[1400, 900], [1024, 768], [390, 664]]) {
+      const { c, p } = await page144({ viewport: { width: w, height: h } });
+      await p.evaluate(() => setTab('compare')); await p.waitForTimeout(250);
+      const look = () => p.evaluate(() => { const box = $('cmpWith').getBoundingClientRect(), panel = document.querySelector('.panel').getBoundingClientRect(), tp = $('tab-compare'); return { over: Math.round(box.right - panel.right), side: tp.scrollWidth - tp.clientWidth }; });
+      const before = await look();
+      const long = await p.evaluate(() => [...$('cmpWith').options].sort((a, b) => b.text.length - a.text.length)[0].value);
+      await p.selectOption('#cmpWith', long); await p.waitForTimeout(600);
+      const after = await look(), chosen = await p.evaluate(v => CMP.with === v, long);
+      for (const [when, r] of [['before choosing', before], ['with the longest entry chosen', after]]) {
+        if (r.over > 0) out += `${w} x ${h}, ${when}: the box runs ${r.over} px past the panel. `;
+        if (r.side > 1) out += `${w} x ${h}, ${when}: the Compare tab scrolls ${r.side} px sideways. `;
+      }
+      if (!chosen) out += `${w} x ${h}: the longest entry could not be chosen as B. `;
+      await c.close();
+    }
+    if (out) return out;
+  });
+
+  /* 1.4.4 fix 6: downloads. Up to 1.4.3 the file's address was dropped after 5 seconds, though Safari on an iPhone reads
+     it only after the person taps Download, and a failed download said nothing. */
+  await step('Downloads (1.4.4): the file stays readable after 6 seconds; on a touch screen a note says where it went and what to do if nothing was saved; a failed download says so; a desktop download shows no note', async () => {
+    let out = '';
+    const watch = p => p.evaluate(() => { const make = URL.createObjectURL.bind(URL); window.__lastBlobUrl = ''; URL.createObjectURL = b => (window.__lastBlobUrl = make(b)); });
+    const note = p => p.evaluate(() => { const n = document.querySelector('#exportOut .dl-note'); return n ? n.textContent : ''; });
+    { /* touch: the JSON file and the PNG picture */
+      const { c, p } = await page144({ viewport: { width: 390, height: 664 }, hasTouch: true, isMobile: true, acceptDownloads: true });
+      await watch(p);
+      await p.evaluate(() => { setTab('export'); showExport('json'); }); await p.waitForTimeout(250);
+      const got = p.waitForEvent('download', { timeout: 5000 }).then(d => d.suggestedFilename(), () => '');
+      await p.tap('#exportOut [data-action="download"]');
+      if ((await got) !== 'multiplicity-graph.json') out += 'Touch: no download of multiplicity-graph.json. ';
+      const t = await note(p);
+      if (!/goes to Downloads \(on an iPhone or iPad, in the Files app\)\. If nothing was saved, use Copy instead\./.test(t)) out += `Touch, JSON: the note reads "${t}". `;
+      await p.waitForTimeout(6000);
+      if (!(await p.evaluate(async () => { try { return (await fetch(window.__lastBlobUrl)).ok; } catch (e) { return false; } }))) out += 'The file could not be read 6 seconds after Download (the address was dropped). ';
+      await p.evaluate(() => showExport('png')); await p.waitForTimeout(600);
+      const got2 = p.waitForEvent('download', { timeout: 5000 }).then(d => d.suggestedFilename(), () => '');
+      await p.tap('#exportOut [data-action="download-png"]');
+      if ((await got2) !== 'multiplicity-graph.png') out += 'Touch: no download of multiplicity-graph.png. ';
+      const t2 = await note(p);
+      if (!/If nothing was saved, touch and hold the picture to save it\./.test(t2)) out += `Touch, PNG: the note reads "${t2}". `;
+      await c.close();
+    }
+    { /* desktop: no note; a failed download says so */
+      const { c, p } = await page144({ viewport: { width: 1400, height: 900 }, acceptDownloads: true });
+      await p.evaluate(() => { setTab('export'); showExport('json'); }); await p.waitForTimeout(250);
+      const got = p.waitForEvent('download', { timeout: 5000 }).then(d => d.suggestedFilename(), () => '');
+      await p.click('#exportOut [data-action="download"]');
+      if ((await got) !== 'multiplicity-graph.json') out += 'Desktop: no download of multiplicity-graph.json. ';
+      const t = await note(p);
+      if (t) out += `Desktop: a note shows after Download ("${t}"). `;
+      await p.evaluate(() => { URL.createObjectURL = () => { throw new Error('blocked'); }; });
+      await p.click('#exportOut [data-action="download"]'); await p.waitForTimeout(150);
+      const t2 = await note(p);
+      if (t2 !== 'The file could not be saved here. Use Copy instead.') out += `Desktop, failed download: the note reads "${t2}". `;
+      await c.close();
+    }
+    if (out) return out;
+  });
+
+  /* 1.4.4 fix 7: touch words and hover styles. On a touch screen the hint, the Graph tab's "How to edit", the Test tab's
+     What-if line, the Help dialog, the presentation caption and the drawing's screen-reader label say tap, double-tap and
+     touch and hold; every hover style sits inside @media (hover: hover), which a touch screen does not match. With a
+     mouse the words are as in 1.4.3 and the hover styles apply. */
+  await step('Touch words and hover (1.4.4): on a touch screen the help says "tap" and "double-tap", never "click", hypothesis labels are left alone, and no hover style applies; with a mouse the words are as in 1.4.3 and the hover styles apply', async () => {
+    let out = '';
+    const texts = async p => {
+      const t = {};
+      t.hint = await p.evaluate(() => $('hintText').textContent);
+      await p.evaluate(() => setSel({ type: 'node', id: G.nodes[0].id })); await p.waitForTimeout(80);
+      t.hintNode = await p.evaluate(() => $('hintText').textContent);
+      await p.evaluate(() => setSel(null));
+      t.howto = await p.evaluate(() => { const d = $('det-howto'); return d ? d.textContent : ''; });
+      t.aria = await p.evaluate(() => svg.getAttribute('aria-label'));
+      await p.evaluate(() => $('helpBtn').click()); await p.waitForTimeout(150);
+      t.help = await p.evaluate(() => $('modal').textContent); await p.evaluate(() => closeModal());
+      await p.evaluate(() => { setWhatIf(true); setTab('test'); }); await p.waitForTimeout(200);
+      t.whatif = await p.evaluate(() => $('tab-test').textContent.match(/(Click|Tap) any [^.]*\./) ? $('tab-test').textContent.match(/(Click|Tap) any [^.]*\./)[0] : '');
+      t.whatifHint = await p.evaluate(() => $('hintText').textContent);
+      await p.evaluate(() => { setWhatIf(false); setMode('design'); enterPresent(); }); await p.waitForTimeout(300);
+      t.caption = await p.evaluate(() => $('presentCaption').textContent);
+      await p.evaluate(() => exitPresent());
+      return t;
+    };
+    const starter = async (p, want, who) => {
+      await p.evaluate(() => { setMode('design'); G = { nodes: [], edges: [], diag: {}, alpha: G.alpha, sided: G.sided, note: '', test: defaultTest() }; sel = null; afterChange(); }); await p.waitForTimeout(200);
+      const st = await p.evaluate(() => $('starter').hidden ? '(hidden)' : document.querySelector('#starter .starter-box > p.muted').textContent);
+      return want.test(st) ? '' : `${who}, starter box: "${st}". `;
+    };
+    const hoverRules = p => p.evaluate(() => {
+      const bad = [], all = [];
+      const walk = (rules, media) => { for (const r of rules) { if (r.cssRules && r.conditionText !== undefined) walk(r.cssRules, r.conditionText); else if (r.selectorText && /:hover/.test(r.selectorText)) { all.push(r.selectorText); if (media !== '(hover: hover)') bad.push(r.selectorText); } } };
+      for (const s of document.styleSheets) { try { walk(s.cssRules, ''); } catch (e) { /* ignore */ } }
+      return { bad, n: all.length, hover: matchMedia('(hover: hover)').matches };
+    });
+    { /* touch */
+      const { c, p } = await page144({ viewport: { width: 390, height: 664 }, hasTouch: true, isMobile: true });
+      const t = await texts(p);
+      for (const [k, v] of Object.entries(t)) if (/click/i.test(v)) out += `Touch, ${k}: "${(v.match(/.{0,40}click.{0,20}/i) || [''])[0]}". `;
+      if (!/^Double-tap empty space to add a hypothesis;/.test(t.hint)) out += `Touch, hint: "${t.hint.slice(0, 60)}". `;
+      if (!/\(or tap the dot, then the target\)\. Double-tap to rename/.test(t.hintNode)) out += `Touch, hint with H1 selected: "${t.hintNode.slice(0, 120)}". `;
+      if (!/double-tap empty space, or use \+ Hypothesis/.test(t.howto)) out += 'Touch: "How to edit" lacks "double-tap empty space". ';
+      if (!/double-tap empty space to add a hypothesis/.test(t.help) || !/one-tap fix/.test(t.help)) out += 'Touch: the Help dialog lacks its tap words. ';
+      if (!/^Tap any hypothesis on the canvas/.test(t.whatif)) out += `Touch, What if line: "${t.whatif}". `;
+      if (!/press Next, or tap one\.$/.test(t.caption)) out += `Touch, presentation caption: "${t.caption}". `;
+      if (t.aria !== 'Graph drawing area. Double-tap to add a hypothesis.') out += `Touch, drawing label: "${t.aria}". `;
+      const h = await hoverRules(p);
+      if (h.hover) out += 'Touch: (hover: hover) matches. ';
+      if (h.bad.length || h.n < 12) out += `Hover rules outside (hover: hover): ${h.bad.join(', ') || 'none'}; ${h.n} hover rules found. `;
+      /* a hypothesis label is never changed, and the starter box on an empty canvas says double-tap */
+      await p.evaluate(() => { setMode('design'); G.nodes[0].label = 'click rate'; renderAll(); startLinking(G.nodes[0].id); }); await p.waitForTimeout(100);
+      const link = await p.evaluate(() => $('hintText').textContent);
+      if (link !== 'Tap the hypothesis that click rate should pass weight to. Press Esc to cancel.') out += `Touch, linking hint: "${link}". `;
+      await p.evaluate(() => { linking = null; overlay.innerHTML = ''; enterPresent(); }); await p.waitForTimeout(300);
+      const cap = await p.evaluate(() => $('presentCaption').textContent);
+      if (!/click rate and H2 can be rejected now: press Next, or tap one\.$/.test(cap)) out += `Touch, caption with a label: "${cap}". `;
+      await p.evaluate(() => exitPresent()); await p.waitForTimeout(100);
+      out += await starter(p, /or double-tap anywhere on the canvas/, 'Touch');
+      await c.close();
+    }
+    { /* mouse: the 1.4.3 words */
+      const { c, p } = await page144({ viewport: { width: 1400, height: 900 } });
+      const t = await texts(p);
+      if (t.hint !== 'Double-click empty space to add a hypothesis; drag the blue dot to connect two. Press Test to see what gets rejected.') out += `Mouse, hint: "${t.hint}". `;
+      if (!/\(or click the dot, then the target\)\. Double-click to rename/.test(t.hintNode)) out += 'Mouse: the hint with H1 selected changed. ';
+      if (!/double-click empty space, or use \+ Hypothesis/.test(t.howto) || !/one-click fix/.test(t.help)) out += 'Mouse: "How to edit" or Help changed. ';
+      if (!/^Click any hypothesis on the canvas/.test(t.whatif) || !/press Next, or click one\.$/.test(t.caption)) out += 'Mouse: the What if line or the caption changed. ';
+      if (t.aria !== 'Graph drawing area. Double-click to add a hypothesis.') out += `Mouse, drawing label: "${t.aria}". `;
+      if (!(await hoverRules(p)).hover) out += 'Mouse: (hover: hover) does not match. ';
+      out += await starter(p, /or double-click anywhere on the canvas/, 'Mouse');
+      await c.close();
+    }
+    if (out) return out;
+  });
+
+  /* 1.4.4 fix 8: the page no longer asks to run under an iPhone's notch and home bar (viewport-fit=cover), so Safari keeps
+     it inside the safe area. Nothing in the CSS uses the safe-area insets, which a page with cover would need. */
+  await step('Safe area (1.4.4): the viewport tag is "width=device-width, initial-scale=1" with no viewport-fit, and no CSS relies on the safe-area insets', async () => {
+    const { c, p } = await page144({ viewport: { width: 390, height: 664 }, hasTouch: true, isMobile: true });
+    const r = await p.evaluate(() => ({ vp: (document.querySelector('meta[name="viewport"]') || {}).content || '', css: [...document.querySelectorAll('style')].some(s => /safe-area-inset/.test(s.textContent)) }));
+    await c.close();
+    let out = '';
+    if (r.vp !== 'width=device-width, initial-scale=1') out += `The viewport tag reads "${r.vp}". `;
+    if (r.css) out += 'The CSS uses safe-area insets, which only work with viewport-fit=cover. ';
     if (out) return out;
   });
 

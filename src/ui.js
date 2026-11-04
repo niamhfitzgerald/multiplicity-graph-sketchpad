@@ -22,6 +22,18 @@ let activeTab = 'graph';
 let view = { cx: 0, cy: 0, k: 1 };
 let autoFit = true; /* true until the user pans or zooms; then a resize keeps their view */
 const narrowScreen = () => window.matchMedia('(max-width: 640px)').matches;
+/* the narrow layout: the side panel below the drawing (the 900px rule in the CSS) */
+const narrowLayout = () => window.matchMedia('(max-width: 900px)').matches;
+/* a touch screen as the main input (an iPad with a trackpad counts too) */
+const touchScreen = () => window.matchMedia('(pointer: coarse)').matches;
+/* On a touch screen the help speaks of taps (1.4.4), in the Apple Style Guide's terms: tap, double-tap, touch and hold.
+   With a mouse the text is unchanged. */
+function touchWords(t) {
+  if (!touchScreen()) return t;
+  return t.replace(/Right-click \(or long-press\)/g, 'Touch and hold').replace(/right-click/g, 'touch and hold')
+    .replace(/Double-click/g, 'Double-tap').replace(/double-click/g, 'double-tap')
+    .replace(/\bClick\b/g, 'Tap').replace(/\bclicking\b/g, 'tapping').replace(/\bclick\b/g, 'tap');
+}
 let drag = null;
 let linking = null;
 let inline = null;
@@ -278,8 +290,12 @@ function fitView() {
   let top = 0;
   const chip = $('hintChip');
   if (narrowScreen() && chip && !chip.hidden && !presenting) top = Math.max(0, Math.min(H * 0.5, chip.getBoundingClientRect().bottom - svg.getBoundingClientRect().top + 6));
-  view.k = Math.max(0.3, Math.min(W / (maxX - minX), (H - top) / (maxY - minY), 1.35));
-  view.cx = (minX + maxX) / 2; view.cy = (minY + maxY) / 2 - top / (2 * view.k);
+  /* Presentation mode in the narrow layout (1.4.4): fit the graph into the space above the bar, so the bar covers no hypothesis */
+  let bottom = 0;
+  const bar = $('presentBar');
+  if (presenting && narrowLayout() && bar && !bar.hidden) bottom = Math.max(0, Math.min(H * 0.6, svg.getBoundingClientRect().bottom - bar.getBoundingClientRect().top + 6));
+  view.k = Math.max(0.3, Math.min(W / (maxX - minX), (H - top - bottom) / (maxY - minY), 1.35));
+  view.cx = (minX + maxX) / 2; view.cy = (minY + maxY) / 2 - top / (2 * view.k) + bottom / (2 * view.k);
   autoFit = true;
   applyView();
 }
@@ -456,25 +472,26 @@ function renderCanvas() {
   }
 }
 function hintText() {
-  if (linking) { const n = nodeById(linking.from); return `Click the hypothesis that ${n ? n.label : 'it'} should pass weight to. Press Esc to cancel.`; }
+  /* touchWords goes on the Sketchpad's own sentences only, so a hypothesis label such as "click rate" is never changed (1.4.4) */
+  if (linking) { const n = nodeById(linking.from); return `${touchWords('Click')} the hypothesis that ${n ? n.label : 'it'} should pass weight to. Press Esc to cancel.`; }
   if (designMessage && mode !== 'test') return designMessage;
   if (mode === 'test') {
     if (T && T.message) return T.message;
     if (T && T.closed) return `Closed test (${TEST_TYPES[testType()]}): rejected hypotheses are greyed out. Reset or Back to Design to change anything.`;
     if (!isBonf() && !manual) return `${TEST_TYPES[testType()]} test: press Run test in the Test panel. Step-by-step rejection applies to the Bonferroni test only.`;
     const pl = plainWords();
-    if (manual) return pl ? 'What if mode: click any question to suppose it succeeds and watch where its share goes. No p-values needed.' : 'What if mode: click any hypothesis to reject it and watch where its alpha goes. No p-values needed.';
+    if (manual) return touchWords(pl ? 'What if mode: click any question to suppose it succeeds and watch where its share goes. No p-values needed.' : 'What if mode: click any hypothesis to reject it and watch where its alpha goes. No p-values needed.');
     if (T && (T.done || !T.st.ids.length)) return 'Test finished. Step back or Reset to try a different order; the final result is always the same.';
     if (T && !rejectableIds(T.st, pOf, G.alpha).length) return pl ? 'No question can be claimed yet. Enter p-values in the Test panel, or switch on What if mode.' : 'No hypothesis can be rejected yet. Enter p-values in the Test panel, or switch on What if mode.';
-    return pl ? 'Questions outlined in green can be claimed now. Click one to claim it, in any order, or press Run test.' : 'Hypotheses outlined in green can be rejected now. Click one to reject it, in any order, or press Run test.';
+    return touchWords(pl ? 'Questions outlined in green can be claimed now. Click one to claim it, in any order, or press Run test.' : 'Hypotheses outlined in green can be rejected now. Click one to reject it, in any order, or press Run test.');
   }
   if (!hints || !G.nodes.length) return '';
   if (inAllView()) return `All ${G.ent.comps.length} component graphs shown together, with the weights listed by component at each hypothesis. Pick a graph in the bar above to edit its weights and transitions.`;
   if (inline) return 'Type a number such as 0.5 or 1/2, then press Enter. Esc cancels.';
-  if (sel && sel.type === 'node') return 'Drag the blue dot onto another hypothesis to add a transition (or click the dot, then the target). Double-click to rename or change the weight.';
-  if (sel && sel.type === 'edge') return 'Click the weight label again to change it. Drag the label to bend the arrow. Delete removes it.';
-  if (plain) return G.nodes.some(n => n.p) ? `Double-click empty space to add a question; drag the blue dot to connect two. Press Test to see what gets ${plainWords() ? 'claimed' : 'rejected'}.` : 'Double-click empty space to add a question; drag the blue dot to connect two. Then enter p-values in the Test tab.';
-  return G.nodes.some(n => n.p) ? 'Double-click empty space to add a hypothesis; drag the blue dot to connect two. Press Test to see what gets rejected.' : 'Double-click empty space to add a hypothesis; drag the blue dot to connect two. Then enter p-values in the Test tab.';
+  if (sel && sel.type === 'node') return touchWords('Drag the blue dot onto another hypothesis to add a transition (or click the dot, then the target). Double-click to rename or change the weight.');
+  if (sel && sel.type === 'edge') return touchWords('Click the weight label again to change it. Drag the label to bend the arrow. Delete removes it.');
+  if (plain) return touchWords(G.nodes.some(n => n.p) ? `Double-click empty space to add a question; drag the blue dot to connect two. Press Test to see what gets ${plainWords() ? 'claimed' : 'rejected'}.` : 'Double-click empty space to add a question; drag the blue dot to connect two. Then enter p-values in the Test tab.');
+  return touchWords(G.nodes.some(n => n.p) ? 'Double-click empty space to add a hypothesis; drag the blue dot to connect two. Press Test to see what gets rejected.' : 'Double-click empty space to add a hypothesis; drag the blue dot to connect two. Then enter p-values in the Test tab.');
 }
 function updateHint() {
   const chip = $('hintChip');
@@ -684,9 +701,9 @@ function overviewPanel() {
   ${G.note ? `<p class="note">${esc(G.note)}</p>` : ''}
   ${plain && G.nodes.length ? `<div class="plain">${plainGraphText(G, plainName).map(t => `<p>${esc(t)}</p>`).join('')}</div>` : ''}
   ${G.nodes.length ? (plain ? `<table class="t"><thead><tr><th scope="col">Question</th><th scope="col">${ent ? 'Share at the start (all graphs)' : 'Share at the start'}</th><th scope="col">Hands on</th></tr></thead><tbody>${rows}</tbody></table>
-  <p class="small muted">${ent ? `In ${compName(G.ent.active)} the shares at the start add up to ${pctWords(Q.toNum(tot) * G.alpha)}` : Q.eq(tot, Q.ONE) ? `The shares at the start add up to ${pctWords(G.alpha)}, the whole allowance` : `The shares at the start add up to ${pctWords(Q.toNum(tot) * G.alpha)} of the ${pctWords(G.alpha)} allowance`}. Click a question to edit it.</p>`
+  <p class="small muted">${ent ? `In ${compName(G.ent.active)} the shares at the start add up to ${pctWords(Q.toNum(tot) * G.alpha)}` : Q.eq(tot, Q.ONE) ? `The shares at the start add up to ${pctWords(G.alpha)}, the whole allowance` : `The shares at the start add up to ${pctWords(Q.toNum(tot) * G.alpha)} of the ${pctWords(G.alpha)} allowance`}. ${touchWords('Click a question to edit it.')}</p>`
   : `<table class="t"><thead><tr><th scope="col">Hypothesis</th><th scope="col">Weight${ent ? ` in ${compName(G.ent.active)}` : ''}</th><th scope="col">${ent ? 'Level (all graphs)' : 'Level w&alpha;'}</th><th scope="col">Passed on</th></tr></thead><tbody>${rows}</tbody></table>
-  <p class="small muted">Total initial weight ${esc(fmt(tot))}${ent ? ` in ${compName(G.ent.active)}` : ''}, &alpha; = ${fmtNum(G.alpha)}. Click a hypothesis to edit it.</p>`) : `<p class="muted">Add a ${plain ? 'question' : 'hypothesis'} to get started.</p>`}
+  <p class="small muted">Total initial weight ${esc(fmt(tot))}${ent ? ` in ${compName(G.ent.active)}` : ''}, &alpha; = ${fmtNum(G.alpha)}. ${touchWords('Click a hypothesis to edit it.')}</p>`) : `<p class="muted">Add a ${plain ? 'question' : 'hypothesis'} to get started.</p>`}
   ${G.nodes.length > 1 && mode === 'design' ? `<div class="row-actions"><button class="btn small" data-action="equal-w">${plain ? 'Share the allowance equally' : 'Give every hypothesis equal weight'}</button></div>` : ''}
   ${varsSection()}
   ${entangledSection()}
@@ -695,7 +712,7 @@ function overviewPanel() {
     <p class="small"><b>Extract a subgraph</b> (gMCP subgraph): keep only the ticked hypotheses, with the transitions among them.</p>
     <div class="row-actions">${G.nodes.map(n => `<label class="chk"><input type="checkbox" data-keep="${n.id}" checked> ${esc(n.label)}</label>`).join('')}</div>
     <div class="row-actions"><button class="btn small" data-action="subgraph">Keep only ticked</button></div>`) : ''}
-  ${det('det-howto', 'How to edit', plain ? `<ul class="tips">
+  ${det('det-howto', 'How to edit', touchWords(plain ? `<ul class="tips">
     <li><b>Add a question:</b> double-click empty space, or use + Question.</li>
     <li><b>Add an arrow:</b> drag the blue dot (or the ring) of a question onto another, or click the dot and then the target. Type the fraction handed on and press Enter.</li>
     <li><b>Edit:</b> click a question or arrow to edit it here. Double-click a question to rename it or change its share on the drawing; click a selected label to change it.</li>
@@ -707,7 +724,7 @@ function overviewPanel() {
     <li><b>Edit:</b> click a hypothesis or arrow to edit it here. Double-click a hypothesis to rename or reweight it on the canvas. Click a selected weight label to change it.</li>
     <li><b>Bend an arrow:</b> drag its weight label.</li>
     <li><b>Remove:</b> select, then press <span class="kbd">Delete</span>. Undo with <span class="kbd">Ctrl</span> <span class="kbd">Z</span>.</li>
-  </ul>`)}`;
+  </ul>`))}`;
 }
 function varsSection() {
   const names = Object.keys(G.vars || {});
@@ -1506,7 +1523,7 @@ function renderTestPanel() {
       h += ctRunning ? `<p class="progress" id="ctProgress">Working out the closed test…</p>` : '';
     } else if (inTest) {
       h += `<div class="seg" role="group" aria-label="How hypotheses are rejected"><button data-action="mode-p" aria-pressed="${!manual}" ${busy ? 'disabled' : ''}>Use p-values</button><button data-action="mode-whatif" aria-pressed="${manual}" ${busy ? 'disabled' : ''}>What if (no p-values)</button></div>
-        <p class="small muted">${manual ? (pl ? 'Click any question on the drawing, or press "If it succeeds" below, to see where its share goes. p-values are ignored here.' : 'Click any hypothesis on the canvas, or Reject below, to see where its alpha goes. p-values are ignored.') : pl ? 'Questions outlined in green can be claimed now. Claim them in any order by clicking them, or let Run test choose.' : 'Hypotheses outlined in green can be rejected now. Reject them in any order by clicking them, or let Run test choose.'}</p>`;
+        <p class="small muted">${touchWords(manual ? (pl ? 'Click any question on the drawing, or press "If it succeeds" below, to see where its share goes. p-values are ignored here.' : 'Click any hypothesis on the canvas, or Reject below, to see where its alpha goes. p-values are ignored.') : pl ? 'Questions outlined in green can be claimed now. Claim them in any order by clicking them, or let Run test choose.' : 'Hypotheses outlined in green can be rejected now. Reject them in any order by clicking them, or let Run test choose.')}</p>`;
     }
     const rejectable = inTest && !manual && !errs && !T.closed && isBonf() ? new Set(rejectableIds(T.st, pOf, G.alpha)) : new Set();
     const rows = G.nodes.map(n => {
@@ -1706,7 +1723,7 @@ function renderPowerPanel() {
     }
     if (SIM.runs.length) {
       const labels = [...new Set(SIM.runs.flatMap(r => r.labels))];
-      h += det('det-runs', 'Compare runs', `<p class="small muted">Change the graph, run again and keep each result to compare designs side by side. Click a name to rename it.</p>
+      h += det('det-runs', 'Compare runs', `<p class="small muted">Change the graph, run again and keep each result to compare designs side by side. ${touchWords('Click a name to rename it.')}</p>
         <div class="mx-scroll"><table class="t"><thead><tr><th scope="col">Run</th>${labels.map(l => `<th scope="col" class="num">${esc(l)}</th>`).join('')}<th scope="col" class="num">Any</th><th scope="col" class="num">All</th><th scope="col" class="num">Success</th></tr></thead><tbody>${SIM.runs.map((r, k) => `<tr><td><input id="rn-${k}" data-runname="${k}" value="${esc(r.name)}" aria-label="Run name" style="min-width:6em"></td>${labels.map(l => { const i = r.labels.indexOf(l); return `<td class="num">${i < 0 ? '–' : r.power[i]}</td>`; }).join('')}<td class="num">${r.any}</td><td class="num">${r.all}</td><td class="num">${r.custom || '–'}</td></tr>`).join('')}</tbody></table></div>
         <div class="row-actions"><button class="btn small" data-action="sim-clear">Clear comparison</button></div>`, `${SIM.runs.length} kept`);
     }
@@ -2150,9 +2167,9 @@ function presentCaption() {
   }
   if (last) return plain && last.data ? plainStepText(last.data, G.alpha) : (last.stop ? last.text : last.text + (last.gave ? ' ' + last.gave : ''));
   const R = rejectableIds(T.st, pOf, G.alpha).map(id => nodeById(id).label);
-  if (manual) return pl ? 'What if mode: click any question to suppose it succeeds.' : 'What if mode: click any hypothesis to reject it.';
-  if (pl) return R.length ? `Each question is checked against its share. ${joinWords(R)} can be claimed now: press Next, or click one.` : 'No question can be claimed with these p-values.';
-  return R.length ? `Each hypothesis is tested at its level (weight × α). ${joinWords(R)} can be rejected now: press Next, or click one.` : 'No hypothesis can be rejected with these p-values.';
+  if (manual) return touchWords(pl ? 'What if mode: click any question to suppose it succeeds.' : 'What if mode: click any hypothesis to reject it.');
+  if (pl) return R.length ? `Each question is checked against its share. ${joinWords(R)} can be claimed now: ${touchWords('press Next, or click one.')}` : 'No question can be claimed with these p-values.';
+  return R.length ? `Each hypothesis is tested at its level (weight × α). ${joinWords(R)} can be rejected now: ${touchWords('press Next, or click one.')}` : 'No hypothesis can be rejected with these p-values.';
 }
 function updatePresentBar() {
   if (!presenting) return;
@@ -2343,6 +2360,21 @@ function dataUrlToBlob(u) {
   const bin = atob(b64);
   return new Blob([Uint8Array.from(bin, c => c.charCodeAt(0))], { type: head.slice(5).split(';')[0] });
 }
+/* After Download (1.4.4): on a touch screen, say where the file goes and what to do if nothing was saved, since a browser
+   inside another app (a mail or chat app) can drop a download without a word. If the download throws, a note shows on
+   any device; up to 1.4.3 nothing did. */
+function downloadNote(btn, failed) {
+  if (!btn || !(failed || touchScreen())) return;
+  const row = btn.closest('.row-actions') || btn.parentElement;
+  if (!row) return;
+  const pic = btn.dataset.action === 'download-png';
+  const other = pic ? (touchScreen() ? 'touch and hold the picture to save it.' : 'right-click the picture to save it.') : 'use Copy instead.';
+  const text = failed ? `The file could not be saved here. ${other[0].toUpperCase()}${other.slice(1)}`
+    : `On a phone or tablet the file goes to Downloads (on an iPhone or iPad, in the Files app). If nothing was saved, ${other}`;
+  let p = row.nextElementSibling;
+  if (!p || !p.classList.contains('dl-note')) { p = document.createElement('p'); p.className = 'small muted dl-note'; p.setAttribute('role', 'status'); row.after(p); }
+  p.textContent = text;
+}
 async function download(name, mime, data, btn) {
   if (dlCap) {
     try { await dlCap.save({ filename: name, data }); }
@@ -2354,8 +2386,11 @@ async function download(name, mime, data, btn) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
-  } catch (e) { /* blocked */ }
+    /* Safari on an iPhone or iPad asks before it downloads and reads the file only after the tap, so the file is kept
+       for a minute (1.4.4; it was 5 seconds, and a slower tap saved nothing) */
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    downloadNote(btn, false);
+  } catch (e) { downloadNote(btn, true); }
 }
 async function showExport(kind) {
   exportView = kind;
@@ -2375,7 +2410,7 @@ async function showExport(kind) {
       const url = await svgToPng(s);
       exportPayload = url;
       const dl = canDownload('x.png'), file = sbs ? 'multiplicity-graph-components.png' : 'multiplicity-graph.png';
-      out.innerHTML = `<h3>${sbs ? 'PNG picture: the component graphs side by side' : 'PNG picture'}</h3><p class="small muted">${sbs ? sbsDesc + ' ' : ''}Twice screen resolution, white background.${dl ? '' : ' Right-click (or long-press) the picture to save or copy it.'}</p>
+      out.innerHTML = `<h3>${sbs ? 'PNG picture: the component graphs side by side' : 'PNG picture'}</h3><p class="small muted">${sbs ? sbsDesc + ' ' : ''}Twice screen resolution, white background.${dl ? '' : ' ' + touchWords('Right-click (or long-press) the picture to save or copy it.')}</p>
         <img class="preview-img" id="pngPreview" alt="${sbs ? 'The component graphs side by side as a PNG picture' : 'The graph as a PNG picture'}" src="${url}">
         ${dl ? `<div class="row-actions"><button class="btn primary" data-action="download-png" data-file="${file}">Download ${file}</button></div>` : ''}`;
     } catch (err) { out.innerHTML = `<p class="err-text">✕ ${esc(err.message)}</p>`; }
@@ -2524,7 +2559,10 @@ function renderComparePanel() {
       <p class="small muted">A is the graph on the canvas. Keep a copy of it, change it, and compare the two. You can also compare it with a template or a pasted graph. ${plain ? 'Tests use the settings from the Test tab for both graphs.' : 'Tests and power use the settings from the Test and Power tabs for both graphs.'}</p>
       <div class="row-actions" style="align-items:center"><input class="txt" id="cmpKeepName" placeholder="Name for the current graph" style="flex:1;min-width:10em" value="${esc(CMP.keepName || '')}" aria-label="Name for the kept copy"><button class="btn small primary" data-action="cmp-keep" ${G.nodes.length ? '' : 'disabled'}>Keep a copy of A</button></div>`;
     if (KEPT.length) h += `<table class="t"><thead><tr><th scope="col">Kept graph</th><th scope="col">Hyp.</th><th scope="col">Kept on</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead><tbody>${KEPT.map((k, i) => `<tr><td><input id="cmp-name-${i}" data-cmp-name="${i}" value="${esc(k.name)}" aria-label="Name of kept graph"></td><td>${k.graph.nodes.length}</td><td class="small muted">${esc(k.when || '')}</td><td style="white-space:nowrap"><button class="btn small" data-action="cmp-load" data-i="${i}" title="Put this graph on the canvas (A); undo brings the current one back">Load as A</button> <button class="btn small" data-action="cmp-remove" data-i="${i}" aria-label="Remove ${esc(k.name)}">Remove</button></td></tr>`).join('')}</tbody></table>`;
-    h += `<div class="form"><label for="cmpWith" class="small"><b>Compare A with (B)</b><select class="sel" id="cmpWith" style="max-width:none"><option value="">Choose a graph…</option>${keptOpts ? `<optgroup label="Kept graphs">${keptOpts}</optgroup>` : ''}<optgroup label="Templates">${tplOpts}</optgroup><optgroup label="Entangled graphs">${Object.entries(ENTANGLED_TEMPLATES).map(([k, t]) => `<option value="tpl:ent:${k}" ${CMP.with === 'tpl:ent:' + k ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</optgroup><option value="paste" ${CMP.with === 'paste' ? 'selected' : ''}>A pasted share link, share code or saved file</option></select></label>
+    /* the box is as wide as the panel (1.4.4); up to 1.4.3 "max-width:none" let the longest entangled template
+       name push it to 912 px in a 390 px panel, so the tab scrolled sideways. "contain:paint" keeps a long chosen
+       name inside the box in WebKit (Safari), which otherwise still lets the tab scroll sideways. */
+    h += `<div class="form"><label for="cmpWith" class="small"><b>Compare A with (B)</b><select class="sel" id="cmpWith" style="width:100%;max-width:100%;contain:paint"><option value="">Choose a graph…</option>${keptOpts ? `<optgroup label="Kept graphs">${keptOpts}</optgroup>` : ''}<optgroup label="Templates">${tplOpts}</optgroup><optgroup label="Entangled graphs">${Object.entries(ENTANGLED_TEMPLATES).map(([k, t]) => `<option value="tpl:ent:${k}" ${CMP.with === 'tpl:ent:' + k ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</optgroup><option value="paste" ${CMP.with === 'paste' ? 'selected' : ''}>A pasted share link, share code or saved file</option></select></label>
       ${CMP.with === 'paste' ? `<textarea class="txt" id="cmpPaste" rows="3" placeholder="Paste a share link, share code or JSON" aria-label="Graph to compare with">${esc(CMP.pasted)}</textarea><div class="row-actions"><button class="btn small" data-action="cmp-use-paste">Use it</button></div>${CMP.pasteMsg ? `<p class="err-text">✕ ${esc(CMP.pasteMsg)}</p>` : ''}` : ''}
       <label class="small" for="cmpMatch">Match hypotheses <select class="sel" id="cmpMatch"><option value="label" ${CMP.matchBy === 'label' ? 'selected' : ''}>by label</option><option value="position" ${CMP.matchBy === 'position' ? 'selected' : ''}>by position</option></select></label></div>`;
     if (!T || !G.nodes.length) { el.innerHTML = h + (G.nodes.length ? '' : '<p class="muted">Add hypotheses to the canvas first.</p>'); return; }
@@ -2958,9 +2996,12 @@ svg.addEventListener('pointerdown', e => {
   else if (labEl) { kind = 'label'; id = labEl.dataset.elabel; }
   else if (edgeEl) { kind = 'edge'; id = edgeEl.dataset.edge; }
   const now = performance.now();
-  const isDouble = now - lastDown.time < 420 && Math.hypot(e.clientX - lastDown.x, e.clientY - lastDown.y) < 9 && lastDown.kind === kind && lastDown.id === id;
+  /* A finger wobbles more than a mouse (1.4.4). For touch and pen, a tap may wander 10 px before it counts as a drag, and
+     the two taps of a double-tap may land 30 px apart. A mouse keeps 4 px and 9 px. Android's defaults are 8 dp and 100 dp. */
+  const finger = e.pointerType === 'touch' || e.pointerType === 'pen';
+  const isDouble = now - lastDown.time < 420 && Math.hypot(e.clientX - lastDown.x, e.clientY - lastDown.y) < (finger ? 30 : 9) && lastDown.kind === kind && lastDown.id === id;
   lastDown = { time: isDouble ? 0 : now, x: e.clientX, y: e.clientY, kind, id };
-  const base = { sx: e.clientX, sy: e.clientY, start: p, moved: false, isDouble, kind, id };
+  const base = { sx: e.clientX, sy: e.clientY, start: p, moved: false, isDouble, kind, id, slop: finger ? 10 : 4 };
   if (animating && kind !== 'empty') return;
   if (kind === 'node') {
     const n = nodeById(id);
@@ -2988,7 +3029,7 @@ svg.addEventListener('pointermove', e => {
     return;
   }
   const p = toWorld(e);
-  if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 4) return;
+  if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < drag.slop) return;
   const first = !drag.moved;
   drag.moved = true;
   if (drag.type === 'move') {
@@ -3329,7 +3370,7 @@ $('tab-test').addEventListener('click', e => {
   else if (act === 'wit-hide') { wit = null; renderCanvas(); renderTestPanel(); }
   else if (act === 'wit-force') { witForce = true; renderTestPanel(); }
   else if (act === 'show-sums') { const d = $('det-sums'); if (d) { d.open = true; openDetails.add('det-sums'); d.scrollIntoView({ block: 'nearest', behavior: reduced() ? 'auto' : 'smooth' }); } }
-  else if (act === 'try-order') { T = newTest(); renderAll(); flashMessage('Now reject the green hypotheses in a different order by clicking them. The result will be the same.'); }
+  else if (act === 'try-order') { T = newTest(); renderAll(); flashMessage(touchWords('Now reject the green hypotheses in a different order by clicking them. The result will be the same.')); }
   else if (act === 'paste-p') {
     const msg = $('pasteMsg');
     try {
@@ -3531,17 +3572,39 @@ function applySkin(v) {
 }
 $('skinSelect').addEventListener('change', e => { applySkin(e.target.value); store.set('mgs-skin', e.target.value); });
 $('importBtn').addEventListener('click', () => { closeMenu(); openImport(); });
-$('clearBtn').addEventListener('click', () => { $('clearConfirm').hidden = false; $('clearNo').focus(); });
+$('clearBtn').addEventListener('click', () => { $('clearConfirm').hidden = false; if (fitMenuHeight()) $('clearConfirm').scrollIntoView({ block: 'nearest' }); $('clearNo').focus(); });
 $('clearNo').addEventListener('click', () => { $('clearConfirm').hidden = true; });
 $('clearYes').addEventListener('click', () => {
   checkpoint(); G = { nodes: [], edges: [], diag: {}, alpha: G.alpha, sided: G.sided, note: '', test: defaultTest() }; sel = null;
   closeMenu(); afterChange(); fitView();
 });
-$('moreMenu').addEventListener('toggle', () => {
-  if (!$('moreMenu').open) return;
-  const r = $('moreMenu').getBoundingClientRect();
-  document.querySelector('.menu-pop').classList.toggle('flip', r.left + 300 > window.innerWidth);
-});
+$('moreMenu').addEventListener('toggle', () => { if ($('moreMenu').open) fitMenuHeight(); });
+/* Place the More menu (1.4.4): flipped to end at the button's right edge when there is no room to the right, as before,
+   then kept on the screen. Up to 1.4.3 on a phone the flipped menu ran off the left edge (the Plain language box could
+   not be reached), and it ran off the bottom: on an iPhone 13 About sat 2 px from the bottom edge, where a tap brings up
+   Safari's toolbar, and on an iPhone SE it was below the screen. Now it is at most as wide as the screen, and at most as
+   tall as the space below its top, scrolling inside. Only on a touch screen or in the narrow layout: on a desktop with a
+   mouse the menu is placed as in 1.4.3, even in a short window. Returns true when it placed the menu. */
+function fitMenuHeight() {
+  const menu = $('moreMenu'), pop = menu.querySelector('.menu-pop');
+  pop.style.maxHeight = pop.style.overflowY = pop.style.left = pop.style.right = pop.style.width = '';
+  const r = menu.getBoundingClientRect();
+  pop.classList.toggle('flip', r.left + 300 > window.innerWidth);
+  if (!narrowLayout() && !touchScreen()) return false;
+  const vw = document.documentElement.clientWidth || window.innerWidth;
+  if (vw - 16 < pop.offsetWidth) pop.style.width = (vw - 16) + 'px';
+  const pr = pop.getBoundingClientRect();
+  const left = Math.min(Math.max(pr.left, 8), vw - 8 - pr.width);
+  if (Math.abs(left - pr.left) > 0.5) { pop.style.left = (left - r.left) + 'px'; pop.style.right = 'auto'; }
+  const vv = window.visualViewport, bottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+  const room = Math.floor(bottom - pop.getBoundingClientRect().top - 12);
+  if (pop.scrollHeight > room) { pop.style.maxHeight = Math.max(160, room) + 'px'; pop.style.overflowY = 'auto'; }
+  return true;
+}
+/* a phone turned with the menu open: place it again (and clear the placement if the page is now wide, with a mouse) */
+window.addEventListener('resize', () => { if ($('moreMenu').open && (narrowLayout() || touchScreen() || document.querySelector('#moreMenu .menu-pop').getAttribute('style'))) fitMenuHeight(); });
+/* the menu's own tick boxes can change its height (Plain language hides Import) */
+document.querySelector('#moreMenu .menu-pop').addEventListener('change', () => { if ($('moreMenu').open && (narrowLayout() || touchScreen())) fitMenuHeight(); });
 document.addEventListener('click', e => { if ($('moreMenu').open && !$('moreMenu').contains(e.target)) closeMenu(); });
 $('shapeGrid').innerHTML = SHAPES.map(([k, nm]) => `<button class="shape-btn" data-shape="${k}">${shapeIcon(k)}<span>${nm}</span></button>`).join('');
 $('shapeGrid').addEventListener('click', e => { const b = e.target.closest('[data-shape]'); if (b) arrangeAs(b.dataset.shape); });
@@ -3559,7 +3622,7 @@ document.querySelector('.tabs').addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft') j = (i + TABS.length - 1) % TABS.length;
   if (j != null) { e.preventDefault(); setTab(TABS[j]); $('tabbtn-' + TABS[j]).focus(); }
 });
-$('helpBtn').addEventListener('click', () => openModal('Help and shortcuts', `
+$('helpBtn').addEventListener('click', () => openModal('Help and shortcuts', touchWords(`
   <p><b>The basics</b></p>
   <ul class="tips">
     <li><b>Start:</b> pick a template, or double-click empty space to add a hypothesis.</li>
@@ -3593,7 +3656,7 @@ $('helpBtn').addEventListener('click', () => openModal('Help and shortcuts', `
     <li><b>Parametric:</b> needs one-sided p-values whose statistics are multivariate normal with the correlations you enter (Xi et al., 2017; gMCP manual).</li>
     <li><b>Weights that sum to less than 1</b> are valid but waste alpha (Hommel et al., 2007). <b>&epsilon;</b> is evaluated numerically as 1/1000.</li>
   </ul>
-  <p class="small muted">Weights are kept as exact fractions and shown as fractions when the denominator is 100 or less. Type decimals (0.25) or fractions (1/3).</p>`));
+  <p class="small muted">Weights are kept as exact fractions and shown as fractions when the denominator is 100 or less. Type decimals (0.25) or fractions (1/3).</p>`)));
 function showSelfTest() {
   const r = runAllSelfTests().concat(runClosureSelfTests(), runLiteratureSelfTests(), runEntangledSelfTests(), runGainSelfTests());
   const passed = r.filter(x => x.pass).length;
@@ -3730,16 +3793,28 @@ window.addEventListener('hashchange', () => {
   if (!h.startsWith('g1') || (G.nodes.length && h === encodeShare(G))) return;
   try { loadGraph(decodeShare(h)); } catch (err) { /* ignore bad links */ }
 });
-/* Refit when the canvas gets wider or narrower (window resized, phone turned), unless the user has moved the view */
-let lastCanvasW = 0;
+/* Refit when the canvas gets wider or narrower (window resized, phone turned), unless the user has moved the view.
+   From 1.4.4 also refit, even after a zoom or pan, when the page switches between the wide layout and the narrow one
+   (900px): the drawing changes shape completely, and a kept zoom left the graph under the hint box or outside the drawing
+   (release check 29, and a tablet turned from landscape to portrait). Within one layout a moved view is kept, as before. */
+let lastCanvasW = 0, lastNarrowLayout = narrowLayout();
 new ResizeObserver(() => {
-  const w = Math.round(svg.getBoundingClientRect().width);
-  if (autoFit && lastCanvasW && Math.abs(w - lastCanvasW) > 2) fitView(); else applyView();
-  lastCanvasW = w;
+  const w = Math.round(svg.getBoundingClientRect().width), nl = narrowLayout(), switched = nl !== lastNarrowLayout;
+  if (lastCanvasW && ((autoFit && Math.abs(w - lastCanvasW) > 2) || switched)) fitView(); else applyView();
+  lastCanvasW = w; lastNarrowLayout = nl;
 }).observe(svg);
+/* Presentation mode in the narrow layout (1.4.4): a longer caption makes the bar taller, so refit unless the presenter has zoomed */
+let lastBarH = 0;
+new ResizeObserver(() => {
+  const h = Math.round($('presentBar').getBoundingClientRect().height);
+  if (presenting && narrowLayout() && autoFit && lastBarH && Math.abs(h - lastBarH) > 4) fitView();
+  lastBarH = h;
+}).observe($('presentBar'));
 
 /* ---------- start ---------- */
 (function init() {
+  svg.setAttribute('aria-label', touchWords(svg.getAttribute('aria-label'))); /* "Double-tap to add" on a touch screen (1.4.4) */
+  const startHint = document.querySelector('#starter .starter-box > p.muted'); if (startHint) startHint.textContent = touchWords(startHint.textContent);
   const sk = store.get('mgs-skin');
   if (sk && ['auto', 'cream', 'white', 'dark'].includes(sk)) { $('skinSelect').value = sk; applySkin(sk); }
   if (store.get('mgs-num') === 'dec') { numMode = 'dec'; $('decToggle').checked = true; }
