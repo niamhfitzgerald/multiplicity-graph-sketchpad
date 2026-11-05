@@ -148,6 +148,7 @@ body.present .comp-bar, .comp-bar[hidden] { display: none; }
 .design .node.sel .handle, .design .node:focus-visible .handle { opacity: 1; }
 @media (hover: hover) { .design .node:hover .handle { opacity: 1; } }
 .test .node-ring, .test .handle { display: none; }
+.handle-hit { fill: transparent; stroke: none; cursor: crosshair; } /* touch target round the blue dot, touch screens only (1.4.7) */
 .node.sel .node-body { stroke: var(--accent); stroke-width: 3.2; }
 .node:focus-visible { outline: none; }
 .node:focus-visible .node-body { stroke: var(--accent); stroke-width: 3.2; stroke-dasharray: 3 2; }

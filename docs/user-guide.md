@@ -1,6 +1,6 @@
 # Multiplicity Graph Sketchpad User Guide
 
-Niamh Fitzgerald · version 1.4.6
+Niamh Fitzgerald · version 1.4.7
 
 The Sketchpad draws, tests and explains graphical multiple testing procedures (Bretz et al., 2009) in the browser. Nothing you enter leaves your computer. This guide covers how to use the Sketchpad.
 
@@ -83,10 +83,10 @@ The default is the weighted Bonferroni test, which is the one that can be steppe
   - The rest of the Test tab, the labels under the circles, the moving dots, the status line under the drawing, the hint, the presentation captions and the toolbar use the same words. A hypothesis is "claimed" when it succeeds. Its "share" of the allowance is shown as a percentage. The weight column is hidden.
   - The Graph tab says "question", "share" and "arrow" too. The table shows each question's share at the start and what it hands on. The panel of a question or an arrow says where its share goes when it succeeds. The boxes still take fractions such as 1/2. The template's note keeps its own words.
   - The step log becomes **Show the sums (for the statistician)**. It stays closed until you open it, or press "Show the sums" in the box, and holds the full sums.
-  - In What-if mode the buttons read "If it succeeds", and "Wait…" while the share moves, and "What would it take?" gives each question's share now and the most it could ever hold, with no p-values. Run test shows "step 2 of 3" as it goes.
+  - In What-if mode the buttons read "If it succeeds", and "Wait…" while the share moves, and "What would it take?" gives each question's share now and the most it could ever hold, with no p-values. Run test moves at the pace of Step and shows "step 2 of 3" as it goes.
   - The toolbar reads "Allowance" for alpha (with "= 2.5%" after the box on a wide enough screen), "+ Question" for the add button, and "one direction" or "both directions" for one-sided or two-sided p-values.
   - The new words apply to the Bonferroni test. With the Simes or parametric tests the statistical terms stay, and the Test tab says "Untick Plain language to change it" under the test's name.
-  - The box also hides what a clinical team does not need: the Matrix, Power and Optimise tabs, the four statistician-only templates, Test type, order analysis, adjusted p-values and pasting p-values. It also hides Teaching tips, Join or extract, the component buttons of an entangled graph, the Import menu item, and the LaTeX, R and SAP exports. Untick it to see everything again. If you tick it on the Matrix, Power or Optimise tab, the page moves to the Graph tab.
+  - The box also hides what a clinical team does not need: the Matrix, Power and Optimise tabs, the four statistician-only templates, Test type, order analysis, adjusted p-values and pasting p-values in the Test tab. It also hides Teaching tips, Join or extract, the component buttons of an entangled graph, the Import menu item, and the LaTeX, R and SAP exports. Untick it to see everything again. If you tick it on the Matrix, Power or Optimise tab, the page moves to the Graph tab. The Compare tab still shows adjusted p-values.
 - **What would it take?** For every hypothesis still open, this section in the Test tab gives its level now, the highest level it could reach, and the smallest sets of other rejections that would let it be rejected with its p-value. Press Show to outline that set on the canvas. It answers the question of how a hypothesis with a tiny p-value can still need another result first.
 - **Present:** the button next to Fit hides the panels and enlarges the graph. Press the right arrow or Next to reject the next hypothesis, the left arrow to go back, R to reset and Esc to leave. The caption at the bottom narrates each step, in plain language if that box is ticked. After the last rejection the caption gives that step; one more Next shows the result, and Back from there returns to the step.
 
@@ -137,7 +137,7 @@ All exports are in the Export tab. Pictures and TikZ show the graph as it is on 
 - **LaTeX (TikZ):** the same positions and curves as the canvas, with the `\usetikzlibrary` line it needs in a comment at the top.
 - **Beamer, step by step:** one frame with one overlay per rejection, following the steps you took in Test mode (or the automatic run on the p-values). Each overlay shows the levels and a caption. It works with the Metropolis theme.
 - **R:** `graph_create()` for graphicalMCP, with `graph_test_shortcut()` when every p-value is entered; `matrix2graph()` for gMCP. For an entangled graph, see the Entangled Graphs section.
-- **SAP / protocol text:** a multiplicity section in the usual SAP order: hypotheses, error rate and procedure, initial allocation, propagation, conclusions, interim analyses and reporting, plus technical details for the Simes and parametric tests. Below it are tables of the hypotheses and initial levels, the transition weights and, for the parametric test, the correlations, then a reference list. Fill in the [square-bracket placeholders] (for example the success criterion and the software), number the tables to match your document, and export the graph as a PNG or SVG for the figure. Copy tables pastes into Word as a table.
+- **SAP / protocol text:** a multiplicity section in the usual SAP order: hypotheses, error rate and procedure, initial allocation, propagation, conclusions, interim analyses and reporting, plus technical details for the Simes and parametric tests. Below it are tables of the hypotheses and initial levels, the transition weights and, for the parametric test, the correlations, then a reference list. Fill in the [square-bracket placeholders] (for example the success criterion and the software), number the tables to match your document, and export the graph as a PNG or SVG for the figure. Copy tables pastes into Word as a table, and into Pages as text separated by tabs.
 - **Share link:** the whole graph is encoded in the link, so nothing is uploaded.
 - **Save as a file:** JSON that keeps weights, positions, colours, p-values and alpha.
 
@@ -147,7 +147,7 @@ Every export can be downloaded or copied.
 
 ## On a Phone or Tablet
 
-- **Add and connect:** double-tap empty space to add a hypothesis. Tap a hypothesis to select it, then drag its blue dot onto another one, or tap the dot and then the target.
+- **Add and connect:** double-tap empty space to add a hypothesis. Tap a hypothesis to select it, then drag its blue dot onto another one, or tap the dot and then the target. A tap close to the dot is enough.
 - **Test:** in Test mode, tap a hypothesis to reject it (or claim it, with Plain language ticked).
 - **Zoom:** pinching does not zoom the drawing. Use +, − and Fit.
 - **Scroll the page:** start with your finger outside the drawing. A finger on the drawing moves the graph; Fit puts it back.

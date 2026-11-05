@@ -1890,6 +1890,125 @@ async function step(name, fn) {
     if (out) return out;
   });
 
+  /* 1.4.7, change 1: the note under Copy tables names Pages, which takes the tab-separated text (release check 26 of
+     1.4.3, real Safari and Firefox). Up to 1.4.6 it named Word, Excel and a text editor only. */
+  await step('Copy tables note (1.4.7): the note under Copy tables and Copy everything names Pages with Excel and a text editor', async () => {
+    const { c, p } = await page144({ viewport: { width: 1400, height: 900 } });
+    await p.click('#tabbtn-export'); await p.click('[data-export="sap"]'); await p.waitForTimeout(150);
+    const note = await p.evaluate(() => { const b = document.querySelector('[data-action="copy-sap-tables"]'); const n = b && b.closest('.row-actions').nextElementSibling; return n ? n.textContent : '(no note)'; });
+    await c.close();
+    if (note !== 'Copied tables paste into Word as real tables, and into Pages, Excel or a text editor as tab-separated text.') return `note: "${note}"`;
+  });
+
+  /* 1.4.7, change 3: on a touch screen the Help dialog's zoom line names the + and − buttons, since a phone has no scroll
+     wheel and pinching does not zoom the drawing (handover section 5, item 8). With a mouse the line is as in 1.4.6. */
+  await step('Help zoom line (1.4.7): on a touch screen it says "Tap + or − to zoom", with a mouse "Scroll to zoom"', async () => {
+    let out = '';
+    for (const [who, opts, want] of [['Touch', { viewport: { width: 390, height: 664 }, hasTouch: true, isMobile: true }, 'Tap + or − to zoom, drag empty space to pan, Fit re-centres.'], ['Mouse', { viewport: { width: 1400, height: 900 } }, 'Scroll to zoom, drag empty space to pan, Fit re-centres.']]) {
+      const { c, p } = await page144(opts);
+      await p.evaluate(() => $('helpBtn').click()); await p.waitForTimeout(150);
+      const lines = await p.evaluate(() => [...$('modal').querySelectorAll('li')].map(li => li.textContent).filter(t => /zoom/.test(t)));
+      await c.close();
+      if (lines.length !== 1 || lines[0] !== want) out += `${who}: ${JSON.stringify(lines)}. `;
+    }
+    if (out) return out;
+  });
+
+  /* 1.4.7, change 4: in the clinician view Run test moves the shares at the pace of Step (dots over about 1 s), since the
+     fast pace was too quick to read (Niamh, 3 November). The statistician view keeps the fast pace. Example graph,
+     p = 0.004, 0.009, 0.011, 0.03: three steps. The pace passed to each animation is recorded, and the run is timed. */
+  await step('Run test pace (1.4.7): with Plain language on, Run test moves the shares at the pace of Step; with it off, at the fast pace as in 1.4.6', async () => {
+    let out = '';
+    const ms = {};
+    for (const on of [false, true]) {
+      const { c, p } = await page144({ viewport: { width: 1400, height: 900 } });
+      if (on) { await p.evaluate(() => setPlain(true)); await p.waitForTimeout(100); }
+      await p.click('#tabbtn-test');
+      const inputs = p.locator('[data-p]'); const ps = ['0.004', '0.009', '0.011', '0.03'];
+      for (let i = 0; i < 4; i++) { await inputs.nth(i).fill(ps[i]); await inputs.nth(i).press('Tab'); }
+      await p.evaluate(() => { window.__paces = []; const f = animateFlow; window.animateFlow = (j, before, wj, fast) => { window.__paces.push(fast); return f(j, before, wj, fast); }; });
+      const t0 = Date.now();
+      await p.click('[data-action="run"]');
+      await p.waitForFunction(() => T && T.done && !T.running && !animating, null, { timeout: 20000 });
+      ms[on] = Date.now() - t0;
+      const r = await p.evaluate(() => ({ paces: window.__paces, order: T.order.map(id => nodeById(id).label).join(',') }));
+      await c.close();
+      const who = on ? 'Plain language on' : 'Plain language off';
+      if (r.order !== 'H1,H2,H3') out += `${who}: order ${r.order}. `;
+      if (r.paces.length !== 3 || r.paces.some(x => x !== !on)) out += `${who}: paces ${JSON.stringify(r.paces)}. `;
+    }
+    /* Step's pace waits 420 ms and moves the dots for 950 ms, so three steps take at least 4.1 s */
+    if (ms[true] < 4100 || ms[false] >= ms[true]) out += `run times: ${ms[false]} ms off, ${ms[true]} ms on. `;
+    if (out) return out;
+  });
+
+  /* 1.4.7, change 5: on a touch screen the blue dot of the selected hypothesis has an invisible target at least 24 px across
+     (WCAG 2.2, 2.5.8). Up to 1.4.6 the dot was about 6 px across on an iPhone held upright (example graph fitted, zoom 0.4).
+     At 390 x 664 with touch. Taps on the circles are Playwright touch taps, so the check also runs in WebKit and Firefox.
+     Chromium moves a finger tap within about 11 px onto the nearest small target (touch adjustment), so a real tap 9 px
+     from the old dot reached it too. The tap and the drag beside the dot are therefore sent to the element at that exact
+     point, as a browser without touch adjustment would. The target sits behind every hypothesis, so a tap on another
+     circle still selects it. With a mouse nothing is added. */
+  await step('Blue dot touch target (1.4.7): on a touch screen a tap or drag 9 px outside the dot of the selected hypothesis starts a transition, the target is at least 24 px across at any zoom and moves with the selection; with a mouse nothing is added', async () => {
+    let out = '';
+    /* a finger tap or drag at exact points: pointer events of type touch on the element under the first point, then on the drawing */
+    const exact = (p, pts) => p.evaluate(pts => {
+      const o = (x, y) => ({ bubbles: true, cancelable: true, pointerId: 7, isPrimary: true, pointerType: 'touch', clientX: x, clientY: y });
+      document.elementFromPoint(pts[0][0], pts[0][1]).dispatchEvent(new PointerEvent('pointerdown', o(pts[0][0], pts[0][1])));
+      for (const q of pts.slice(1)) svg.dispatchEvent(new PointerEvent('pointermove', o(q[0], q[1])));
+      const z = pts[pts.length - 1]; svg.dispatchEvent(new PointerEvent('pointerup', o(z[0], z[1])));
+    }, pts);
+    const centre = (p, i) => p.evaluate(i => { const r = document.querySelector(`#canvas [data-node="${G.nodes[i].id}"] .node-body`).getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, i);
+    /* a point 9 px beyond the dot, away from the centre of its hypothesis: outside the dot and outside the ring */
+    const beyondDot = (p, i) => p.evaluate(i => { const g = document.querySelector(`#canvas [data-node="${G.nodes[i].id}"]`), d = g.querySelector('.handle').getBoundingClientRect(), b = g.querySelector('.node-body').getBoundingClientRect(); const dx = d.left + d.width / 2 - (b.left + b.width / 2), dy = d.top + d.height / 2 - (b.top + b.height / 2), L = Math.hypot(dx, dy); return [d.left + d.width / 2 + 9 * dx / L, d.top + d.height / 2 + 9 * dy / L]; }, i);
+    const hit = p => p.evaluate(() => { const c = document.querySelector('#canvas .handle-hit'); if (!c) return null; const r = c.getBoundingClientRect(); return { id: c.dataset.hit, px: r.width, r: +c.getAttribute('r') }; });
+    {
+      const { c, p } = await page144({ viewport: { width: 390, height: 664 }, hasTouch: true, isMobile: true });
+      const ids = await p.evaluate(() => G.nodes.map(n => n.id));
+      await p.touchscreen.tap(...(await centre(p, 0))); await p.waitForTimeout(150);
+      let h = await hit(p);
+      if (!h || h.id !== ids[0] || h.px < 23.5) out += `Touch, H1 selected: target ${JSON.stringify(h)}. `;
+      const [x, y] = await beyondDot(p, 0);
+      const under = await p.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y); return e ? e.getAttribute('class') || e.tagName : ''; }, [x, y]);
+      if (under !== 'handle-hit') out += `Touch: 9 px beyond the dot is "${under}". `;
+      /* a tap there starts a transition from H1, as a tap on the dot does */
+      await exact(p, [[x, y]]); await p.waitForTimeout(150);
+      const from = await p.evaluate(() => linking ? linking.from : null);
+      if (from !== ids[0]) out += `Touch: a tap 9 px beyond the dot gave linking ${JSON.stringify(from)}. `;
+      await p.evaluate(() => cancelLinking()); await p.waitForTimeout(80);
+      /* a drag from there to H4 makes (or opens) the transition H1 to H4 */
+      const [tx, ty] = await centre(p, 3);
+      await exact(p, [[x, y], [x + (tx - x) / 3, y + (ty - y) / 3], [x + 2 * (tx - x) / 3, y + 2 * (ty - y) / 3], [tx, ty]]); await p.waitForTimeout(200);
+      const edge = await p.evaluate(ids => sel && sel.type === 'edge' && sel.key === gKey(ids[0], ids[3]) && !!edgeOf(ids[0], ids[3]), ids);
+      if (!edge) out += 'Touch: a drag from 9 px beyond the dot to H4 did not make the transition H1 to H4. ';
+      await p.evaluate(() => { closeInline(false); setSel({ type: 'node', id: G.nodes[0].id }); }); await p.waitForTimeout(100);
+      /* a tap on H2 still selects H2, and the target moves to H2 */
+      await p.touchscreen.tap(...(await centre(p, 1))); await p.waitForTimeout(150);
+      h = await hit(p);
+      if (!(await p.evaluate(id => sel && sel.type === 'node' && sel.id === id, ids[1])) || !h || h.id !== ids[1]) out += `Touch: a tap on H2 with H1 selected gave sel ${await p.evaluate(() => JSON.stringify(sel))}, target ${JSON.stringify(h)}. `;
+      /* at least 24 px across, and never smaller than the dot with its outline, at every zoom */
+      for (const b of ['#zoomIn', '#zoomIn', '#zoomIn', '#zoomOut', '#zoomOut', '#zoomOut', '#zoomOut', '#zoomOut']) {
+        await p.click(b); await p.waitForTimeout(120);
+        h = await hit(p);
+        if (!h || h.px < 23.5 || h.r < 8) { out += `Touch, zoom ${await p.evaluate(() => view.k.toFixed(2))}: target ${JSON.stringify(h)}. `; break; }
+      }
+      /* none in Test mode, or while a transition is being drawn */
+      await p.evaluate(() => startLinking(G.nodes[1].id)); await p.waitForTimeout(80);
+      if (await hit(p)) out += 'Touch: a target while drawing a transition. ';
+      await p.evaluate(() => { cancelLinking(); setMode('test'); }); await p.waitForTimeout(300);
+      if (await hit(p)) out += 'Touch: a target in Test mode. ';
+      await c.close();
+    }
+    { /* a mouse: H1 selected, no target and no extra group, the edges group followed by the nodes group as in 1.4.6 */
+      const { c, p } = await page144({ viewport: { width: 1400, height: 900 } });
+      await p.locator('#canvas [data-node]').first().click(); await p.waitForTimeout(150);
+      const r = await p.evaluate(() => ({ sel: sel && sel.type, hits: document.querySelectorAll('#canvas .handle-hit, #canvas .handle-hits').length, next: world.querySelector('.edges').nextElementSibling.getAttribute('class') }));
+      if (r.sel !== 'node' || r.hits || r.next !== 'nodes') out += `Mouse: ${JSON.stringify(r)}. `;
+      await c.close();
+    }
+    if (out) return out;
+  });
+
   for (const r of results) console.log((r.ok ? 'PASS ' : 'FAIL ') + r.name + ` (${r.ms} ms)` + (r.ok ? '' : '\n      ' + r.detail));
   console.log(`\n${results.length - fails}/${results.length} browser checks passed`);
   console.log('page errors:', errors.length ? errors : 'none');

@@ -278,8 +278,11 @@ function applyView() {
   svg.setAttribute('viewBox', `${x} ${y} ${w} ${h}`);
   gridRect.setAttribute('x', x); gridRect.setAttribute('y', y);
   gridRect.setAttribute('width', w); gridRect.setAttribute('height', h);
+  world.querySelectorAll('.handle-hit').forEach(c => c.setAttribute('r', handleHitR()));
   positionInline();
 }
+/* radius of the touch target round the blue dot (1.4.7): 12 px on the screen, and never smaller than the dot with its outline */
+function handleHitR() { return Math.max(8, 12 / view.k).toFixed(1); }
 function fitView() {
   if (!G.nodes.length) { view = { cx: 0, cy: 0, k: 1 }; applyView(); return; }
   const { W, H } = canvasSize();
@@ -396,7 +399,11 @@ function renderCanvas() {
     const compCls = e.comp != null ? ` comp-${e.comp % 4}` : '';
     P.push(`<g class="edge${isSel ? ' sel' : ''}${isErr ? ' err' : ''}${flash ? ' flash' : ''}${compCls}"${vm.all ? '' : ` data-edge="${e.key}"`} data-flow="${e.key}"><path class="edge-hit" d="${e.d}"/><path class="edge-line" d="${e.d}" marker-end="url(#${isSel ? 'ahSel' : isErr ? 'ahErr' : 'ah'})"/></g>`);
   }
-  P.push('</g><g class="nodes">');
+  /* Touch screens (1.4.7): an invisible target round the blue dot of the selected hypothesis, at least 24 px across on the
+     screen at any zoom (WCAG 2.2, 2.5.8). It sits behind every hypothesis, so a tap on a circle still selects that circle.
+     With a mouse nothing is drawn here. */
+  const hitNode = touchScreen() && mode === 'design' && !vm.all && !linking && sel && sel.type === 'node' ? vm.nodes.find(n => n.id === sel.id) : null;
+  P.push('</g>' + (hitNode ? `<g class="handle-hits"><circle class="handle-hit" data-hit="${hitNode.id}" cx="${(hitNode.x + (hitNode.rx + 6.5) * Math.SQRT1_2).toFixed(1)}" cy="${(hitNode.y - (hitNode.ry + 6.5) * Math.SQRT1_2).toFixed(1)}" r="${handleHitR()}"/></g>` : '') + '<g class="nodes">');
   for (const n of vm.nodes) {
     const isSel = sel && sel.type === 'node' && sel.id === n.id;
     const cls = ['node'];
@@ -1152,7 +1159,9 @@ async function runAllSteps() {
   if (!T || animating || hasErrors() || manual) return;
   /* runTotal: how many rejections this run will make, for the plain-language "Step 2 of 3" line (1.3.1) */
   T.running = true; T.runTotal = T.step + runProcedure(T.st, pOf, G.alpha).order.length; renderTestPanel();
-  while (T && !T.done && await stepOnce(true)) await sleep(reduced() ? 0 : 140);
+  /* the clinician view runs at the pace of Step, so the moving shares can be read (1.4.7); the statistician view keeps the fast pace */
+  const fast = !plainWords();
+  while (T && !T.done && await stepOnce(fast)) await sleep(reduced() ? 0 : 140);
   if (T) { T.running = false; renderTestPanel(); updateToolbar(); }
 }
 let msgTimer = null;
@@ -2451,7 +2460,7 @@ async function showExport(kind) {
       ${sap.tables.map((t, i) => `<div class="mx-scroll sap-table" id="sapTable${i}"><p class="small"><b>${esc(t.title)}</b></p><table class="t"><thead><tr>${t.header.map(h => `<th scope="col">${esc(h)}</th>`).join('')}</tr></thead><tbody>${t.rows.map(r => `<tr>${r.map((c, k) => k === 0 ? `<th scope="row">${esc(c)}</th>` : `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`).join('')}
       <div class="sap" id="sapRefs">${sapRefsHTML(sap)}</div>
       <div class="row-actions"><button class="btn" data-action="copy-sap-tables">Copy tables</button><button class="btn" data-action="copy-sap-all">Copy everything</button></div>
-      <p class="small muted">Copied tables paste into Word as real tables, and into Excel or a text editor as tab-separated text.</p>`;
+      <p class="small muted">Copied tables paste into Word as real tables, and into Pages, Excel or a text editor as tab-separated text.</p>`;
   } else if (kind === 'load') {
     out.innerHTML = `<h3>Open a saved graph</h3>
       <label for="loadFile" class="small"><b>From a JSON file</b><br><input type="file" id="loadFile" accept=".json,application/json"></label>
@@ -2982,6 +2991,8 @@ svg.addEventListener('pointerdown', e => {
   if (inline && !commitInline()) return;
   const p = toWorld(e), t = e.target;
   const nodeEl = t.closest('[data-node]'), bendEl = t.closest('[data-bend]'), labEl = t.closest('[data-elabel]'), edgeEl = t.closest('[data-edge]');
+  /* the touch target round the blue dot (1.4.7) acts as the dot of its hypothesis */
+  const hitId = t.classList.contains('handle-hit') ? t.dataset.hit : '';
   if (linking) {
     e.preventDefault();
     const from = linking.from;
@@ -2992,6 +3003,7 @@ svg.addEventListener('pointerdown', e => {
   }
   let kind = 'empty', id = '';
   if (nodeEl) { kind = 'node'; id = nodeEl.dataset.node; }
+  else if (hitId) { kind = 'node'; id = hitId; }
   else if (bendEl) { kind = 'bend'; id = bendEl.dataset.bend; }
   else if (labEl) { kind = 'label'; id = labEl.dataset.elabel; }
   else if (edgeEl) { kind = 'edge'; id = edgeEl.dataset.edge; }
@@ -3005,7 +3017,7 @@ svg.addEventListener('pointerdown', e => {
   if (animating && kind !== 'empty') return;
   if (kind === 'node') {
     const n = nodeById(id);
-    const onHandle = t.classList.contains('handle'), onRing = t.classList.contains('node-ring');
+    const onHandle = t.classList.contains('handle') || !!hitId, onRing = t.classList.contains('node-ring');
     drag = (onRing || onHandle) && mode === 'design' ? Object.assign(base, { type: 'link', from: id, handle: onHandle }) : Object.assign(base, { type: 'move', ox: n.x, oy: n.y });
     if (mode === 'design' && !(sel && sel.type === 'node' && sel.id === id)) setSel({ type: 'node', id });
   } else if ((kind === 'bend' || kind === 'label') && mode === 'design') {
@@ -3647,7 +3659,7 @@ $('helpBtn').addEventListener('click', () => openModal('Help and shortcuts', tou
     <li><span class="kbd">Delete</span> removes the selection. <span class="kbd">Esc</span> cancels or deselects.</li>
     <li><span class="kbd">Ctrl</span> <span class="kbd">Z</span> undo, <span class="kbd">Ctrl</span> <span class="kbd">Y</span> redo (<span class="kbd">Cmd</span> on a Mac).</li>
     <li><span class="kbd">Tab</span> moves between hypotheses, arrow keys move the focused one (<span class="kbd">Shift</span> for small steps), <span class="kbd">Enter</span> selects it.</li>
-    <li>Scroll to zoom, drag empty space to pan, Fit re-centres.</li>
+    <li>${touchScreen() ? 'Tap + or &minus; to zoom' : 'Scroll to zoom'}, drag empty space to pan, Fit re-centres.</li>
   </ul>
   <p><b>What the guarantee rests on</b></p>
   <ul class="tips">

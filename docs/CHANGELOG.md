@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.4.7 (2026-11-04)
+
+Five small points left open after the 1.4.3 release checks and the touch and phone work.
+
+- Export, SAP / protocol text: the note under Copy tables names Pages. Copied tables paste into Pages as tab-separated text, as into Excel or a text editor. Word still gets real tables. Up to 1.4.6 the note named Word, Excel and a text editor only.
+- Help dialog on a touch screen: the zoom line reads "Tap + or − to zoom, drag empty space to pan, Fit re-centres." A phone has no scroll wheel, and pinching does not zoom the drawing. With a mouse the line is unchanged.
+- Clinician view: Run test moves the shares at the pace of Step and presentation mode, about 1.5 seconds a step, so they can be read. Up to 1.4.6 it took about 0.9 seconds a step. With Plain language off the pace is unchanged.
+- Touch screens: the blue dot of the selected hypothesis has an invisible target at least 24 px across at any zoom. The dot looks the same, and a tap on a circle still selects that circle. Up to 1.4.6 the dot was about 6 px across on an iPhone held upright, and in Safari's engine a tap 6 px from it missed. With a mouse nothing changes.
+- User guide: the clinician view hides adjusted p-values in the Test tab, and the Compare tab still shows them. Up to 1.4.6 the guide named no tab. It also says that Run test moves at the pace of Step in the clinician view, and that on a phone a tap close to the blue dot is enough.
+- Tests: four new browser checks (the Copy tables note, the Help zoom line, the Run test pace and the blue dot target). Each fails on the page before its change. Browser suite: 60. Self-tests: 131. Engine stress suite: 48.
+
 ## 1.4.6 (2026-11-04)
 
 Two R cross-checks parked since 1.2.0, now run, and one export that uses them.
