@@ -32,7 +32,7 @@ Created by Niamh Fitzgerald.
 | `src/ui.js` | Canvas, panels, events. |
 | `src/build.py` | Joins the three sources into `src/multiplicity-graph-sketchpad.html`. Copy that file to `index.html` after building. |
 | `tests/runtests.js` | Runs the 131 built-in self-tests in Node. |
-| `tests/stress.js` | Engine stress test: random graphs, all test types, independent reference implementations, empirical familywise error. About five minutes. |
+| `tests/stress.js` | Engine stress test: random graphs, all test types, independent reference implementations, empirical familywise error. A few minutes. |
 | `tests/browser-stress.js` | Playwright test that drives every control of the built page. |
 | `tests/plain-capture.js`, `tests/make-plain-snapshot.js`, `tests/plain-off-1.3.0.json` | Plain-language checks for the browser test, in the Test tab, the Graph tab, the status line, the drawing and the toolbar. They hold the 1.3.0 text (with Advanced features on) that the page must show with Plain language off, and the words that must not appear with it on. |
 | `tests/view-capture.js`, `tests/make-views-snapshot.js`, `tests/views-1.3.0.json` | Clinician-view checks: the tabs, templates, menu items, sections and buttons that 1.3.0 showed with Advanced features off and on. With Plain language on the page must show the first; off, the second. |
@@ -54,7 +54,7 @@ npm test                         # self-tests, engine stress test, browser test
 
 `browser-stress.js` uses the Playwright-managed Chromium; set `SKETCHPAD_CHROME` to use another Chromium build.
 
-Two checks in `stress.js` call R. With multigrain installed they use the package. Otherwise set `MULTIGRAIN_R` to the `R/` folder of a clone of https://github.com/cran/multigrain (they also need the cli, rlang, vctrs, purrr, glue and jsonlite packages). Without R they pass with a note. The two R scripts can also be run on their own:
+Three checks in `stress.js` call R. Two of them check the Optimise tab against multigrain. With multigrain installed they use the package. Otherwise set `MULTIGRAIN_R` to the `R/` folder of a clone of https://github.com/cran/multigrain (they also need the cli, rlang, vctrs, purrr, glue and jsonlite packages). The third runs the graphicalMCP export of entangled graphs in R and needs graphicalMCP. Without R or the package it needs, each of the three passes with a note. The two multigrain scripts can also be run on their own:
 
 ```sh
 Rscript tests/multigrain-constraints-check.R cases.json      # cases.json: [{"hyp": [...], "trans": [[...]]}, ...], null = free
@@ -81,7 +81,7 @@ The built-in self-test (More menu, or the "debug" button in the footer) runs 131
 
 ## Citation
 
-Fitzgerald N (2026). Multiplicity Graph Sketchpad, version 1.4.8. https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad. See `CITATION.cff`.
+Fitzgerald N (2026). Multiplicity Graph Sketchpad, version 1.4.8. Newcastle University and GSK. https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad. See `CITATION.cff`.
 
 ## Licence
 
