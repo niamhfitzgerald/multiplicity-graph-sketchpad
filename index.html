@@ -91,7 +91,10 @@ select.sel { min-height: 36px; padding: 0 8px; border: 1px solid var(--line-stro
 .popover .row { display: flex; gap: 8px; justify-content: flex-end; }
 
 /* ---- workspace ---- */
-.work { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 12px; min-height: 0; }
+/* --sbw (1.4.8): the width of a scroll bar that takes space, 0 with overlay scroll bars. The side panel grows by it, so the
+   inside of every tab keeps the same room when a tab shows its scroll bar (ui.js, scrollbarRoom). */
+.work { display: grid; grid-template-columns: minmax(0, 1fr) calc(390px + var(--sbw, 0px)); gap: 12px; min-height: 0; }
+.sb-probe { position: absolute; top: 0; left: -9999px; width: 100px; height: 100px; overflow: scroll; visibility: hidden; pointer-events: none; }
 .canvas-wrap { position: relative; min-height: 0; min-width: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--canvas); overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
 .canvas-wrap > #canvas { grid-row: 2; }
 .canvas-wrap > .status { grid-row: 3; }
@@ -608,12 +611,13 @@ table.t td:first-child { white-space: nowrap; }
     <div id="modalBody"></div>
   </div>
 </div>
+<div class="sb-probe" id="sbProbe" aria-hidden="true"></div>
 
 <script>
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.4.7';
-const APP_DATE = '2026-11-04';
+const APP_VERSION = '1.4.8';
+const APP_DATE = '2026-11-05';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
 /* The author's LinkedIn profile; the header byline and About link to it. */
@@ -5874,6 +5878,17 @@ const narrowScreen = () => window.matchMedia('(max-width: 640px)').matches;
 const narrowLayout = () => window.matchMedia('(max-width: 900px)').matches;
 /* a touch screen as the main input (an iPad with a trackpad counts too) */
 const touchScreen = () => window.matchMedia('(pointer: coarse)').matches;
+/* Scroll bars that take space (1.4.8). On a Mac with a mouse plugged in, with "Show scroll bars" set to Always, and usually
+   on Windows, a tab's scroll bar took about 15 px from the side panel. After release check 20 (Fig. 2, Step to the end) the
+   Test tab's table then ran 8 px past the visible edge, the Status column was clipped and the tab scrolled sideways.
+   The side panel now grows by the scroll bar's width (--sbw, read by .work in head.html), so the inside of every tab keeps
+   the room it has with overlay scroll bars. A hidden probe with scroll bars measures the width, and its ResizeObserver
+   measures again when the style changes (a mouse plugged in, a page zoom). With overlay scroll bars (a trackpad, a phone,
+   a tablet) the width is 0 and nothing changes. */
+const sbProbe = $('sbProbe');
+function scrollbarRoom() { document.documentElement.style.setProperty('--sbw', Math.max(0, sbProbe.offsetWidth - sbProbe.clientWidth) + 'px'); }
+scrollbarRoom();
+new ResizeObserver(scrollbarRoom).observe(sbProbe);
 /* On a touch screen the help speaks of taps (1.4.4), in the Apple Style Guide's terms: tap, double-tap, touch and hold.
    With a mouse the text is unchanged. */
 function touchWords(t) {

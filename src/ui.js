@@ -26,6 +26,17 @@ const narrowScreen = () => window.matchMedia('(max-width: 640px)').matches;
 const narrowLayout = () => window.matchMedia('(max-width: 900px)').matches;
 /* a touch screen as the main input (an iPad with a trackpad counts too) */
 const touchScreen = () => window.matchMedia('(pointer: coarse)').matches;
+/* Scroll bars that take space (1.4.8). On a Mac with a mouse plugged in, with "Show scroll bars" set to Always, and usually
+   on Windows, a tab's scroll bar took about 15 px from the side panel. After release check 20 (Fig. 2, Step to the end) the
+   Test tab's table then ran 8 px past the visible edge, the Status column was clipped and the tab scrolled sideways.
+   The side panel now grows by the scroll bar's width (--sbw, read by .work in head.html), so the inside of every tab keeps
+   the room it has with overlay scroll bars. A hidden probe with scroll bars measures the width, and its ResizeObserver
+   measures again when the style changes (a mouse plugged in, a page zoom). With overlay scroll bars (a trackpad, a phone,
+   a tablet) the width is 0 and nothing changes. */
+const sbProbe = $('sbProbe');
+function scrollbarRoom() { document.documentElement.style.setProperty('--sbw', Math.max(0, sbProbe.offsetWidth - sbProbe.clientWidth) + 'px'); }
+scrollbarRoom();
+new ResizeObserver(scrollbarRoom).observe(sbProbe);
 /* On a touch screen the help speaks of taps (1.4.4), in the Apple Style Guide's terms: tap, double-tap, touch and hold.
    With a mouse the text is unchanged. */
 function touchWords(t) {

@@ -2009,6 +2009,74 @@ async function step(name, fn) {
     if (out) return out;
   });
 
+  /* 1.4.8: scroll bars that take space (release check 20, real Safari, 3 November). On a Mac with a mouse plugged in, with
+     "Show scroll bars" set to Always, and usually on Windows, the Test tab's scroll bar took 15 px from the side panel.
+     After check 20 (Fig. 2, p = 0.01, 0.5, 0.01, 0.01, 0.001, Step to the end) the table, 365 px wide, then ran 8 px past
+     the visible edge: the Status column was clipped and the tab scrolled 8 px sideways (4 px with Plain language on).
+     Playwright hides scroll bars, so this check starts a second Chromium with them shown. There the side panel must grow by
+     the scroll bar's width, keep 388 px inside the tab and show the whole table in both views. A style on the hidden probe
+     changes the width of its scroll bar, as plugging in a mouse would, and the panel must follow. With hidden (overlay)
+     scroll bars the side panel is 390 px wide, as in 1.4.7. */
+  await step('Scroll bars that take space (1.4.8): after release check 20 the whole Test tab table shows in both views, nothing scrolls sideways, the side panel grows by the scroll bar\'s width and follows a change in it; with overlay scroll bars the panel is as in 1.4.7', async () => {
+    let out = '';
+    /* check 20: Fig. 2, the p-values, "Step through it", then Step to the end; then the Test tab against its visible edge */
+    const check20 = async (p, plain) => {
+      await p.evaluate(pl => { setPlain(pl, true); loadGraph(entangledTemplateJSON('maurerFig2')); }, plain); await p.waitForTimeout(150);
+      await p.click('#tabbtn-test'); await p.waitForTimeout(150);
+      const ps = ['0.01', '0.5', '0.01', '0.01', '0.001'];
+      for (let i = 0; i < 5; i++) { const box = p.locator('#tab-test [data-p]').nth(i); await box.fill(ps[i]); await box.press('Tab'); }
+      await p.click('#tab-test [data-action="enter-test"]'); await p.waitForTimeout(200);
+      for (let k = 0; k < 8 && !(await p.evaluate(() => T && T.done)); k++) {
+        await p.click('#tab-test [data-action="step"]');
+        await p.waitForFunction(() => !animating, null, { timeout: 10000 }); await p.waitForTimeout(80);
+      }
+      await p.waitForTimeout(150);
+      return p.evaluate(() => {
+        const tab = $('tab-test'), t = tab.querySelector('table.t'), edge = tab.getBoundingClientRect().left + tab.clientLeft + tab.clientWidth;
+        const right = Math.max(t.getBoundingClientRect().right, ...[...t.querySelectorAll('tbody tr > :last-child')].map(c => c.getBoundingClientRect().right));
+        return { inside: tab.clientWidth, sideways: tab.scrollWidth - tab.clientWidth, past: Math.round(right - edge), panel: Math.round(document.querySelector('.panel').getBoundingClientRect().width),
+          sbw: getComputedStyle(document.documentElement).getPropertyValue('--sbw').trim(), done: !!(T && T.done), order: T ? T.order.map(id => nodeById(id).label).join(',') : '' };
+      });
+    };
+    /* With overlay scroll bars only the visible edge is checked: Firefox counts the tab's end padding in its scrollable width,
+       so there the tab scrolls 9 px sideways with nothing hidden, as in 1.4.7 */
+    const bad = (who, r, panel, noSideways) => (!r.done || r.order !== 'H1,H3,H4' || r.inside !== 388 || (noSideways && r.sideways !== 0) || r.past > 0 || r.panel !== panel) ? `${who}: ${JSON.stringify(r)}. ` : '';
+    { /* scroll bars shown, so they take space */
+      const sb = await chromium.launch({ executablePath: process.env.SKETCHPAD_CHROME || undefined, args: ['--no-sandbox'], ignoreDefaultArgs: ['--hide-scrollbars'] });
+      const c = await sb.newContext({ viewport: { width: 1400, height: 900 } }); c.setDefaultTimeout(8000);
+      const p = await c.newPage(); p.on('pageerror', e => errors.push('1.4.8 pageerror: ' + e.message));
+      await p.goto(FILE); await p.waitForTimeout(700);
+      const w = await p.evaluate(() => { const d = document.createElement('div'); d.style.cssText = 'position:absolute;top:0;width:100px;height:100px;overflow:scroll'; document.body.appendChild(d); const x = d.offsetWidth - d.clientWidth; d.remove(); return x; });
+      if (w < 10) out += `Scroll bars shown: they take ${w} px, so this browser cannot show the fault. `;
+      else {
+        for (const plain of [false, true]) {
+          const r = await check20(p, plain);
+          out += bad(`Scroll bars of ${w} px, Plain language ${plain ? 'on' : 'off'}`, r, 390 + w, true);
+          if (r.sbw !== `${w}px`) out += `Scroll bars of ${w} px: --sbw is "${r.sbw}". `;
+        }
+        /* a wider scroll bar on the probe, as when a mouse is plugged in, then back */
+        const h = await p.addStyleTag({ content: '#sbProbe::-webkit-scrollbar { width: 22px; height: 22px; }' }); await p.waitForTimeout(200);
+        const wide = await p.evaluate(() => Math.round(document.querySelector('.panel').getBoundingClientRect().width));
+        await h.evaluate(e => e.remove()); await p.waitForTimeout(200);
+        const back = await p.evaluate(() => Math.round(document.querySelector('.panel').getBoundingClientRect().width));
+        if (wide !== 412 || back !== 390 + w) out += `A 22 px probe scroll bar: panel ${wide} px (want 412), then ${back} px (want ${390 + w}). `;
+        const page = await p.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+        if (page > 0) out += `Scroll bars of ${w} px: the page scrolls ${page} px sideways. `;
+      }
+      await c.close(); await sb.close();
+    }
+    { /* hidden (overlay) scroll bars, as on a Mac with a trackpad, a phone or a tablet: nothing changes */
+      const { c, p } = await page144({ viewport: { width: 1400, height: 900 } });
+      for (const plain of [false, true]) {
+        const r = await check20(p, plain);
+        out += bad(`Overlay scroll bars, Plain language ${plain ? 'on' : 'off'}`, r, 390, false);
+        if (r.sbw !== '0px') out += `Overlay scroll bars: --sbw is "${r.sbw}". `;
+      }
+      await c.close();
+    }
+    if (out) return out;
+  });
+
   for (const r of results) console.log((r.ok ? 'PASS ' : 'FAIL ') + r.name + ` (${r.ms} ms)` + (r.ok ? '' : '\n      ' + r.detail));
   console.log(`\n${results.length - fails}/${results.length} browser checks passed`);
   console.log('page errors:', errors.length ? errors : 'none');

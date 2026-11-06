@@ -86,7 +86,10 @@ select.sel { min-height: 36px; padding: 0 8px; border: 1px solid var(--line-stro
 .popover .row { display: flex; gap: 8px; justify-content: flex-end; }
 
 /* ---- workspace ---- */
-.work { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 12px; min-height: 0; }
+/* --sbw (1.4.8): the width of a scroll bar that takes space, 0 with overlay scroll bars. The side panel grows by it, so the
+   inside of every tab keeps the same room when a tab shows its scroll bar (ui.js, scrollbarRoom). */
+.work { display: grid; grid-template-columns: minmax(0, 1fr) calc(390px + var(--sbw, 0px)); gap: 12px; min-height: 0; }
+.sb-probe { position: absolute; top: 0; left: -9999px; width: 100px; height: 100px; overflow: scroll; visibility: hidden; pointer-events: none; }
 .canvas-wrap { position: relative; min-height: 0; min-width: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--canvas); overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
 .canvas-wrap > #canvas { grid-row: 2; }
 .canvas-wrap > .status { grid-row: 3; }
@@ -600,3 +603,4 @@ table.t td:first-child { white-space: nowrap; }
     <div id="modalBody"></div>
   </div>
 </div>
+<div class="sb-probe" id="sbProbe" aria-hidden="true"></div>

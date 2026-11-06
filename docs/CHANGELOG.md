@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.8 (2026-11-05)
+
+One layout fault from the release checks (check 20, real Safari).
+
+- Side panel with scroll bars that take space. On a Mac with a mouse plugged in, with "Show scroll bars" set to Always, and usually on Windows, a tab's scroll bar took about 15 px from the side panel. After stepping through the Fig. 2 template with p = 0.01, 0.5, 0.01, 0.01 and 0.001, the Status column in the Test tab was clipped by 8 px, and the tab scrolled 8 px sideways (4 px with Plain language on). The side panel now grows by the width of the scroll bar, so every tab keeps the same room inside. With overlay scroll bars (a trackpad, a phone or a tablet) nothing changes.
+- Tests: one new browser check. It starts a second Chromium with its scroll bars shown, and it fails on the page before the change. Browser suite: 61. Self-tests: 131. Engine stress suite: 48.
+
 ## 1.4.7 (2026-11-04)
 
 Five small points left open after the 1.4.3 release checks and the touch and phone work.
