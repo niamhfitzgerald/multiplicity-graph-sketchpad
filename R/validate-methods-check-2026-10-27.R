@@ -1,7 +1,7 @@
 # Cross-check of the 27 October 2026 methods check against graphicalMCP
 # --------------------------------------------------------------------------
 # The worked examples behind self-tests S1, S2 and S7 (Sketchpad 1.3.4) and the
-# related checks from claude/methods-check-inventory-2026-10-27-papers.md.
+# related checks from the same methods check.
 # Each value printed by the Sketchpad engine is written beside the call; the
 # script stops at the first mismatch.
 #
