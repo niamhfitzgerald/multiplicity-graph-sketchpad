@@ -83,7 +83,7 @@ One wording fix in the transition panel, and a browser check that keeps it fixed
 
 ## 1.4.0 (2026-10-29)
 
-More exact parametric tests, and singular correlation matrices (F16 and F17 of the methods check of 27 October 2026). The plan is in the project notes (engine precision plan, 29 October 2026).
+More exact parametric tests, and singular correlation matrices (F16 and F17 of the methods check of 27 October 2026).
 
 - Parametric test, blocks of two to four correlated hypotheses: the probabilities are now computed by exact numerical integration, with no Monte Carlo error. Two statistics use the bivariate normal routine of Genz (2004, Statistics and Computing 14:251). Three or four use recursive conditioning on the first statistic (Genz and Bretz, 2009, section 2.1.2) with Gauss-Legendre panels, down to the bivariate routine. The panels are cut where the integrand bends sharply, as it does for nearly singular blocks. Checked against mvtnorm (TVPACK, and Miwa with 4096 steps) on 400 bivariate cases (largest error 4e-8) and 180 random blocks of three and four (largest error below 1e-8). Checked against exact integrals on 132 nearly singular blocks of three and 66 rank-deficient blocks of four rounded to six decimals, in several orders (largest error 2e-8).
 - Test tab: adjusted p-values for blocks of two to four are exact; no standard error is shown for them. Blocks of five or more use the lattice rule as before (512 points, 12 shifts), with the standard error. The published examples match mvtnorm to 1e-8: Ristl et al. (2024), Koenig et al. (2025, Table 6), Zhang et al. (1997, Table 6) and the singular example of Thomas et al. (2020).
