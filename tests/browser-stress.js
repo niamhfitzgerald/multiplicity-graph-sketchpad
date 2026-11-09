@@ -1901,7 +1901,7 @@ async function step(name, fn) {
   });
 
   /* 1.4.7, change 3: on a touch screen the Help dialog's zoom line names the + and − buttons, since a phone has no scroll
-     wheel and pinching does not zoom the drawing (handover section 5, item 8). With a mouse the line is as in 1.4.6. */
+     wheel and pinching does not zoom the drawing. With a mouse the line is as in 1.4.6. */
   await step('Help zoom line (1.4.7): on a touch screen it says "Tap + or − to zoom", with a mouse "Scroll to zoom"', async () => {
     let out = '';
     for (const [who, opts, want] of [['Touch', { viewport: { width: 390, height: 664 }, hasTouch: true, isMobile: true }, 'Tap + or − to zoom, drag empty space to pan, Fit re-centres.'], ['Mouse', { viewport: { width: 1400, height: 900 } }, 'Scroll to zoom, drag empty space to pan, Fit re-centres.']]) {
