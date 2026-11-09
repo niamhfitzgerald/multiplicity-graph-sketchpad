@@ -32,7 +32,7 @@ p <- c(0.005, 0.027, 0.020, 0.009, 0.133, 0.018)
 ok(rej(graph_test_shortcut(g2, p, alpha = 0.05)$outputs$rejected) == "H1,H3,H4", "Wang and Ting Fig. 2 rejects H1, H3, H4")
 # Hochberg-type test within {H3, H4} (p. 3): graphicalMCP's grouped Simes is Bretz et al. (2011) eq. 8,
 # which rejects H1, H3, H4 as the paper does. The Sketchpad's "Simes within groups" follows gMCP and rejects
-# H1 only here: a stated difference (00-START-HERE, method decisions), not an error.
+# H1 only here: a stated difference (the Sketchpad's graphicalMCP export says so), not an error.
 pc <- c(0.005, 0.027, 0.020, 0.024, 0.133, 0.018)
 r <- graph_test_closure(g2, pc, alpha = 0.05, test_groups = list(1, 2, 3:4, 5:6), test_types = c("bonferroni", "bonferroni", "simes", "simes"))
 ok(rej(r$outputs$rejected) == "H1,H3,H4", "Wang and Ting Fig. 2, Simes in families (eq. 8): H1, H3, H4")
