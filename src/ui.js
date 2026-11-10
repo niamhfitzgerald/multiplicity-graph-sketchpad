@@ -90,12 +90,12 @@ const SIM = { power: {}, rho: '0.5', useMatrix: false, corr: {}, n: 10000, succe
 /* Optimise tab (multigrain stage): the gain function and its expected gain for the current graph. Session state only;
    the gain function is not saved with the graph (Spiers et al. 2026, p. 19: it may be commercially sensitive). */
 const OPT = { source: 'quick', quick: 'any', values: { reg: [], rule: 'all', scores: {}, anchor: '150' }, text: '', running: null, result: null, error: '',
-  /* Fixed and free parts (plan section 7): locked weights (node ids) and transitions (gKey) keep their current value;
+  /* Fixed and free parts: locked weights (node ids) and transitions (gKey) keep their current value;
      everything else is free. existingOnly fixes every missing transition at 0. showLocks shows the locks in the Matrix view. */
   lockW: new Set(), lockG: new Set(), existingOnly: false, showLocks: false,
   /* freeRows: node ids whose row stays free even with existingOnly (the fix for a row multigrain would refuse) */
   freeRows: new Set(),
-  /* Script options (plan section 8) */
+  /* Script options */
   script: { nsim: 100000, global: true, threads: 1, start: true, file: 'optimised-graph.json' },
   /* The optimisation block of the file last opened (readOptimisationBlock), with the graph signature it belongs to */
   imported: null };
@@ -966,7 +966,7 @@ function initMatrixStatic() {
   </div></details>`;
   $('det-default').addEventListener('toggle', () => renderDefaultGraph());
 }
-/* The default-graph view (Maurer and Bretz, 2013, Appendix A; plan section 3.1): computed only while its section is
+/* The default-graph view (Maurer and Bretz, 2013, Appendix A): computed only while its section is
    open, for up to 6 hypotheses */
 const DG = { hide: false };
 function renderDefaultGraph() {
@@ -1899,7 +1899,7 @@ const LOCK_SVG = {
   open: '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M4 6V4.2a3 3 0 0 1 5.9-.6" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="2.5" y="6" width="9" height="6.5" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>'
 };
 function toggleLock(set, key) { if (set.has(key)) set.delete(key); else set.add(key); }
-/* The fixed and free parts of the current graph for the optimisation (plan section 7). A locked weight or
+/* The fixed and free parts of the current graph for the optimisation. A locked weight or
    transition keeps its current value; with existingOnly every missing transition is fixed at 0; the rest is free
    (NA in multigrain's graph_constraint()). problems: things to fix before a script can be written. */
 function optConstraints() {
@@ -2040,7 +2040,7 @@ function renderOptimisePanel() {
     el.innerHTML = h;
   });
 }
-/* An opened file carries multigrain's optimisation block (plan section 9): take over the gain function and the inputs,
+/* An opened file carries multigrain's optimisation block: take over the gain function and the inputs,
    keep the starting graph in Compare, estimate the gain afresh and show the Optimise tab. */
 function applyImportedOptimisation(b) {
   const m = G.nodes.length;
@@ -2347,7 +2347,7 @@ async function resolveDownloads() {
   try { dlCap = await window.claude.use('downloads'); } catch (e) { dlCap = null; }
   if (activeTab === 'export' && exportView && exportView !== 'load') showExport(exportView);
 }
-/* The sharing switch for a graph that came from multigrain (plan section 10): the gain function and multigrain's own
+/* The sharing switch for a graph that came from multigrain: the gain function and multigrain's own
    numbers leave the app in a saved file, share link or SAP text only when it is on */
 function optShareSwitch(what) {
   if (!G.opt || isEntangled(G)) return '';

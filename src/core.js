@@ -1,7 +1,7 @@
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.4.8';
-const APP_DATE = '2026-11-05';
+const APP_VERSION = '1.4.9';
+const APP_DATE = '2026-11-10';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
 /* The author's LinkedIn profile; the header byline and About link to it. */
@@ -2917,7 +2917,7 @@ function sapText(G, opts = {}) {
   if (hasEps) cite('gmcp');
   add('Propagation', prop);
 
-  /* 4b. Choice of the graph, when it came from multigrain (plan section 10): the gain function only when sharing is on */
+  /* 4b. Choice of the graph, when it came from multigrain: the gain function only when sharing is on */
   if (!ent && G.opt) {
     const O = G.opt, same = !O.graphKey || O.graphKey === graphKey(G);
     const inp = O.inputs || {};
@@ -4960,7 +4960,7 @@ function expectedGain(fg, powers, R, alpha, gain, n, seed = 2009) {
   return { mean: mu, se: Math.sqrt(v / Math.max(1, n - 1)), local: tally.rej.map(x => x / n), n };
 }
 
-/* ---------- multigrain script writer (plan section 8) ----------
+/* ---------- multigrain script writer ----------
    optimiseRScript(spec) writes a complete R script that calls multigrain 1.0.0 and prints the optimised graph as the
    app's exchange JSON. Argument names were read from the package source (R/sim_pvals.R, R/trial_success.R,
    R/graph_constraint.R, R/optimisation.R), not guessed. spec:

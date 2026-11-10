@@ -36,6 +36,18 @@ async function step(name, fn) {
     const t = await page.title(); if (!/Sketchpad/.test(t)) return 'title ' + t;
   });
 
+  await step('Link preview (1.4.9): the head has a description and Open Graph tags, and docs/preview.png is 1200 x 627', async () => {
+    const m = await ev(() => { const g = s => (document.head.querySelector(s) || {}).content || ''; return { d: g('meta[name="description"]'), t: g('meta[property="og:title"]'), od: g('meta[property="og:description"]'), u: g('meta[property="og:url"]'), i: g('meta[property="og:image"]'), c: g('meta[name="twitter:card"]') }; });
+    if (!m.d || m.od !== m.d) return 'description ' + JSON.stringify(m);
+    if (m.t !== 'Multiplicity Graph Sketchpad') return 'og:title ' + m.t;
+    const site = 'https://niamhfitzgerald.github.io/multiplicity-graph-sketchpad/';
+    if (m.u !== site || m.i !== site + 'docs/preview.png') return 'urls ' + m.u + ' ' + m.i;
+    if (m.c !== 'summary_large_image') return 'twitter:card ' + m.c;
+    const png = require('fs').readFileSync(path.join(path.dirname(FILE.replace('file://', '')), 'docs', 'preview.png'));
+    const w = png.readUInt32BE(16), h = png.readUInt32BE(20);
+    if (w !== 1200 || h !== 627) return 'preview.png is ' + w + ' x ' + h;
+  });
+
   await step('Every template loads from the toolbar select without errors', async () => {
     const opts = await page.locator('#templateSelect option').evaluateAll(os => os.map(o => o.value).filter(Boolean));
     for (const v of opts) {

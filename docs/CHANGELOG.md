@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.9 (2026-11-10)
+
+A link preview for sharing the page, and a tidy of code comments. The tool behaves exactly as in 1.4.8.
+
+- Link preview: the page now has a description and Open Graph tags. When the link is shared on LinkedIn and similar sites, the post shows the title, the line "Draw, test and optimise graphical multiple testing procedures in your browser." and a picture of the page. Up to 1.4.8 it showed the title only. The picture is `docs/preview.png` (1200 × 627 px), the page with its example graph. Only those sites fetch the picture; the page itself still makes no outside requests.
+- Code comments: eight comments in `src/core.js` and `src/ui.js` pointed to sections of a plan that is not in the repository. Those pointers are gone. No code changed.
+- Tests: one new browser check (the tags and the size of the picture). It fails on the 1.4.8 page. Browser suite: 62. Self-tests: 131. Engine stress suite: 48.
+
 ## 1.4.8 (2026-11-05)
 
 One layout fault from the release checks (check 20, real Safari).
