@@ -1,0 +1,195 @@
+# Checks for the Multiplicity Graph Sketchpad.
+#
+# Runs on every pull request to main, on every change to main, and by hand (Actions tab, Checks, Run workflow).
+# Three jobs run side by side:
+#   Engine:  index.html rebuilds from src/ byte for byte, the self-tests, the engine stress suite.
+#   Browser: the browser suite in Chromium, with the Playwright version named in tests/package.json.
+#   R:       the engine stress suite again, now with R, graphicalMCP and multigrain from CRAN, so its three R checks
+#            run for real; then the cross-check scripts in R/ that need no Java.
+#
+# Safety: the workflow can only read the repository, and it uses no secrets. Each action is pinned to a full
+# commit, with its version in a comment. Pull requests from forks get a read-only token and no secrets from GitHub.
+
+name: Checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run at a time for each pull request, and for main. A newer run cancels an older one still going.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  engine:
+    name: Engine
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      # An upload to main can come in several commits a minute or two apart. Waiting lets the later commits cancel
+      # this run, so only the last commit of an upload is checked. Pull requests and runs by hand do not wait.
+      - name: Wait for the rest of an upload (changes to main only)
+        if: github.event_name == 'push'
+        run: sleep 180
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Node 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: index.html rebuilds from src/ byte for byte
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          python3 src/build.py
+          if ! cmp src/multiplicity-graph-sketchpad.html index.html; then
+            echo "::error file=index.html::index.html does not match src/. Run python3 src/build.py, then copy src/multiplicity-graph-sketchpad.html to index.html."
+            exit 1
+          fi
+          echo "index.html rebuilds from src/ byte for byte."
+
+      - name: Self-tests
+        run: node tests/runtests.js src/core.js
+
+      - name: Engine stress suite
+        run: node tests/stress.js src/core.js
+
+  browser:
+    name: Browser
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Wait for the rest of an upload (changes to main only)
+        if: github.event_name == 'push'
+        run: sleep 180
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Node 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Playwright, as named in tests/package.json
+        working-directory: tests
+        run: npm install --no-audit --no-fund --ignore-scripts
+
+      # Playwright 1.47.2 asks an old download address that forwards elsewhere. This is the current address,
+      # which serves the same Chromium build.
+      - name: Chromium and the system libraries it needs
+        working-directory: tests
+        env:
+          PLAYWRIGHT_DOWNLOAD_HOST: https://cdn.playwright.dev
+        run: npx playwright install --with-deps chromium
+
+      - name: Versions
+        working-directory: tests
+        run: |
+          npx playwright --version
+          node -e "require('playwright').chromium.launch().then(async b => { console.log('Chromium ' + b.version()); await b.close(); })"
+
+      - name: Browser suite (Chromium)
+        run: node tests/browser-stress.js index.html
+
+  r:
+    name: R
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Wait for the rest of an upload (changes to main only)
+        if: github.event_name == 'push'
+        run: sleep 180
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Node 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: R
+        uses: r-lib/actions/setup-r@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2.14.0
+        with:
+          r-version: release
+          use-public-rspm: true
+
+      # Required packages only: graphicalMCP suggests gMCP, which would need Java.
+      - name: graphicalMCP, multigrain, mvtnorm and jsonlite from CRAN
+        uses: r-lib/actions/setup-r-dependencies@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2.14.0
+        with:
+          packages: any::graphicalMCP, any::multigrain, any::mvtnorm, any::jsonlite
+          dependencies: '"hard"'
+          install-pandoc: false
+          install-quarto: false
+
+      # Without this step a failed install would let the three R checks in the stress suite pass with their note.
+      - name: Stop if a package is missing
+        run: |
+          Rscript -e 'for (p in c("graphicalMCP", "multigrain", "mvtnorm", "jsonlite")) { if (!requireNamespace(p, quietly = TRUE)) stop(p, " is not installed"); cat(p, as.character(packageVersion(p)), "\n") }'
+
+      - name: Engine stress suite, with its three R checks
+        run: node tests/stress.js src/core.js
+
+      - name: R cross-checks (graphicalMCP and mvtnorm)
+        run: |
+          failed=0
+          for f in validate-graphicalMCP.R validate-tests-graphicalMCP.R validate-templates-1.1.7.R \
+                   validate-hommel-bretz-2008.R validate-methods-check-2026-10-27.R validate-parametric-1.4.0.R; do
+            echo "::group::$f"
+            if ! Rscript "R/$f"; then
+              echo "::error file=R/$f::$f stopped with an error"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $failed
+
+      # This script prints its results and does not stop on a mismatch, so its output is checked here. Each
+      # "by hand" line must match its expected rejections, and each graphicalMCP weight difference must be at
+      # most 1e-9. Seven cases, so seven lines of each kind.
+      - name: R cross-check of entangled graphs (base R and graphicalMCP)
+        run: |
+          log="$RUNNER_TEMP/entangled.log"
+          Rscript R/validate-entangled-1.2.0.R | tee "$log"
+          awk '
+            /max \|difference\| =/ {
+              n++; v = $0; sub(/.*= */, "", v); sub(/ .*/, "", v)
+              if (v + 0 > 1e-9) { print "::error::" $0; bad = 1 }
+              next
+            }
+            / \(expected [^)]*\)$/ {
+              s++; got = $0; sub(/^[^:]*: +/, "", got); sub(/ +\(expected .*/, "", got)
+              want = $0; sub(/.*\(expected /, "", want); sub(/\)$/, "", want)
+              if (got != want) { print "::error::" $0; bad = 1 }
+            }
+            END {
+              if (s != 7 || n != 7) { print "::error::Expected 7 rejection lines and 7 weight lines, found " s " and " n; bad = 1 }
+              if (!bad) print "All 7 cases agree."
+              exit bad
+            }
+          ' "$log"
