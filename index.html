@@ -613,7 +613,7 @@ table.t td:first-child { white-space: nowrap; }
     <span>Created by Niamh Fitzgerald</span>
     <span>Bretz F, Maurer W, Brannath W, Posch M (2009). <i>Statistics in Medicine</i> 28:586&ndash;604.</span>
     <button class="ghost" id="versionBtn" title="About this version">v</button>
-    <button class="ghost" id="debugBtn" title="Run the built-in self-test">debug</button>
+    <button class="ghost" id="debugBtn" title="Run the built-in self-test">Self-test</button>
   </footer>
 </div>
 
@@ -628,8 +628,8 @@ table.t td:first-child { white-space: nowrap; }
 <script>
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.4.9';
-const APP_DATE = '2026-11-10';
+const APP_VERSION = '1.4.10';
+const APP_DATE = '2026-11-11';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
 /* The author's LinkedIn profile; the header byline and About link to it. */
@@ -1721,45 +1721,61 @@ function exportGraphicalMCPEntangled(G) {
   else s += `\n# Enter a p-value for every hypothesis to add the closed test by hand here.\n`;
   return s;
 }
+/* The Test tab's test as graphicalMCP arguments (1.4.10: shared by the Test tab export and the Power tab's R code, so
+   the two always name the same test). Returns {type} plus, for a closed test: pre (comment and correlation
+   matrices to write before the call), groups, types and corr (argument values, null when not needed), bad (the
+   known correlations do not form complete blocks, so no call can be written) and post (a comment for after the call). */
+function graphicalMCPTest(G) {
+  const t = G.test || defaultTest();
+  const out = { type: t.type, pre: '', groups: null, types: null, corr: null, bad: false, post: '' };
+  if (t.type === 'bonferroni') return out;
+  if (t.type === 'simes') out.types = '"simes"';
+  else if (t.type === 'simes-groups') {
+    const groups = [...new Set(G.nodes.map(n => n.group).filter(Boolean))];
+    const gl = groups.map(g => `c(${G.nodes.map((n, i) => (n.group === g ? i + 1 : null)).filter(Boolean).join(', ')})`);
+    const rest = G.nodes.map((n, i) => (n.group ? null : i + 1)).filter(Boolean);
+    const types = groups.map(() => '"simes"');
+    if (rest.length) { gl.push(`c(${rest.join(', ')})`); types.push('"bonferroni"'); }
+    out.pre = `\n# NOTE: graphicalMCP applies the weighted Simes test within each test group and combines the\n# groups by Bonferroni (Bretz et al. 2011, eq. 8; Lu 2016). The Sketchpad's "Simes within groups"\n# follows gMCP's simes.on.subsets.test instead: Simes only when every hypothesis of an intersection\n# is in one group, plain Bonferroni otherwise. graphicalMCP's test is at least as powerful, so it can\n# reject more than the Sketchpad; the two agree whenever every intersection lies within one group.\n`;
+    out.groups = `list(${gl.join(', ')})`; out.types = `c(${types.join(', ')})`;
+  } else {
+    /* graphicalMCP wants one parametric test group per block of known correlations, each with its own
+       (complete) correlation matrix, and Bonferroni for the hypotheses whose correlations are unknown. */
+    const corrAt = (i, j) => { const a = G.nodes[i].id, b = G.nodes[j].id; const v = t.corr[a < b ? a + '|' + b : b + '|' + a]; return v == null ? null : v; };
+    let blocks;
+    try { blocks = corrBlocks(G.nodes.map((_, i) => i), corrAt); } catch (e) { blocks = null; }
+    if (!blocks) { out.bad = true; out.pre = `\n# The known correlations do not form complete blocks, so no test call can be written. Fix the correlation matrix in the Test tab.\n`; }
+    else {
+      const para = blocks.filter(b => b.length > 1), single = blocks.filter(b => b.length === 1).map(b => b[0]);
+      const gl = [], types = [], corrs = [];
+      para.forEach((b, k) => {
+        gl.push(`c(${b.map(i => i + 1).join(', ')})`); types.push('"parametric"');
+        const rows = b.map(i => '  ' + b.map(j => (i === j ? '1' : String(corrAt(i, j)))).join(', '));
+        out.pre += `\n# Correlation of the test statistics for ${b.map(i => G.nodes[i].label).join(', ')} (one-sided tests, multivariate normal)\ncorr_${k + 1} <- matrix(c(\n${rows.join(',\n')}\n), nrow = ${b.length}, byrow = TRUE)\n`;
+        corrs.push(`corr_${k + 1}`);
+      });
+      if (single.length) { gl.push(`c(${single.map(i => i + 1).join(', ')})`); types.push('"bonferroni"'); corrs.push('NA'); }
+      out.pre += `\n# Parametric test within each block of known correlations, Bonferroni between blocks (Xi et al. 2017)\n`;
+      out.groups = `list(${gl.join(', ')})`; out.types = `c(${types.join(', ')})`; out.corr = `list(${corrs.join(', ')})`;
+    }
+  }
+  if (t.upscale) out.post = `# The Sketchpad's "upscale" option (gMCP upscale = TRUE) has no graphicalMCP equivalent; results differ\n# for intersections whose weights sum to less than 1.\n`;
+  return out;
+}
 function exportGraphicalMCP(G) {
   if (isEntangled(G)) return exportGraphicalMCPEntangled(G);
   const m = G.nodes.length;
   const rows = matrixRows(G, rNum).map(r => '    ' + r.join(', '));
   const pv = pVector(G);
   let s = `# Written by Multiplicity Graph Sketchpad ${APP_VERSION}\nlibrary(graphicalMCP)\n${varsComment(G)}\ngraph <- graph_create(\n  hypotheses = c(${G.nodes.map(n => rNum(n.w)).join(', ')}),\n  transitions = matrix(c(\n${rows.join(',\n')}\n  ), nrow = ${m}, byrow = TRUE),\n  hyp_names = c(${G.nodes.map(n => rStr(n.label)).join(', ')})\n)\ngraph\n`;
-  const t = G.test || defaultTest();
+  const x = graphicalMCPTest(G), call = `graph_test_closure(graph, p = ${pv}, alpha = ${fmtNum(G.alpha, 12)}`;
   if (pv) {
-    if (t.type === 'bonferroni') s += `\ngraph_test_shortcut(graph, p = ${pv}, alpha = ${fmtNum(G.alpha, 12)})\n`;
-    else if (t.type === 'simes') s += `\ngraph_test_closure(graph, p = ${pv}, alpha = ${fmtNum(G.alpha, 12)}, test_types = "simes")\n`;
-    else if (t.type === 'simes-groups') {
-      const groups = [...new Set(G.nodes.map(n => n.group).filter(Boolean))];
-      const gl = groups.map(g => `c(${G.nodes.map((n, i) => (n.group === g ? i + 1 : null)).filter(Boolean).join(', ')})`);
-      const rest = G.nodes.map((n, i) => (n.group ? null : i + 1)).filter(Boolean);
-      const types = groups.map(() => '"simes"');
-      if (rest.length) { gl.push(`c(${rest.join(', ')})`); types.push('"bonferroni"'); }
-      s += `\n# NOTE: graphicalMCP applies the weighted Simes test within each test group and combines the\n# groups by Bonferroni (Bretz et al. 2011, eq. 8; Lu 2016). The Sketchpad's "Simes within groups"\n# follows gMCP's simes.on.subsets.test instead: Simes only when every hypothesis of an intersection\n# is in one group, plain Bonferroni otherwise. graphicalMCP's test is at least as powerful, so it can\n# reject more than the Sketchpad; the two agree whenever every intersection lies within one group.\ngraph_test_closure(graph, p = ${pv}, alpha = ${fmtNum(G.alpha, 12)},\n  test_groups = list(${gl.join(', ')}), test_types = c(${types.join(', ')}))\n`;
-    } else {
-      /* graphicalMCP wants one parametric test group per block of known correlations, each with its own
-         (complete) correlation matrix, and Bonferroni for the hypotheses whose correlations are unknown. */
-      const tt = G.test || defaultTest();
-      const corrAt = (i, j) => { const a = G.nodes[i].id, b = G.nodes[j].id; const v = tt.corr[a < b ? a + '|' + b : b + '|' + a]; return v == null ? null : v; };
-      let blocks;
-      try { blocks = corrBlocks(G.nodes.map((_, i) => i), corrAt); } catch (e) { blocks = null; }
-      if (!blocks) s += `\n# The known correlations do not form complete blocks, so no test call can be written. Fix the correlation matrix in the Test tab.\n`;
-      else {
-        const para = blocks.filter(b => b.length > 1), single = blocks.filter(b => b.length === 1).map(b => b[0]);
-        const gl = [], types = [], corrs = [];
-        para.forEach((b, k) => {
-          gl.push(`c(${b.map(i => i + 1).join(', ')})`); types.push('"parametric"');
-          const rows = b.map(i => '  ' + b.map(j => (i === j ? '1' : String(corrAt(i, j)))).join(', '));
-          s += `\n# Correlation of the test statistics for ${b.map(i => G.nodes[i].label).join(', ')} (one-sided tests, multivariate normal)\ncorr_${k + 1} <- matrix(c(\n${rows.join(',\n')}\n), nrow = ${b.length}, byrow = TRUE)\n`;
-          corrs.push(`corr_${k + 1}`);
-        });
-        if (single.length) { gl.push(`c(${single.map(i => i + 1).join(', ')})`); types.push('"bonferroni"'); corrs.push('NA'); }
-        s += `\n# Parametric test within each block of known correlations, Bonferroni between blocks (Xi et al. 2017)\ngraph_test_closure(graph, p = ${pv}, alpha = ${fmtNum(G.alpha, 12)},\n  test_groups = list(${gl.join(', ')}),\n  test_types = c(${types.join(', ')}),\n  test_corr = list(${corrs.join(', ')}))\n`;
-      }
-    }
-    if (t.upscale && t.type !== 'bonferroni') s += `# The Sketchpad's "upscale" option (gMCP upscale = TRUE) has no graphicalMCP equivalent; results differ\n# for intersections whose weights sum to less than 1.\n`;
+    if (x.type === 'bonferroni') s += `\ngraph_test_shortcut(graph, p = ${pv}, alpha = ${fmtNum(G.alpha, 12)})\n`;
+    else if (x.type === 'simes') s += `\n${call}, test_types = ${x.types})\n`;
+    else if (x.type === 'simes-groups') s += `${x.pre}${call},\n  test_groups = ${x.groups}, test_types = ${x.types})\n`;
+    else if (x.bad) s += x.pre;
+    else s += `${x.pre}${call},\n  test_groups = ${x.groups},\n  test_types = ${x.types},\n  test_corr = ${x.corr})\n`;
+    s += x.post;
   } else s += `\n# Enter a p-value for every hypothesis to add the test call here.\n`;
   return s;
 }
@@ -7618,16 +7634,36 @@ function renderPowerPanel() {
 function powerRCode() {
   const m = G.nodes.length;
   const rows = G.nodes.map(a => '    ' + G.nodes.map(b => (a.id === b.id ? '1' : String(Number(corrOf(a.id, b.id))))).join(', ')).join(',\n');
+  /* 1.4.10: the success rule ("Define success") as a named R function of one simulated trial's rejections, in the
+     order of the graph: graphicalMCP's sim_success and gMCP's f take a list of these */
+  const ids = G.nodes.map(n => n.id), sIdx = SIM.success.ids.map(id => ids.indexOf(id)).filter(i => i >= 0);
+  let sName = '', sFn = '';
+  if (sIdx.length) {
+    const rule = SIM.success.rule === 'all' ? 'all' : 'any';
+    sName = `${rule} of ${sIdx.map(i => G.nodes[i].label).join(', ')}`;
+    sFn = `list(${rStr(sName)} = function(x) ${rule}(x[${sIdx.length > 1 ? `c(${sIdx.map(i => i + 1).join(', ')})` : String(sIdx[0] + 1)}]))`;
+  }
   if (isEntangled(G)) {
     /* gMCP's calcPower (graphicalMCP has no entangled graph): z ~ N(mean, corr.sim), p = 1 - pnorm(z), tested with the
        Bonferroni shortcut of graphTest(); for an entangled graph alpha is the vector of partial levels alpha * c. */
     const base = exportGMCP(G).split('\ngraph\n')[0];
     const mean = G.nodes.map(n => fmtNum(qnorm(1 - G.alpha) + qnorm(Number(simPower(n.id)) / 100), 6)).join(', ');
-    return `${base}\n\n# Bonferroni power with gMCP's calcPower(): z ~ N(mean, corr.sim) and p = 1 - pnorm(z), one-sided.\n# mean = qnorm(1 - alpha) + qnorm(power) gives each hypothesis its marginal power at level alpha.\n# gMCP rejects when p < level (strict); the Sketchpad uses p <= level. The closed tests of the Sketchpad\n# (Simes, parametric) have no calcPower() equivalent for an entangled graph.\nset.seed(2009)\ncalcPower(weights = getWeights(graph), alpha = ${fmtNum(G.alpha, 12)} * graph@weights, G = getMatrices(graph),\n  mean = c(${mean}),\n  corr.sim = matrix(c(\n${rows}\n  ), nrow = ${m}, byrow = TRUE),\n  n.sim = 1e5)\n`;
+    /* 1.4.10: say so when the Power tab is simulating a closed test, since these are Bonferroni numbers */
+    const closedNote = isBonf() ? '' : `# The Power tab is using the ${{ simes: 'weighted Simes', 'simes-groups': 'Simes within groups', parametric: 'parametric' }[testType()]} closed test, so its numbers can be higher than these.\n`;
+    const gSucc = sFn ? `\n# Success as defined in the Power tab: ${sName}. Each function in f gets one simulated\n# trial's results (1 for a rejected hypothesis, in the order of the graph).\n` : '';
+    return `${base}\n\n# Bonferroni power with gMCP's calcPower(): z ~ N(mean, corr.sim) and p = 1 - pnorm(z), one-sided.\n# mean = qnorm(1 - alpha) + qnorm(power) gives each hypothesis its marginal power at level alpha.\n# gMCP rejects when p < level (strict); the Sketchpad uses p <= level. The closed tests of the Sketchpad\n# (Simes, parametric) have no calcPower() equivalent for an entangled graph.\n${closedNote}${gSucc}set.seed(2009)\ncalcPower(weights = getWeights(graph), alpha = ${fmtNum(G.alpha, 12)} * graph@weights, G = getMatrices(graph),\n  mean = c(${mean}),\n  corr.sim = matrix(c(\n${rows}\n  ), nrow = ${m}, byrow = TRUE),\n  n.sim = 1e5${sFn ? `,\n  f = ${sFn}` : ''})\n`;
   }
   const base = exportGraphicalMCP(G).split('\ngraph\n')[0];
   const pm = G.nodes.map(n => fmtNum(Number(simPower(n.id)) / 100, 6)).join(', ');
-  return `${base}\n\nset.seed(2009)\ngraph_calculate_power(\n  graph,\n  alpha = ${fmtNum(G.alpha, 12)},\n  power_marginal = c(${pm}),\n  sim_corr = matrix(c(\n${rows}\n  ), nrow = ${m}, byrow = TRUE),\n  sim_n = 1e5\n)\n`;
+  /* 1.4.10: the test chosen in the Test tab (the same arguments as the Test tab export) and the success rule. The test
+     correlations come from the Test tab, as there; sim_corr is the Power tab's. */
+  const x = graphicalMCPTest(G);
+  if (x.bad) return `${base}\n\n# The known correlations in the Test tab do not form complete blocks, so no power call can be written.\n# Fix the correlation matrix in the Test tab.\n`;
+  const succ = sFn ? `# Success as defined in the Power tab: ${sName}. Each sim_success function gets one simulated\n# trial's results (TRUE for a rejected hypothesis, in the order of the graph).\n` : '';
+  const succArg = sFn ? `,\n  sim_success = ${sFn}` : '';
+  const test = x.type === 'bonferroni' ? '' : `${x.groups ? `  test_groups = ${x.groups},\n` : ''}  test_types = ${x.types},\n${x.corr ? `  test_corr = ${x.corr},\n` : ''}`;
+  const lead = x.pre + (succ ? '\n' + succ : '');
+  return `${base}\n${lead || '\n'}set.seed(2009)\ngraph_calculate_power(\n  graph,\n  alpha = ${fmtNum(G.alpha, 12)},\n  power_marginal = c(${pm}),\n${test}  sim_corr = matrix(c(\n${rows}\n  ), nrow = ${m}, byrow = TRUE),\n  sim_n = 1e5${succArg}\n)\n${x.post}`;
 }
 function runSim() {
   if (SIM.running || hasErrors()) return;
