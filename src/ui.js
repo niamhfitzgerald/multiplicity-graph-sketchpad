@@ -1754,16 +1754,36 @@ function renderPowerPanel() {
 function powerRCode() {
   const m = G.nodes.length;
   const rows = G.nodes.map(a => '    ' + G.nodes.map(b => (a.id === b.id ? '1' : String(Number(corrOf(a.id, b.id))))).join(', ')).join(',\n');
+  /* 1.4.10: the success rule ("Define success") as a named R function of one simulated trial's rejections, in the
+     order of the graph: graphicalMCP's sim_success and gMCP's f take a list of these */
+  const ids = G.nodes.map(n => n.id), sIdx = SIM.success.ids.map(id => ids.indexOf(id)).filter(i => i >= 0);
+  let sName = '', sFn = '';
+  if (sIdx.length) {
+    const rule = SIM.success.rule === 'all' ? 'all' : 'any';
+    sName = `${rule} of ${sIdx.map(i => G.nodes[i].label).join(', ')}`;
+    sFn = `list(${rStr(sName)} = function(x) ${rule}(x[${sIdx.length > 1 ? `c(${sIdx.map(i => i + 1).join(', ')})` : String(sIdx[0] + 1)}]))`;
+  }
   if (isEntangled(G)) {
     /* gMCP's calcPower (graphicalMCP has no entangled graph): z ~ N(mean, corr.sim), p = 1 - pnorm(z), tested with the
        Bonferroni shortcut of graphTest(); for an entangled graph alpha is the vector of partial levels alpha * c. */
     const base = exportGMCP(G).split('\ngraph\n')[0];
     const mean = G.nodes.map(n => fmtNum(qnorm(1 - G.alpha) + qnorm(Number(simPower(n.id)) / 100), 6)).join(', ');
-    return `${base}\n\n# Bonferroni power with gMCP's calcPower(): z ~ N(mean, corr.sim) and p = 1 - pnorm(z), one-sided.\n# mean = qnorm(1 - alpha) + qnorm(power) gives each hypothesis its marginal power at level alpha.\n# gMCP rejects when p < level (strict); the Sketchpad uses p <= level. The closed tests of the Sketchpad\n# (Simes, parametric) have no calcPower() equivalent for an entangled graph.\nset.seed(2009)\ncalcPower(weights = getWeights(graph), alpha = ${fmtNum(G.alpha, 12)} * graph@weights, G = getMatrices(graph),\n  mean = c(${mean}),\n  corr.sim = matrix(c(\n${rows}\n  ), nrow = ${m}, byrow = TRUE),\n  n.sim = 1e5)\n`;
+    /* 1.4.10: say so when the Power tab is simulating a closed test, since these are Bonferroni numbers */
+    const closedNote = isBonf() ? '' : `# The Power tab is using the ${{ simes: 'weighted Simes', 'simes-groups': 'Simes within groups', parametric: 'parametric' }[testType()]} closed test, so its numbers can be higher than these.\n`;
+    const gSucc = sFn ? `\n# Success as defined in the Power tab: ${sName}. Each function in f gets one simulated\n# trial's results (1 for a rejected hypothesis, in the order of the graph).\n` : '';
+    return `${base}\n\n# Bonferroni power with gMCP's calcPower(): z ~ N(mean, corr.sim) and p = 1 - pnorm(z), one-sided.\n# mean = qnorm(1 - alpha) + qnorm(power) gives each hypothesis its marginal power at level alpha.\n# gMCP rejects when p < level (strict); the Sketchpad uses p <= level. The closed tests of the Sketchpad\n# (Simes, parametric) have no calcPower() equivalent for an entangled graph.\n${closedNote}${gSucc}set.seed(2009)\ncalcPower(weights = getWeights(graph), alpha = ${fmtNum(G.alpha, 12)} * graph@weights, G = getMatrices(graph),\n  mean = c(${mean}),\n  corr.sim = matrix(c(\n${rows}\n  ), nrow = ${m}, byrow = TRUE),\n  n.sim = 1e5${sFn ? `,\n  f = ${sFn}` : ''})\n`;
   }
   const base = exportGraphicalMCP(G).split('\ngraph\n')[0];
   const pm = G.nodes.map(n => fmtNum(Number(simPower(n.id)) / 100, 6)).join(', ');
-  return `${base}\n\nset.seed(2009)\ngraph_calculate_power(\n  graph,\n  alpha = ${fmtNum(G.alpha, 12)},\n  power_marginal = c(${pm}),\n  sim_corr = matrix(c(\n${rows}\n  ), nrow = ${m}, byrow = TRUE),\n  sim_n = 1e5\n)\n`;
+  /* 1.4.10: the test chosen in the Test tab (the same arguments as the Test tab export) and the success rule. The test
+     correlations come from the Test tab, as there; sim_corr is the Power tab's. */
+  const x = graphicalMCPTest(G);
+  if (x.bad) return `${base}\n\n# The known correlations in the Test tab do not form complete blocks, so no power call can be written.\n# Fix the correlation matrix in the Test tab.\n`;
+  const succ = sFn ? `# Success as defined in the Power tab: ${sName}. Each sim_success function gets one simulated\n# trial's results (TRUE for a rejected hypothesis, in the order of the graph).\n` : '';
+  const succArg = sFn ? `,\n  sim_success = ${sFn}` : '';
+  const test = x.type === 'bonferroni' ? '' : `${x.groups ? `  test_groups = ${x.groups},\n` : ''}  test_types = ${x.types},\n${x.corr ? `  test_corr = ${x.corr},\n` : ''}`;
+  const lead = x.pre + (succ ? '\n' + succ : '');
+  return `${base}\n${lead || '\n'}set.seed(2009)\ngraph_calculate_power(\n  graph,\n  alpha = ${fmtNum(G.alpha, 12)},\n  power_marginal = c(${pm}),\n${test}  sim_corr = matrix(c(\n${rows}\n  ), nrow = ${m}, byrow = TRUE),\n  sim_n = 1e5${succArg}\n)\n${x.post}`;
 }
 function runSim() {
   if (SIM.running || hasErrors()) return;

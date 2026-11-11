@@ -1,7 +1,7 @@
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.4.9';
-const APP_DATE = '2026-11-10';
+const APP_VERSION = '1.4.10';
+const APP_DATE = '2026-11-11';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
 /* The author's LinkedIn profile; the header byline and About link to it. */
@@ -1093,45 +1093,61 @@ function exportGraphicalMCPEntangled(G) {
   else s += `\n# Enter a p-value for every hypothesis to add the closed test by hand here.\n`;
   return s;
 }
+/* The Test tab's test as graphicalMCP arguments (1.4.10: shared by the Test tab export and the Power tab's R code, so
+   the two always name the same test). Returns {type} plus, for a closed test: pre (comment and correlation
+   matrices to write before the call), groups, types and corr (argument values, null when not needed), bad (the
+   known correlations do not form complete blocks, so no call can be written) and post (a comment for after the call). */
+function graphicalMCPTest(G) {
+  const t = G.test || defaultTest();
+  const out = { type: t.type, pre: '', groups: null, types: null, corr: null, bad: false, post: '' };
+  if (t.type === 'bonferroni') return out;
+  if (t.type === 'simes') out.types = '"simes"';
+  else if (t.type === 'simes-groups') {
+    const groups = [...new Set(G.nodes.map(n => n.group).filter(Boolean))];
+    const gl = groups.map(g => `c(${G.nodes.map((n, i) => (n.group === g ? i + 1 : null)).filter(Boolean).join(', ')})`);
+    const rest = G.nodes.map((n, i) => (n.group ? null : i + 1)).filter(Boolean);
+    const types = groups.map(() => '"simes"');
+    if (rest.length) { gl.push(`c(${rest.join(', ')})`); types.push('"bonferroni"'); }
+    out.pre = `\n# NOTE: graphicalMCP applies the weighted Simes test within each test group and combines the\n# groups by Bonferroni (Bretz et al. 2011, eq. 8; Lu 2016). The Sketchpad's "Simes within groups"\n# follows gMCP's simes.on.subsets.test instead: Simes only when every hypothesis of an intersection\n# is in one group, plain Bonferroni otherwise. graphicalMCP's test is at least as powerful, so it can\n# reject more than the Sketchpad; the two agree whenever every intersection lies within one group.\n`;
+    out.groups = `list(${gl.join(', ')})`; out.types = `c(${types.join(', ')})`;
+  } else {
+    /* graphicalMCP wants one parametric test group per block of known correlations, each with its own
+       (complete) correlation matrix, and Bonferroni for the hypotheses whose correlations are unknown. */
+    const corrAt = (i, j) => { const a = G.nodes[i].id, b = G.nodes[j].id; const v = t.corr[a < b ? a + '|' + b : b + '|' + a]; return v == null ? null : v; };
+    let blocks;
+    try { blocks = corrBlocks(G.nodes.map((_, i) => i), corrAt); } catch (e) { blocks = null; }
+    if (!blocks) { out.bad = true; out.pre = `\n# The known correlations do not form complete blocks, so no test call can be written. Fix the correlation matrix in the Test tab.\n`; }
+    else {
+      const para = blocks.filter(b => b.length > 1), single = blocks.filter(b => b.length === 1).map(b => b[0]);
+      const gl = [], types = [], corrs = [];
+      para.forEach((b, k) => {
+        gl.push(`c(${b.map(i => i + 1).join(', ')})`); types.push('"parametric"');
+        const rows = b.map(i => '  ' + b.map(j => (i === j ? '1' : String(corrAt(i, j)))).join(', '));
+        out.pre += `\n# Correlation of the test statistics for ${b.map(i => G.nodes[i].label).join(', ')} (one-sided tests, multivariate normal)\ncorr_${k + 1} <- matrix(c(\n${rows.join(',\n')}\n), nrow = ${b.length}, byrow = TRUE)\n`;
+        corrs.push(`corr_${k + 1}`);
+      });
+      if (single.length) { gl.push(`c(${single.map(i => i + 1).join(', ')})`); types.push('"bonferroni"'); corrs.push('NA'); }
+      out.pre += `\n# Parametric test within each block of known correlations, Bonferroni between blocks (Xi et al. 2017)\n`;
+      out.groups = `list(${gl.join(', ')})`; out.types = `c(${types.join(', ')})`; out.corr = `list(${corrs.join(', ')})`;
+    }
+  }
+  if (t.upscale) out.post = `# The Sketchpad's "upscale" option (gMCP upscale = TRUE) has no graphicalMCP equivalent; results differ\n# for intersections whose weights sum to less than 1.\n`;
+  return out;
+}
 function exportGraphicalMCP(G) {
   if (isEntangled(G)) return exportGraphicalMCPEntangled(G);
   const m = G.nodes.length;
   const rows = matrixRows(G, rNum).map(r => '    ' + r.join(', '));
   const pv = pVector(G);
   let s = `# Written by Multiplicity Graph Sketchpad ${APP_VERSION}\nlibrary(graphicalMCP)\n${varsComment(G)}\ngraph <- graph_create(\n  hypotheses = c(${G.nodes.map(n => rNum(n.w)).join(', ')}),\n  transitions = matrix(c(\n${rows.join(',\n')}\n  ), nrow = ${m}, byrow = TRUE),\n  hyp_names = c(${G.nodes.map(n => rStr(n.label)).join(', ')})\n)\ngraph\n`;
-  const t = G.test || defaultTest();
+  const x = graphicalMCPTest(G), call = `graph_test_closure(graph, p = ${pv}, alpha = ${fmtNum(G.alpha, 12)}`;
   if (pv) {
-    if (t.type === 'bonferroni') s += `\ngraph_test_shortcut(graph, p = ${pv}, alpha = ${fmtNum(G.alpha, 12)})\n`;
-    else if (t.type === 'simes') s += `\ngraph_test_closure(graph, p = ${pv}, alpha = ${fmtNum(G.alpha, 12)}, test_types = "simes")\n`;
-    else if (t.type === 'simes-groups') {
-      const groups = [...new Set(G.nodes.map(n => n.group).filter(Boolean))];
-      const gl = groups.map(g => `c(${G.nodes.map((n, i) => (n.group === g ? i + 1 : null)).filter(Boolean).join(', ')})`);
-      const rest = G.nodes.map((n, i) => (n.group ? null : i + 1)).filter(Boolean);
-      const types = groups.map(() => '"simes"');
-      if (rest.length) { gl.push(`c(${rest.join(', ')})`); types.push('"bonferroni"'); }
-      s += `\n# NOTE: graphicalMCP applies the weighted Simes test within each test group and combines the\n# groups by Bonferroni (Bretz et al. 2011, eq. 8; Lu 2016). The Sketchpad's "Simes within groups"\n# follows gMCP's simes.on.subsets.test instead: Simes only when every hypothesis of an intersection\n# is in one group, plain Bonferroni otherwise. graphicalMCP's test is at least as powerful, so it can\n# reject more than the Sketchpad; the two agree whenever every intersection lies within one group.\ngraph_test_closure(graph, p = ${pv}, alpha = ${fmtNum(G.alpha, 12)},\n  test_groups = list(${gl.join(', ')}), test_types = c(${types.join(', ')}))\n`;
-    } else {
-      /* graphicalMCP wants one parametric test group per block of known correlations, each with its own
-         (complete) correlation matrix, and Bonferroni for the hypotheses whose correlations are unknown. */
-      const tt = G.test || defaultTest();
-      const corrAt = (i, j) => { const a = G.nodes[i].id, b = G.nodes[j].id; const v = tt.corr[a < b ? a + '|' + b : b + '|' + a]; return v == null ? null : v; };
-      let blocks;
-      try { blocks = corrBlocks(G.nodes.map((_, i) => i), corrAt); } catch (e) { blocks = null; }
-      if (!blocks) s += `\n# The known correlations do not form complete blocks, so no test call can be written. Fix the correlation matrix in the Test tab.\n`;
-      else {
-        const para = blocks.filter(b => b.length > 1), single = blocks.filter(b => b.length === 1).map(b => b[0]);
-        const gl = [], types = [], corrs = [];
-        para.forEach((b, k) => {
-          gl.push(`c(${b.map(i => i + 1).join(', ')})`); types.push('"parametric"');
-          const rows = b.map(i => '  ' + b.map(j => (i === j ? '1' : String(corrAt(i, j)))).join(', '));
-          s += `\n# Correlation of the test statistics for ${b.map(i => G.nodes[i].label).join(', ')} (one-sided tests, multivariate normal)\ncorr_${k + 1} <- matrix(c(\n${rows.join(',\n')}\n), nrow = ${b.length}, byrow = TRUE)\n`;
-          corrs.push(`corr_${k + 1}`);
-        });
-        if (single.length) { gl.push(`c(${single.map(i => i + 1).join(', ')})`); types.push('"bonferroni"'); corrs.push('NA'); }
-        s += `\n# Parametric test within each block of known correlations, Bonferroni between blocks (Xi et al. 2017)\ngraph_test_closure(graph, p = ${pv}, alpha = ${fmtNum(G.alpha, 12)},\n  test_groups = list(${gl.join(', ')}),\n  test_types = c(${types.join(', ')}),\n  test_corr = list(${corrs.join(', ')}))\n`;
-      }
-    }
-    if (t.upscale && t.type !== 'bonferroni') s += `# The Sketchpad's "upscale" option (gMCP upscale = TRUE) has no graphicalMCP equivalent; results differ\n# for intersections whose weights sum to less than 1.\n`;
+    if (x.type === 'bonferroni') s += `\ngraph_test_shortcut(graph, p = ${pv}, alpha = ${fmtNum(G.alpha, 12)})\n`;
+    else if (x.type === 'simes') s += `\n${call}, test_types = ${x.types})\n`;
+    else if (x.type === 'simes-groups') s += `${x.pre}${call},\n  test_groups = ${x.groups}, test_types = ${x.types})\n`;
+    else if (x.bad) s += x.pre;
+    else s += `${x.pre}${call},\n  test_groups = ${x.groups},\n  test_types = ${x.types},\n  test_corr = ${x.corr})\n`;
+    s += x.post;
   } else s += `\n# Enter a p-value for every hypothesis to add the test call here.\n`;
   return s;
 }
