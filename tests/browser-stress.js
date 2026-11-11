@@ -684,7 +684,7 @@ async function step(name, fn) {
     if (await ev(() => presenting)) return 'esc did not exit';
   });
 
-  await step('Help modal, self-test modal (More menu and debug button), close with Esc and backdrop', async () => {
+  await step('Help modal, self-test modal (More menu and Self-test button), close with Esc and backdrop', async () => {
     await page.click('#helpBtn'); await sleep(50);
     if (await page.locator('#modal').isHidden()) return 'help modal';
     if (!/What the guarantee rests on/.test(await page.locator('#modalBody').innerText())) return 'guarantee section missing';
@@ -694,6 +694,8 @@ async function step(name, fn) {
     await page.click('#moreMenu summary'); await page.click('#selftestBtn'); await sleep(3000);
     const st = await page.locator('#modalBody p').first().innerText(); const mm = /(\d+) of (\d+) checks passed/.exec(st); if (!mm || mm[1] !== mm[2] || +mm[2] < 110) return 'self-test: ' + st;
     await page.click('#modalClose');
+    /* 1.4.10: the footer button reads "Self-test" (it read "debug" up to 1.4.9) */
+    const fb = (await page.locator('#debugBtn').innerText()).trim(); if (fb !== 'Self-test') return 'footer button: ' + fb;
   });
 
   await step('Share link in the URL hash loads the graph; hashchange swaps it; bad hash falls back', async () => {
@@ -2086,6 +2088,90 @@ async function step(name, fn) {
       }
       await c.close();
     }
+    if (out) return out;
+  });
+
+  /* 1.4.10: up to 1.4.9 the Power tab's R code always gave Bonferroni power (graphicalMCP's default test_types) and left
+     out the success rule, whatever the Test tab and "Define success" said. */
+  await step('Power tab R code (1.4.10): it names the Test tab\'s test, groups and correlations, carries the success rule, is unchanged for Bonferroni, and for an entangled graph says when the tab runs a closed test', async () => {
+    const { c, p } = await page144();
+    const v = await p.evaluate(() => APP_VERSION);
+    const rCode = async () => { await p.click('#tabbtn-power'); await p.waitForTimeout(80); if (!(await p.evaluate(() => $('det-simr').open))) { await p.locator('#det-simr summary').click(); await p.waitForTimeout(60); } return p.locator('#simRCode').innerText(); };
+    const setTest = async (type, upscale) => {
+      await p.click('#tabbtn-test'); await p.waitForTimeout(80);
+      if (!(await p.evaluate(() => $('det-testtype').open))) { await p.locator('#det-testtype summary').click(); await p.waitForTimeout(60); }
+      await p.selectOption('#testType', type); await p.waitForTimeout(100);
+      if (upscale != null && (await p.isChecked('#upscaleToggle')) !== upscale) { await p.click('#upscaleToggle'); await p.waitForTimeout(80); }
+    };
+    const gmcp = () => p.evaluate(() => exportGraphicalMCP(G));
+    const head = `# Written by Multiplicity Graph Sketchpad ${v}\nlibrary(graphicalMCP)\n\ngraph <- graph_create(\n  hypotheses = c(1/2, 1/2, 0, 0),\n  transitions = matrix(c(\n    0, 1/2, 1/2, 0,\n    1/2, 0, 0, 1/2,\n    0, 1, 0, 0,\n    1, 0, 0, 0\n  ), nrow = 4, byrow = TRUE),\n  hyp_names = c("H1", "H2", "H3", "H4")\n)\n`;
+    const simCorr = '  sim_corr = matrix(c(\n    1, 0.5, 0.5, 0.5,\n    0.5, 1, 0.5, 0.5,\n    0.5, 0.5, 1, 0.5,\n    0.5, 0.5, 0.5, 1\n  ), nrow = 4, byrow = TRUE),\n';
+    const call = test => `set.seed(2009)\ngraph_calculate_power(\n  graph,\n  alpha = 0.025,\n  power_marginal = c(0.8, 0.8, 0.8, 0.8),\n${test}${simCorr}  sim_n = 1e5\n)\n`;
+    let out = '';
+    /* a: Bonferroni, no success rule: the 1.4.9 text, word for word */
+    let code = await rCode();
+    if (code.trim() !== (head + '\n' + call('')).trim()) out += `a (Bonferroni) changed:\n${code}\n`;
+    /* b: weighted Simes */
+    await setTest('simes', false); code = await rCode();
+    if (code.trim() !== (head + '\n' + call('  test_types = "simes",\n')).trim()) out += `b (weighted Simes):\n${code}\n`;
+    if (!/test_types = "simes"\)/.test(await gmcp())) out += 'b: the Test tab export does not name the same test. ';
+    /* f: upscale with a closed test: the Test tab export's comment after the call */
+    await setTest('simes', true); code = await rCode();
+    if (!code.trim().endsWith('  sim_n = 1e5\n)\n# The Sketchpad\'s "upscale" option (gMCP upscale = TRUE) has no graphicalMCP equivalent; results differ\n# for intersections whose weights sum to less than 1.')) out += `f (upscale): ${code.slice(-260)}\n`;
+    await setTest('simes', false);
+    /* c: Simes within groups, with the Test tab export's NOTE */
+    await p.evaluate(() => { G.nodes.forEach((n, i) => { n.group = i < 2 ? 'Primary' : 'Secondary'; }); afterChange(); });
+    await setTest('simes-groups'); code = await rCode();
+    const note = '# NOTE: graphicalMCP applies the weighted Simes test within each test group and combines the\n';
+    if (!code.includes(note) || !code.includes(call('  test_groups = list(c(1, 2), c(3, 4)),\n  test_types = c("simes", "simes"),\n'))) out += `c (Simes within groups):\n${code}\n`;
+    if (!(await gmcp()).includes('test_groups = list(c(1, 2), c(3, 4)), test_types = c("simes", "simes"))')) out += 'c: the Test tab export names other groups. ';
+    /* c, with H3 and H4 in no group: they form a Bonferroni group, since graphicalMCP needs every hypothesis in exactly one group */
+    await p.evaluate(() => { G.nodes.forEach((n, i) => { n.group = i < 2 ? 'Primary' : ''; }); afterChange(); });
+    code = await rCode();
+    if (!code.includes(call('  test_groups = list(c(1, 2), c(3, 4)),\n  test_types = c("simes", "bonferroni"),\n'))) out += `c (H3, H4 in no group):\n${code}\n`;
+    await p.evaluate(() => { G.nodes.forEach(n => { n.group = ''; }); afterChange(); });
+    /* d: parametric, one block (H1, H2, H3) and H4 outside it; the test correlations come from the Test tab, sim_corr stays the Power tab's */
+    await setTest('parametric');
+    const ids = await p.evaluate(() => G.nodes.map(n => n.id));
+    for (const [i, j, r] of [[0, 1, '0.5'], [0, 2, '0.5'], [1, 2, '0.25']]) { const box = p.locator(`#tc-${ids[i]}-${ids[j]}`); await box.fill(r); await box.press('Tab'); await p.waitForTimeout(60); }
+    code = await rCode();
+    if (!code.includes('corr_1 <- matrix(c(\n  1, 0.5, 0.5,\n  0.5, 1, 0.25,\n  0.5, 0.25, 1\n), nrow = 3, byrow = TRUE)\n') || !code.includes(call('  test_groups = list(c(1, 2, 3), c(4)),\n  test_types = c("parametric", "bonferroni"),\n  test_corr = list(corr_1, NA),\n'))) out += `d (parametric):\n${code}\n`;
+    if (!(await gmcp()).includes('  test_groups = list(c(1, 2, 3), c(4)),\n  test_types = c("parametric", "bonferroni"),\n  test_corr = list(corr_1, NA))')) out += 'd: the Test tab export names other groups or correlations. ';
+    /* d, with an incomplete block (H1-H2 and H2-H3 known, H1-H3 not): the tab will not simulate, and the code writes no call */
+    await p.click('#tabbtn-test'); await p.waitForTimeout(60); await p.click('[data-action="tc-clear"]'); await setTest('parametric');
+    for (const [i, j] of [[0, 1], [1, 2]]) { const box = p.locator(`#tc-${ids[i]}-${ids[j]}`); await box.fill('0.5'); await box.press('Tab'); await p.waitForTimeout(60); }
+    code = await rCode();
+    if (!code.includes('# The known correlations in the Test tab do not form complete blocks, so no power call can be written.') || code.includes('graph_calculate_power(')) out += `d (incomplete block):\n${code}\n`;
+    await p.click('#tabbtn-test'); await p.waitForTimeout(60); await p.click('[data-action="tc-clear"]'); await setTest('bonferroni');
+    /* e: the success rule, any and all of H1, H2 */
+    await rCode();
+    if (!(await p.evaluate(() => $('det-success').open))) { await p.locator('#det-success summary').click(); await p.waitForTimeout(60); }
+    await p.locator('[data-succ]').nth(0).check(); await p.locator('[data-succ]').nth(1).check(); await p.check('input[name="sim-rule"][value="any"]'); await p.waitForTimeout(80);
+    code = await rCode();
+    if (!code.includes('# Success as defined in the Power tab: any of H1, H2.') || !code.includes(`${simCorr}  sim_n = 1e5,\n  sim_success = list("any of H1, H2" = function(x) any(x[c(1, 2)]))\n)\n`)) out += `e (any of H1, H2):\n${code}\n`;
+    await p.check('input[name="sim-rule"][value="all"]'); await p.waitForTimeout(80);
+    code = await rCode();
+    if (!code.includes('  sim_success = list("all of H1, H2" = function(x) all(x[c(1, 2)]))\n)\n')) out += `e (all of H1, H2):\n${code}\n`;
+    /* e, one hypothesis (H3): its position in the graph, counted from 1 */
+    await p.locator('[data-succ]').nth(0).uncheck(); await p.locator('[data-succ]').nth(1).uncheck(); await p.locator('[data-succ]').nth(2).check(); await p.check('input[name="sim-rule"][value="any"]'); await p.waitForTimeout(80);
+    code = await rCode();
+    if (!code.includes('  sim_success = list("any of H3" = function(x) any(x[3]))\n)\n')) out += `e (any of H3):\n${code}\n`;
+    /* g: an entangled graph keeps gMCP's calcPower(); with a closed test chosen the code says the tab's numbers can be higher */
+    await p.evaluate(() => { SIM.success = { rule: 'any', ids: [] }; loadGraph(entangledTemplateJSON('maurerFig2')); });
+    await setTest('bonferroni'); code = await rCode();
+    if (!/calcPower\(weights = getWeights\(graph\)/.test(code) || /closed test, so its numbers/.test(code)) out += `g (Bonferroni): ${code.slice(-400)}\n`;
+    await setTest('simes'); code = await rCode();
+    if (!code.includes('# The Power tab is using the weighted Simes closed test, so its numbers can be higher than these.\nset.seed(2009)\ncalcPower(')) out += `g (weighted Simes): ${code.slice(-400)}\n`;
+    for (const [type, words] of [['simes-groups', 'Simes within groups'], ['parametric', 'parametric']]) {
+      await setTest(type); code = await rCode();
+      if (!code.includes(`# The Power tab is using the ${words} closed test, so its numbers can be higher than these.\n`)) out += `g (${words}): ${code.slice(-400)}\n`;
+    }
+    /* g with a success rule: gMCP's f argument */
+    if (!(await p.evaluate(() => $('det-success').open))) { await p.locator('#det-success summary').click(); await p.waitForTimeout(60); }
+    await p.locator('[data-succ]').nth(0).check(); await p.locator('[data-succ]').nth(1).check(); await p.check('input[name="sim-rule"][value="all"]'); await p.waitForTimeout(80);
+    code = await rCode();
+    if (!code.includes('# Success as defined in the Power tab: all of H1, H2. Each function in f gets one simulated\n') || !code.includes('  n.sim = 1e5,\n  f = list("all of H1, H2" = function(x) all(x[c(1, 2)])))\n')) out += `g (all of H1, H2): ${code.slice(-500)}\n`;
+    await c.close();
     if (out) return out;
   });
 
