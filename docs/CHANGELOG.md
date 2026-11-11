@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.10 (2026-11-11)
+
+The Power tab's R code now matches the test the tab simulates, and a footer button has a clearer name.
+
+- Power tab, "Check it in R with graphicalMCP": the code now passes the test chosen in the Test tab to `graph_calculate_power()`. It uses the same test groups, test types and correlation matrices as the Test tab's graphicalMCP export, and the Power tab's correlations for the simulation. It also passes the success rule from "Define success" as `sim_success`. Up to 1.4.9 the code always used graphicalMCP's default, the Bonferroni test, and left out the success rule. So with weighted Simes, Simes within groups or the parametric test chosen, R gave lower power than the tab showed. The numbers in the tab were right. For Simes within groups the code carries the Test tab export's note (graphicalMCP uses Bretz et al. 2011, eq. 8), and with the upscale option the Test tab export's comment. The code for a Bonferroni test with no success rule is unchanged.
+- Entangled graphs (gMCP `calcPower()`): the success rule is passed as `f`. When a closed test is chosen, a comment says the tab's numbers can be higher than the Bonferroni numbers from `calcPower()`.
+- Footer: the button labelled "debug" now reads "Self-test". It runs the same self-test as before, as does the More menu.
+- Checked in R with graphicalMCP 0.3.0 and gMCP 0.8-17. The written code was run for Bonferroni, weighted Simes, Simes within groups, the parametric test, both success rules, upscale and an entangled graph, and compared with the tab's own result at 100,000 trials. Every figure agreed within 3 standard errors, apart from Simes within groups. There graphicalMCP rejects more often, as the note says.
+- Tests: one new browser check, which fails on the 1.4.9 page. The self-test browser check also reads the footer button. Browser suite: 63. Self-tests: 131. Engine stress suite: 48.
+
 ## 1.4.9 (2026-11-10)
 
 A link preview for sharing the page, and a tidy of code comments. The tool behaves exactly as in 1.4.8.
