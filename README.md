@@ -39,6 +39,7 @@ Created by Niamh Fitzgerald.
 | `tests/multigrain-constraints-check.R`, `tests/multigrain-dry-run.R` | Checks of the Optimise tab against multigrain's own validation code; run by the stress test when R and multigrain (or `MULTIGRAIN_R`, a clone of the package source) are available. |
 | `R/` | Validation scripts against graphicalMCP and gMCP, and `sketchpad_json()` for writing the app's exchange format from a multigrain result. |
 | `docs/` | User guide, change log and `preview.png` (the picture shown when the link is shared). |
+| `.github/workflows/checks.yml` | The checks GitHub runs on every pull request and every change to `main`. |
 
 ## Building and Testing
 
@@ -60,6 +61,8 @@ Three checks in `stress.js` call R. Two of them check the Optimise tab against m
 Rscript tests/multigrain-constraints-check.R cases.json      # cases.json: [{"hyp": [...], "trans": [[...]]}, ...], null = free
 Rscript tests/multigrain-dry-run.R optimise-graph.R          # a script written by the Optimise tab
 ```
+
+GitHub runs these checks on every pull request and every change to `main`. There the three R checks run for real, with graphicalMCP and multigrain from CRAN, and so do the scripts in `R/` that need no Java. The results show on the pull request and in the Actions tab.
 
 To send a change as a pull request, see `CONTRIBUTING.md`.
 
