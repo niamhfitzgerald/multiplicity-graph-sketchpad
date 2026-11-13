@@ -1915,10 +1915,11 @@ async function step(name, fn) {
   });
 
   /* 1.4.7, change 3: on a touch screen the Help dialog's zoom line names the + and − buttons, since a phone has no scroll
-     wheel and pinching does not zoom the drawing. With a mouse the line is as in 1.4.6. */
-  await step('Help zoom line (1.4.7): on a touch screen it says "Tap + or − to zoom", with a mouse "Scroll to zoom"', async () => {
+     wheel. From 1.4.11 a pinch zooms the drawing and two fingers move it, so the line says so. With a mouse the line is as
+     in 1.4.6. */
+  await step('Help zoom line (1.4.7, 1.4.11): on a touch screen it says "Pinch or tap + or − to zoom, drag with two fingers to pan", with a mouse "Scroll to zoom"', async () => {
     let out = '';
-    for (const [who, opts, want] of [['Touch', { viewport: { width: 390, height: 664 }, hasTouch: true, isMobile: true }, 'Tap + or − to zoom, drag empty space to pan, Fit re-centres.'], ['Mouse', { viewport: { width: 1400, height: 900 } }, 'Scroll to zoom, drag empty space to pan, Fit re-centres.']]) {
+    for (const [who, opts, want] of [['Touch', { viewport: { width: 390, height: 664 }, hasTouch: true, isMobile: true }, 'Pinch or tap + or − to zoom, drag with two fingers to pan, Fit re-centres.'], ['Mouse', { viewport: { width: 1400, height: 900 } }, 'Scroll to zoom, drag empty space to pan, Fit re-centres.']]) {
       const { c, p } = await page144(opts);
       await p.evaluate(() => $('helpBtn').click()); await p.waitForTimeout(150);
       const lines = await p.evaluate(() => [...$('modal').querySelectorAll('li')].map(li => li.textContent).filter(t => /zoom/.test(t)));
@@ -2172,6 +2173,353 @@ async function step(name, fn) {
     code = await rCode();
     if (!code.includes('# Success as defined in the Power tab: all of H1, H2. Each function in f gets one simulated\n') || !code.includes('  n.sim = 1e5,\n  f = list("all of H1, H2" = function(x) all(x[c(1, 2)])))\n')) out += `g (all of H1, H2): ${code.slice(-500)}\n`;
     await c.close();
+    if (out) return out;
+  });
+
+  /* 1.4.11, part 1: two fingers on the drawing. Up to 1.4.10 each finger started its own drag of the view, so a pinch threw
+     the graph sideways and left the zoom alone, and two fingers landing close together could add a hypothesis. Now the
+     two fingers move the graph together, and the distance between them sets the zoom (0.25 to 3, as + and −), with the
+     point of the graph between them kept between them. Real finger input through Chromium's DevTools protocol, so this
+     check throws in WebKit and Firefox, as the 1.4.4 finger-tap check does. In that protocol touchEnd lifts the fingers
+     it lists, or every finger when it lists none. */
+  await step('Two fingers and a pinch (1.4.11): a pinch zooms about the point between the fingers within 0.25 to 3, two fingers move the graph, a two-finger tap does nothing, a second finger during a hypothesis drag is left out, the last finger keeps moving the graph, and in presentation mode a pinch zooms and turning the phone refits; the wheel is as in 1.4.10', async () => {
+    let out = '';
+    const phone = { viewport: { width: 390, height: 664 }, hasTouch: true, isMobile: true };
+    const open = async (opts) => { const { c, p } = await page144(opts); const cdp = await c.newCDPSession(p); return { c, p, T: (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(q => ({ x: q[0], y: q[1], id: q[2] })) }) }; };
+    const st = p => p.evaluate(() => ({ k: view.k, cx: view.cx, cy: view.cy, autoFit, n: G.nodes.length, vv: visualViewport.scale, sy: scrollY, H1: [G.nodes[0].x, G.nodes[0].y] }));
+    const worldAt = (p, x, y) => p.evaluate(([x, y]) => { const q = new DOMPoint(x, y).matrixTransform(svg.getScreenCTM().inverse()); return [q.x, q.y]; }, [x, y]);
+    /* a point with empty drawing at it and 60 px either side */
+    const empty = p => p.evaluate(() => { const r = svg.getBoundingClientRect(); for (let y = r.top + r.height / 2; y < r.bottom - 30; y += 10) for (let x = r.left + 80; x < r.right - 80; x += 10) if ([x - 60, x, x + 60].every(u => { const el = document.elementFromPoint(u, y); return el === svg || el.id === 'gridRect'; })) return [x, y]; return null; });
+    const centre = (p, i) => p.evaluate(i => { const r = document.querySelector(`#canvas [data-node="${G.nodes[i].id}"] .node-body`).getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, i);
+    const near = (a, b, tol) => Math.abs(a - b) <= tol;
+    /* a pinch from 80 px apart to 160 px apart doubles the zoom, keeps the graph point between the fingers, and does not zoom or scroll the page */
+    { const { c, p, T } = await open(phone); const at = await empty(p);
+      if (!at) out += 'no empty drawing found. ';
+      else { const [x, y] = at; const w0 = await worldAt(p, x, y); const s0 = await st(p);
+        await T('touchStart', [[x - 40, y, 1]]); await T('touchStart', [[x - 40, y, 1], [x + 40, y, 2]]);
+        for (let i = 1; i <= 10; i++) await T('touchMove', [[x - 40 - 4 * i, y, 1], [x + 40 + 4 * i, y, 2]]);
+        await T('touchEnd', []); await p.waitForTimeout(100);
+        const s1 = await st(p), w1 = await worldAt(p, x, y);
+        if (!near(s1.k / s0.k, 2, 0.04)) out += `pinch: zoom ${s0.k.toFixed(3)} to ${s1.k.toFixed(3)}, not doubled. `;
+        if (Math.hypot((w1[0] - w0[0]) * s1.k, (w1[1] - w0[1]) * s1.k) > 2) out += `pinch: the point between the fingers moved ${Math.hypot((w1[0] - w0[0]) * s1.k, (w1[1] - w0[1]) * s1.k).toFixed(1)} px. `;
+        if (s1.autoFit) out += 'pinch: the refit is still on. ';
+        if (s1.vv !== 1 || s1.sy !== s0.sy) out += `pinch: the page zoomed or scrolled (scale ${s1.vv}, scroll ${s0.sy} to ${s1.sy}). `;
+        if (s1.n !== s0.n) out += `pinch: ${s1.n - s0.n} hypothesis added. `;
+        /* the limits, with every finger on the drawing: 120 px to 10 px apart stops at 0.25, and 10 px to 120 px apart, twice, at 3 */
+        await T('touchStart', [[x - 60, y, 3], [x + 60, y, 4]]); for (let i = 1; i <= 11; i++) await T('touchMove', [[x - 60 + 5 * i, y, 3], [x + 60 - 5 * i, y, 4]]); await T('touchEnd', []); await p.waitForTimeout(100);
+        const kIn = (await st(p)).k;
+        for (let r = 0; r < 2; r++) { await T('touchStart', [[x - 5, y, 5 + 2 * r], [x + 5, y, 6 + 2 * r]]); for (let i = 1; i <= 11; i++) await T('touchMove', [[x - 5 - 5 * i, y, 5 + 2 * r], [x + 5 + 5 * i, y, 6 + 2 * r]]); await T('touchEnd', []); await p.waitForTimeout(100); }
+        const kOut = (await st(p)).k;
+        if (!near(kIn, 0.25, 1e-9) || !near(kOut, 3, 1e-9)) out += `limits: ${kIn} and ${kOut}, not 0.25 and 3. `;
+      }
+      await c.close(); }
+    /* two fingers 100 px up move the graph 100 px up and keep the zoom; the last finger, once the other is lifted, keeps moving it */
+    { const { c, p, T } = await open(phone); const [x, y] = await empty(p); const s0 = await st(p);
+      await T('touchStart', [[x - 40, y, 1], [x + 40, y, 2]]); for (let i = 1; i <= 10; i++) await T('touchMove', [[x - 40, y - 10 * i, 1], [x + 40, y - 10 * i, 2]]);
+      await p.waitForTimeout(100); /* Chromium hands finger moves to the page once a frame */
+      const s1 = await st(p);
+      if (!near((s1.cy - s0.cy) * s0.k, 100, 1) || !near(s1.cx, s0.cx, 0.01) || !near(s1.k, s0.k, 1e-9)) out += `two-finger move: ${((s1.cy - s0.cy) * s0.k).toFixed(1)} px up, ${((s1.cx - s0.cx) * s0.k).toFixed(1)} px across, zoom ${s0.k.toFixed(3)} to ${s1.k.toFixed(3)}. `;
+      await T('touchEnd', [[x - 40, y - 100, 1]]);
+      await T('touchMove', [[x + 46, y - 100, 2]]); await p.waitForTimeout(100);
+      const sF = await st(p); /* the first move counts at once: no tap limit for a finger that was already moving the graph */
+      for (let i = 2; i <= 5; i++) await T('touchMove', [[x + 40 + 6 * i, y - 100, 2]]);
+      await p.waitForTimeout(100);
+      const s2 = await st(p); await T('touchEnd', []);
+      if (!near((s0.cx - sF.cx) * s0.k, 6, 1) || !near((s0.cx - s2.cx) * s0.k, 30, 1) || !near(s2.k, s0.k, 1e-9)) out += `last finger: moved the graph ${((s0.cx - sF.cx) * s0.k).toFixed(1)} px on its first 6 px and ${((s0.cx - s2.cx) * s0.k).toFixed(1)} px in all, not 6 and 30. `;
+      await c.close(); }
+    /* two fingers landing 20 px apart, twice, with a little wobble: no hypothesis, no change of view, the refit stays on.
+       On the phone and on a tablet held sideways, where one finger on empty drawing acts as it lands. */
+    for (const [size, opts] of [['phone', phone], ['tablet sideways', { viewport: { width: 1024, height: 768 }, hasTouch: true, isMobile: true }]]) { const { c, p, T } = await open(opts); const [x, y] = await empty(p); const s0 = await st(p);
+      await T('touchStart', [[x, y, 1]]); await T('touchStart', [[x, y, 1], [x + 20, y, 2]]); await T('touchEnd', [[x + 20, y, 2]]); await T('touchEnd', []); await p.waitForTimeout(600);
+      await T('touchStart', [[x, y, 3], [x + 20, y, 4]]); await T('touchMove', [[x + 3, y + 2, 3], [x + 22, y, 4]]); await T('touchEnd', []); await p.waitForTimeout(120);
+      /* and one tap right after, where the first of those fingers landed: not a double-tap with it */
+      await T('touchStart', [[x, y, 5]]); await T('touchEnd', []); await p.waitForTimeout(500);
+      const s1 = await st(p);
+      if (s1.n !== s0.n || s1.k !== s0.k || s1.cx !== s0.cx || s1.cy !== s0.cy || !s1.autoFit) out += `${size}, two-finger taps: ${s1.n - s0.n} added, zoom ${s0.k} to ${s1.k}, refit ${s1.autoFit}. `;
+      await c.close(); }
+    /* a finger left out while H1 was dragged, and still down, takes no part in what follows: the next finger moves the graph on its own (tablet held sideways) */
+    { const { c, p, T } = await open({ viewport: { width: 1024, height: 768 }, hasTouch: true, isMobile: true }); const h = await centre(p, 0), [x, y] = await empty(p); const s0 = await st(p);
+      await T('touchStart', [[h[0], h[1], 1]]); for (let i = 1; i <= 3; i++) await T('touchMove', [[h[0] + 10 * i, h[1], 1]]);
+      await T('touchStart', [[h[0] + 30, h[1], 1], [x, y + 40, 2]]);
+      await T('touchEnd', [[h[0] + 30, h[1], 1]]); await p.waitForTimeout(100);
+      await T('touchStart', [[x, y + 40, 2], [x, y, 3]]); for (let i = 1; i <= 4; i++) await T('touchMove', [[x, y + 40, 2], [x, y - 10 * i, 3]]);
+      await T('touchEnd', [[x, y + 40, 2]]); for (let i = 5; i <= 6; i++) await T('touchMove', [[x, y - 10 * i, 3]]); await p.waitForTimeout(100);
+      const s1 = await st(p); await T('touchEnd', []);
+      if (!near((s1.cy - s0.cy) * s0.k, 60, 1) || s1.k !== s0.k) out += `a left-out finger: the next finger moved the graph ${((s1.cy - s0.cy) * s0.k).toFixed(1)} px, not 60, zoom ${s0.k} to ${s1.k}. `;
+      await c.close(); }
+    /* a second finger while the first drags H1 is left out: H1 follows the first finger and the view stays */
+    { const { c, p, T } = await open(phone); const h = await centre(p, 0), [x, y] = await empty(p); const s0 = await st(p);
+      await T('touchStart', [[h[0], h[1], 1]]); for (let i = 1; i <= 3; i++) await T('touchMove', [[h[0] + 10 * i, h[1], 1]]);
+      await T('touchStart', [[h[0] + 30, h[1], 1], [x, y, 2]]); for (let i = 1; i <= 5; i++) await T('touchMove', [[h[0] + 30 + 6 * i, h[1], 1], [x + 20 * i, y + 10 * i, 2]]);
+      await T('touchEnd', [[x + 100, y + 50, 2]]); await T('touchEnd', []);
+      const s1 = await st(p);
+      if (!near((s1.H1[0] - s0.H1[0]) * s0.k, 60, 1) || !near(s1.H1[1], s0.H1[1], 0.01) || s1.k !== s0.k || s1.cx !== s0.cx || s1.cy !== s0.cy) out += `second finger during a drag: H1 moved ${((s1.H1[0] - s0.H1[0]) * s0.k).toFixed(1)} px, zoom ${s0.k} to ${s1.k}, view ${s0.cx},${s0.cy} to ${s1.cx},${s1.cy}. `;
+      await c.close(); }
+    /* presentation mode on a phone held sideways: a pinch zooms; turning the phone upright refits (1.4.5) */
+    { const { c, p, T } = await open({ viewport: { width: 750, height: 342 }, hasTouch: true, isMobile: true });
+      await p.evaluate(() => enterPresent()); await p.waitForTimeout(500);
+      const [x, y] = await empty(p); const s0 = await st(p);
+      await T('touchStart', [[x - 30, y, 1], [x + 30, y, 2]]); for (let i = 1; i <= 6; i++) await T('touchMove', [[x - 30 - 5 * i, y, 1], [x + 30 + 5 * i, y, 2]]); await T('touchEnd', []);
+      const s1 = await st(p);
+      await p.setViewportSize({ width: 390, height: 664 }); await p.waitForTimeout(700);
+      const s2 = await st(p), fitted = await p.evaluate(() => { const v = Object.assign({}, view); fitView(); const f = Object.assign({}, view); view = v; applyView(); return f.k; });
+      if (!near(s1.k / s0.k, 2, 0.04)) out += `present: pinch zoom ${s0.k.toFixed(3)} to ${s1.k.toFixed(3)}, not doubled. `;
+      if (!s2.autoFit || !near(s2.k, fitted, 1e-9)) out += `present: after turning, zoom ${s2.k.toFixed(3)}, fitted ${fitted.toFixed(3)}. `;
+      await c.close(); }
+    /* with a mouse at 1400 x 900 one wheel step zooms as in 1.4.10 */
+    { const { c, p } = await page144({});
+      const s0 = await st(p); const r = await p.evaluate(() => { const r = svg.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+      await p.mouse.move(r[0], r[1]); await p.mouse.wheel(0, -100); await p.waitForTimeout(100);
+      const s1 = await st(p);
+      if (!near(s1.k, Math.min(3, s0.k * Math.exp(0.15)), 1e-9)) out += `wheel: zoom ${s0.k} to ${s1.k}. `;
+      await c.close(); }
+    if (out) return out;
+  });
+
+  /* 1.4.11, part 2: one finger scrolls the page. Up to 1.4.10 one finger on the drawing moved the graph, so on a phone a
+     page scroll that started on the drawing moved the graph instead (found on Niamh's iPhone, 4 November). Now, on a touch
+     screen in the narrow layout outside presentation mode, one finger on empty drawing or an arrow's line scrolls the
+     page. A finger on a hypothesis, the blue dot's target or an arrow's label still drags it, whether or not it was
+     selected first: that needs the redraw on selecting to wait until the browser has sent touchstart. A finger lifted
+     without scrolling is a tap, as before. Real finger input through Chromium's DevTools protocol (throws in WebKit and
+     Firefox). Phone 390 x 664 and tablet upright 768 x 1024; the tablet sideways (1024 x 768), presentation mode and a
+     mouse keep one-finger moves. */
+  await step('One finger scrolls the page (1.4.11): in the narrow layout on a touch screen one finger on empty drawing or an arrow\'s line scrolls the page and keeps the view and the selection; a finger on a hypothesis, the blue dot\'s target or a label drags it; a tap still selects, deselects and finishes a transition; two fingers never scroll; the tablet sideways, presentation mode and a mouse still move the graph with one finger', async () => {
+    let out = '';
+    const open = async (opts) => { const { c, p } = await page144(opts); const cdp = opts.hasTouch ? await c.newCDPSession(p) : null; return { c, p, T: (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(q => ({ x: q[0], y: q[1], id: q[2] || 0 })) }) }; };
+    const slide = async (p, T, from, d, n = 10) => { await T('touchStart', from); for (let i = 1; i <= n; i++) await T('touchMove', from.map(q => [q[0] + d[0] * i / n, q[1] + d[1] * i / n, q[2] || 0])); await p.waitForTimeout(100); await T('touchEnd', []); await p.waitForTimeout(500); };
+    const tap = async (p, T, q) => { await T('touchStart', [q]); await T('touchEnd', []); await p.waitForTimeout(250); };
+    const st = p => p.evaluate(() => ({ sy: scrollY, view: JSON.stringify(view), autoFit, n: G.nodes.length, e: G.edges.length, H1: [G.nodes[0].x, G.nodes[0].y], sel: sel ? (sel.id || sel.key) : null, linking: !!linking, bends: JSON.stringify(G.edges.map(e => e.bend || 0)), vv: visualViewport.scale }));
+    const centre = (p, i) => p.evaluate(i => { const r = document.querySelector(`#canvas [data-node="${G.nodes[i].id}"] .node-body`).getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, i);
+    const dotAt = p => p.evaluate(() => { const r = document.querySelector('#canvas .handle').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+    const empty = p => p.evaluate(() => { const r = svg.getBoundingClientRect(); for (let y = r.top + r.height / 2; y < r.bottom - 30; y += 10) for (let x = r.left + 80; x < r.right - 80; x += 10) if ([x - 60, x, x + 60].every(u => { const el = document.elementFromPoint(u, y); return el === svg || el.id === 'gridRect'; })) return [x, y]; return null; });
+    /* a point on the line of the arrow H1 to H2, away from its label */
+    const onLine = p => p.evaluate(() => { const path = document.querySelector('#canvas [data-edge="n1>n2"] path, #canvas path[data-edge="n1>n2"]'); if (!path) return null; for (const f of [0.3, 0.25, 0.35, 0.7, 0.2]) { const pt = path.getPointAtLength(path.getTotalLength() * f), s = new DOMPoint(pt.x, pt.y).matrixTransform(path.getScreenCTM()), el = document.elementFromPoint(s.x, s.y); if (el && el.closest('[data-edge]') && !el.closest('[data-elabel]')) return [s.x, s.y]; } return null; });
+    for (const [size, vp] of [['phone', { width: 390, height: 664 }], ['tablet upright', { width: 768, height: 1024 }]]) {
+      const touch = { viewport: vp, hasTouch: true, isMobile: true };
+      /* one finger up 150 px on empty drawing, with H1 selected: the page scrolls; the view, the refit and the selection stay */
+      { const { c, p, T } = await open(touch); await tap(p, T, await centre(p, 0)); const at = await empty(p), s0 = await st(p);
+        await slide(p, T, [at], [0, -150]); const s1 = await st(p);
+        if (s1.sy - s0.sy < 100 || s1.view !== s0.view || !s1.autoFit || s1.sel !== 'n1' || s1.vv !== 1) out += `${size}, empty drawing: page scrolled ${s1.sy - s0.sy} px, view ${s1.view === s0.view ? 'kept' : 'moved'}, refit ${s1.autoFit}, selection ${s1.sel}. `;
+        await c.close(); }
+      /* one finger on H1, not selected, down 60 px; then selected, up 60 px: H1 moves, the page does not (down first, since the hint box sits above H1) */
+      { const { c, p, T } = await open(touch); const s0 = await st(p), k = JSON.parse(s0.view).k;
+        await slide(p, T, [await centre(p, 0)], [0, 60]); const s1 = await st(p);
+        await slide(p, T, [await centre(p, 0)], [0, -60]); const s2 = await st(p);
+        if (s1.sy !== s0.sy || Math.abs((s1.H1[1] - s0.H1[1]) * k - 60) >= 1 || s1.sel !== 'n1') out += `${size}, H1 not selected: H1 moved ${((s1.H1[1] - s0.H1[1]) * k).toFixed(1)} px down, page scrolled ${s1.sy - s0.sy} px, selection ${s1.sel}. `;
+        if (s2.sy !== s0.sy || Math.abs((s1.H1[1] - s2.H1[1]) * k - 60) >= 1) out += `${size}, H1 selected: H1 moved ${((s1.H1[1] - s2.H1[1]) * k).toFixed(1)} px up, page scrolled ${s2.sy - s0.sy} px. `;
+        await c.close(); }
+      /* a drag from the blue dot's target, halfway between the edge of the dot and the edge of the target, to H4 makes the
+         transition H1 to H4. The target is 24 px across at least, so it reaches past the dot on a phone; on the tablet,
+         zoomed in, the dot is nearly as big, and the drag starts on the dot. */
+      { const { c, p, T } = await open(touch); await tap(p, T, await centre(p, 0));
+        const from = await p.evaluate(() => { const r = document.querySelector('#canvas .handle').getBoundingClientRect(), h = document.querySelector('#canvas .handle-hit').getBoundingClientRect(), d = h.width / 2 > r.width / 2 + 3 ? (h.width / 2 + r.width / 2) / 2 : 0, x = r.left + r.width / 2 + d * Math.SQRT1_2, y = r.top + r.height / 2 - d * Math.SQRT1_2, el = document.elementFromPoint(x, y); return el && (d ? el.classList.contains('handle-hit') : el.classList.contains('handle')) ? [x, y] : null; });
+        if (!from) out += `${size}: no point on the blue dot's target. `;
+        else { const h4 = await centre(p, 3), s0 = await st(p);
+          await slide(p, T, [from], [h4[0] - from[0], h4[1] - from[1]]); const s1 = await st(p);
+          if (s1.e !== s0.e + 1 || s1.sel !== 'n1>n4' || s1.sy !== s0.sy) out += `${size}, drag from the dot's target to H4: ${s1.e - s0.e} transition made, selection ${s1.sel}, page scrolled ${s1.sy - s0.sy} px. `; }
+        await c.close(); }
+      /* a finger on an arrow's label up 80 px bends the arrow; one on its line scrolls the page and selects nothing; a tap on the line selects it */
+      { const { c, p, T } = await open(touch); const lab = await p.evaluate(() => { const r = document.querySelector('#canvas [data-elabel="n1>n2"]').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }), s0 = await st(p);
+        await slide(p, T, [lab], [0, -80]); const s1 = await st(p);
+        if (s1.bends === s0.bends || s1.sy !== s0.sy) out += `${size}, arrow label: ${s1.bends === s0.bends ? 'no bend' : 'bent'}, page scrolled ${s1.sy - s0.sy} px. `;
+        await p.evaluate(() => { undo(); setSel(null); }); await p.waitForTimeout(150);
+        const line = await onLine(p);
+        if (!line) out += `${size}: no point on the line of H1 to H2. `;
+        else { const s2 = await st(p); await slide(p, T, [line], [0, -100]); const s3 = await st(p);
+          if (s3.sy - s2.sy < 60 || s3.sel !== null || s3.view !== s2.view) out += `${size}, arrow line: page scrolled ${s3.sy - s2.sy} px, selection ${s3.sel}. `;
+          await tap(p, T, [line[0], line[1] - (s3.sy - s2.sy)]); const s4 = await st(p);
+          if (s4.sel !== 'n1>n2') out += `${size}, a tap on the arrow line selected ${s4.sel}. `;
+          /* a double-tap on the line opens the weight box, and it stays open (no mouse events after the taps take its focus) */
+          await p.evaluate(() => setSel(null)); await p.waitForTimeout(500);
+          const q = [line[0], line[1] - (s3.sy - s2.sy)];
+          await T('touchStart', [q]); await T('touchEnd', []); await p.waitForTimeout(150); await T('touchStart', [q]); await T('touchEnd', []); await p.waitForTimeout(400);
+          if (!(await p.evaluate(() => !!inline && inline.key === 'n1>n2' && document.activeElement === inl))) out += `${size}, a double-tap on the arrow line did not leave its weight box open. `; }
+        await c.close(); }
+      /* a tap that wobbles 7 px on empty drawing is still a tap: it deselects */
+      { const { c, p, T } = await open(touch); await tap(p, T, await centre(p, 0)); const [x, y] = await empty(p);
+        await T('touchStart', [[x, y]]); await T('touchMove', [[x + 4, y + 3]]); await T('touchMove', [[x + 7, y + 1]]); await T('touchEnd', []); await p.waitForTimeout(300);
+        if ((await st(p)).sel !== null) out += `${size}: a tap that wobbles 7 px on empty drawing did not deselect. `;
+        await c.close(); }
+      /* a double-tap is timed from the moments the finger went down, as before: a quick tap then a held one 280 ms later adds
+         a hypothesis; a tap held 300 ms then a quick one 540 ms after the first went down does not */
+      for (const [what, t1, t2, t3, want] of [['quick then held', 40, 280, 520, 1], ['held then quick', 300, 540, 580, 0]]) {
+        const { c, p, T } = await open(touch); const [x, y] = await empty(p), n0 = (await st(p)).n, t0 = Date.now();
+        await T('touchStart', [[x, y]]); await p.waitForTimeout(t1); await T('touchEnd', []);
+        await p.waitForTimeout(Math.max(0, t2 - (Date.now() - t0))); await T('touchStart', [[x + 10, y]]);
+        await p.waitForTimeout(Math.max(0, t3 - (Date.now() - t0))); await T('touchEnd', []); await p.waitForTimeout(500);
+        const added = (await st(p)).n - n0;
+        if (added !== want) out += `${size}, double-tap ${what}: ${added} added, not ${want}. `;
+        await c.close(); }
+      /* a tap on empty drawing deselects; a tap on the blue dot starts a transition, a scroll from empty drawing keeps it, and a tap on H4 finishes it */
+      { const { c, p, T } = await open(touch); await tap(p, T, await centre(p, 0));
+        await tap(p, T, await empty(p)); if ((await st(p)).sel !== null) out += `${size}: a tap on empty drawing did not deselect. `;
+        await tap(p, T, await centre(p, 0)); await tap(p, T, await dotAt(p));
+        const s0 = await st(p); await slide(p, T, [await empty(p)], [0, -120]); const s1 = await st(p);
+        await tap(p, T, await centre(p, 3)); const s2 = await st(p);
+        if (!s0.linking || !s1.linking || s1.sy === s0.sy || s2.e !== s0.e + 1 || s2.sel !== 'n1>n4') out += `${size}, transition from a tap on the dot: started ${s0.linking}, kept through a scroll of ${s1.sy - s0.sy} px ${s1.linking}, made ${s2.e - s0.e}. `;
+        const box = await p.evaluate(() => { const a = inl.getBoundingClientRect(), l = document.querySelector('#canvas [data-elabel="n1>n4"]'); if (inl.hidden || !l) return null; const b = l.getBoundingClientRect(); return Math.hypot(a.left + a.width / 2 - b.left - b.width / 2, a.top + a.height / 2 - b.top - b.height / 2); });
+        if (box === null || box > 20) out += `${size}, the weight box of the new transition is ${box === null ? 'not shown' : Math.round(box) + ' px from its label'}. `;
+        await c.close(); }
+      /* Test mode: a tap on H1 claims it; a scroll from empty drawing then scrolls the page */
+      { const { c, p, T } = await open(touch); await p.evaluate(() => setMode('test')); await p.waitForTimeout(500);
+        await tap(p, T, await centre(p, 0)); await p.waitForFunction(() => !animating, null, { timeout: 8000 });
+        const claimed = await p.evaluate(() => T.rejected.has(G.nodes[0].id)), s0 = await st(p);
+        await slide(p, T, [await empty(p)], [0, -120]); const s1 = await st(p);
+        if (!claimed || s1.sy - s0.sy < 60 || s1.view !== s0.view) out += `${size}, Test mode: H1 ${claimed ? '' : 'not '}claimed, page scrolled ${s1.sy - s0.sy} px. `;
+        /* in Test mode labels are not dragged, so a finger on one scrolls the page too */
+        await p.evaluate(() => scrollTo(0, 0)); await p.waitForTimeout(200);
+        const lab = await p.evaluate(() => { const l = document.querySelector('#canvas [data-elabel]'); if (!l) return null; const r = l.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+        if (lab) { const s2 = await st(p); await slide(p, T, [lab], [0, -120]); const s3 = await st(p);
+          if (s3.sy - s2.sy < 60 || s3.view !== s2.view) out += `${size}, Test mode: a finger on an arrow's label scrolled the page ${s3.sy - s2.sy} px. `; }
+        await c.close(); }
+      /* two fingers never scroll: a pinch, then the last finger up 50 px, move the graph and not the page */
+      { const { c, p, T } = await open(touch); const [x, y] = await empty(p), s0 = await st(p);
+        await T('touchStart', [[x - 40, y, 1]]); await T('touchStart', [[x - 40, y, 1], [x + 40, y, 2]]);
+        for (let i = 1; i <= 10; i++) await T('touchMove', [[x - 40 - 4 * i, y - 3 * i, 1], [x + 40 + 4 * i, y - 3 * i, 2]]); await p.waitForTimeout(100);
+        const s1 = await st(p);
+        await T('touchEnd', [[x - 80, y - 30, 1]]); for (let i = 1; i <= 5; i++) await T('touchMove', [[x + 80, y - 30 - 10 * i, 2]]); await p.waitForTimeout(100);
+        const s2 = await st(p); await T('touchEnd', []);
+        const v0 = JSON.parse(s0.view), v1 = JSON.parse(s1.view), v2 = JSON.parse(s2.view);
+        if (s1.sy !== s0.sy || s2.sy !== s0.sy || s1.vv !== 1 || v1.k / v0.k < 1.9 || Math.abs((v2.cy - v1.cy) * v1.k - 50) >= 1) out += `${size}, two fingers: page scrolled ${s1.sy - s0.sy} and ${s2.sy - s0.sy} px, zoom ${v0.k.toFixed(3)} to ${v1.k.toFixed(3)}, last finger moved the graph ${((v2.cy - v1.cy) * v1.k).toFixed(1)} px. `;
+        await c.close(); }
+    }
+    /* one finger still moves the graph: tablet sideways (wide layout), presentation mode on a phone, a mouse at 390 px */
+    for (const [who, opts, present] of [['tablet sideways', { viewport: { width: 1024, height: 768 }, hasTouch: true, isMobile: true }, false], ['presentation mode', { viewport: { width: 390, height: 664 }, hasTouch: true, isMobile: true }, true], ['mouse at 390 px', { viewport: { width: 390, height: 664 } }, false]]) {
+      const { c, p, T } = await open(opts);
+      if (present) { await p.evaluate(() => enterPresent()); await p.waitForTimeout(500); }
+      const at = await empty(p), s0 = await st(p);
+      if (opts.hasTouch) await slide(p, T, [at], [0, -60]);
+      else { await p.mouse.move(at[0], at[1]); await p.mouse.down(); await p.mouse.move(at[0], at[1] - 60, { steps: 6 }); await p.mouse.up(); await p.waitForTimeout(300); }
+      const s1 = await st(p), v0 = JSON.parse(s0.view), v1 = JSON.parse(s1.view);
+      if (s1.sy !== s0.sy || Math.abs((v1.cy - v0.cy) * v0.k - 60) >= 1) out += `${who}: the graph moved ${((v1.cy - v0.cy) * v0.k).toFixed(1)} px up, the page ${s1.sy - s0.sy} px. `;
+      await c.close();
+    }
+    if (out) return out;
+  });
+
+  /* 1.4.11: a pinch on a real iPhone. On Niamh's iPhone (13 November) the pinch of the first build, which followed pointer
+     events, only moved the graph: Safari most likely ended one finger's pointer events as the second finger landed. The
+     pinch now follows touch events. This check plays the events Safari may send, made in the page: the first finger's
+     pointer cancelled as the second lands, the second finger with no pointer events at all, both pointers cancelled
+     (in design mode, with the last finger then moving the graph, and in presentation mode), and a finger whose element a
+     redraw has taken out of the page, so that its touch events reach that element only. Playwright's WebKit has no Touch
+     constructor, so this check throws there; it runs in Chromium and Firefox. */
+  await step('Two fingers when the browser drops pointer events (1.4.11): the pinch zooms when the first finger\'s pointer is cancelled, when the second finger sends no pointer events, and in presentation mode with both cancelled; the last finger then moves the graph; a finger whose element a redraw took out of the page still counts', async () => {
+    let out = '';
+    const phone = { viewport: { width: 390, height: 664 }, hasTouch: true, isMobile: true };
+    const st = p => p.evaluate(() => ({ k: view.k, cx: view.cx, cy: view.cy, sy: scrollY }));
+    const empty = p => p.evaluate(() => { const r = svg.getBoundingClientRect(); for (let y = r.top + r.height / 2; y < r.bottom - 30; y += 10) for (let x = r.left + 80; x < r.right - 80; x += 10) if ([x - 60, x, x + 60].every(u => { const el = document.elementFromPoint(u, y); return el === svg || el.id === 'gridRect'; })) return [x, y]; return null; });
+    /* ops: ['down', id, x, y, pointer events?], ['cancel', id], ['move', [[id, x, y], ...], pointer events?], ['up', [ids], pointer events?], ['wait', ms]
+       Each touch event goes to the element the finger first touched and lists every finger still down. */
+    const play = (p, ops) => p.evaluate(async ops => {
+      const T = {}, P = {}, info = {};
+      const touch = id => new Touch({ identifier: id, target: T[id].el, clientX: T[id].x, clientY: T[id].y });
+      const fire = (type, ids) => {
+        const changed = ids.map(touch), el = T[ids[0]].el;
+        if (type === 'touchend') ids.forEach(id => { T[id].gone = true; });
+        const all = Object.keys(T).filter(id => !T[id].gone).map(Number).map(touch);
+        el.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true, composed: true, touches: all, targetTouches: all.filter(t => t.target === el), changedTouches: changed }));
+        if (type === 'touchend') ids.forEach(id => delete T[id]);
+      };
+      /* a pointer keeps its last place after its touch has ended */
+      const ptr = (type, id) => { if (T[id]) P[id] = { el: T[id].el, x: T[id].x, y: T[id].y }; (type === 'pointerdown' ? P[id].el : svg).dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, composed: true, pointerId: 100 + id, pointerType: 'touch', isPrimary: id === 1, clientX: P[id].x, clientY: P[id].y, button: type === 'pointermove' ? -1 : 0, buttons: type === 'pointerdown' || type === 'pointermove' ? 1 : 0 })); };
+      for (const op of ops) {
+        if (op[0] === 'down') { const [, id, x, y, withPtr] = op; T[id] = { el: document.elementFromPoint(x, y), x, y }; info['el' + id] = T[id].el; if (withPtr) ptr('pointerdown', id); fire('touchstart', [id]); }
+        else if (op[0] === 'cancel') ptr('pointercancel', op[1]);
+        else if (op[0] === 'move') { for (const [id, x, y] of op[1]) { T[id].x = x; T[id].y = y; if (op[2]) ptr('pointermove', id); } fire('touchmove', op[1].map(q => q[0])); }
+        else if (op[0] === 'up') { if (op[2]) op[1].forEach(id => ptr('pointerup', id)); fire('touchend', op[1]); }
+        else if (op[0] === 'wait') await new Promise(r => setTimeout(r, op[1]));
+      }
+      return { detached1: info.el1 ? !info.el1.isConnected : null, pinch: !!pinch, last: typeof lastFinger !== 'undefined' && !!lastFinger, pointers: fingers.size };
+    }, ops);
+    /* two fingers 80 px apart spread to 160 px apart */
+    const spread = (x, y, n, ptr) => Array.from({ length: n }, (_, i) => ['move', [[1, x - 40 - 4 * (i + 1), y], [2, x + 40 + 4 * (i + 1), y]], ptr]);
+    for (const [label, opts, present, ops] of [
+      ['first pointer cancelled', phone, false, (x, y) => [['down', 1, x - 40, y, true], ['wait', 20], ['down', 2, x + 40, y, true], ['cancel', 1], ...spread(x, y, 10, true), ['up', [1, 2], true]]],
+      ['no pointer events for the second finger', phone, false, (x, y) => [['down', 1, x - 40, y, true], ['wait', 20], ['down', 2, x + 40, y, false], ...spread(x, y, 10, false), ['up', [1, 2], false], ['cancel', 1]]],
+      ['present, both pointers cancelled', { viewport: { width: 750, height: 342 }, hasTouch: true, isMobile: true }, true, (x, y) => [['down', 1, x - 40, y, true], ['wait', 20], ['down', 2, x + 40, y, true], ['cancel', 1], ['cancel', 2], ...spread(x, y, 10, false), ['up', [1, 2], false]]]]) {
+      const { c, p } = await page144(opts);
+      if (present) { await p.evaluate(() => enterPresent()); await p.waitForTimeout(500); }
+      const at = await empty(p);
+      if (!at) { out += `${label}: no empty drawing found. `; await c.close(); continue; }
+      const s0 = await st(p), r = await play(p, ops(...at)), s1 = await st(p);
+      if (Math.abs(s1.k / s0.k - 2) > 0.04 || s1.sy !== s0.sy || r.pinch || r.last || r.pointers) out += `${label}: zoom ${s0.k.toFixed(3)} to ${s1.k.toFixed(3)}, not doubled; page scrolled ${s1.sy - s0.sy} px; left over: pinch ${r.pinch}, last finger ${r.last}, pointers ${r.pointers}. `;
+      await c.close();
+    }
+    /* both pointers cancelled, then the first finger lifts and the last finger moves 30 px: the graph moves 30 px */
+    { const { c, p } = await page144(phone); const [x, y] = await empty(p);
+      await play(p, [['down', 1, x - 40, y, true], ['wait', 20], ['down', 2, x + 40, y, true], ['cancel', 1], ['cancel', 2], ...spread(x, y, 10, false), ['up', [1], false]]);
+      const s1 = await st(p);
+      const r = await p.evaluate(([x, y]) => {
+        const el = document.elementFromPoint(x, y), t = q => new Touch({ identifier: 2, target: el, clientX: q, clientY: y });
+        for (let i = 1; i <= 3; i++) el.dispatchEvent(new TouchEvent('touchmove', { bubbles: true, cancelable: true, touches: [t(x + 10 * i)], targetTouches: [t(x + 10 * i)], changedTouches: [t(x + 10 * i)] }));
+        const mid = { cx: view.cx, last: typeof lastFinger !== 'undefined' && !!lastFinger };
+        el.dispatchEvent(new TouchEvent('touchend', { bubbles: true, cancelable: true, touches: [], targetTouches: [], changedTouches: [t(x + 30)] }));
+        return Object.assign(mid, { lastAfter: typeof lastFinger !== 'undefined' && !!lastFinger, panning: svg.classList.contains('panning') });
+      }, [x + 80, y]);
+      const moved = (s1.cx - r.cx) * s1.k;
+      if (Math.abs(moved - 30) >= 1 || !r.last || r.lastAfter || r.panning) out += `last finger after cancelled pointers: the graph moved ${moved.toFixed(1)} px, not 30; last finger ${r.last} then ${r.lastAfter}, panning class left ${r.panning}. `;
+      await c.close(); }
+    /* the first finger on H1: selecting it redraws the drawing, which takes the finger's element out of the page. Only that finger then moves, 40 px further out */
+    { const { c, p } = await page144(phone); const [x, y] = await empty(p);
+      const h = await p.evaluate(() => { const r = document.querySelector(`#canvas [data-node="${G.nodes[0].id}"] .node-body`).getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+      const d0 = Math.hypot(x - h[0], y - h[1]), ux = (h[0] - x) / d0, uy = (h[1] - y) / d0, k0 = (await st(p)).k;
+      const r = await play(p, [['down', 1, h[0], h[1], true], ['wait', 30], ['down', 2, x, y, true], ...Array.from({ length: 4 }, (_, i) => ['move', [[1, h[0] + ux * 10 * (i + 1), h[1] + uy * 10 * (i + 1)]], true])]);
+      const k1 = (await st(p)).k, want = Math.min(3, k0 * (d0 + 40) / d0);
+      if (!r.detached1) out += 'the redraw did not take the first finger\'s element out of the page, so that case was not tested. ';
+      else if (Math.abs(k1 / want - 1) > 0.02) out += `element redrawn away: zoom ${k0.toFixed(3)} to ${k1.toFixed(3)}, not ${want.toFixed(3)}. `;
+      await c.close(); }
+    if (out) return out;
+  });
+
+  /* 1.4.11: on Niamh's iPhone (13 November) a drag down on the drawing at the very top of the page started Safari's pull to
+     refresh and reloaded the page. At the top of the page a single finger on the drawing whose first move is downward now
+     does nothing: its touch moves are cancelled. Headless Chromium has no pull to refresh, so the check reads whether the
+     moves were cancelled. */
+  await step('At the top of the page a drag down on the drawing does nothing (1.4.11): its moves are cancelled and nothing moves or is added; a drag up from the top, a sideways drag at the top and a drag down when the page is scrolled still scroll as before; a finger on H1 still drags it; presentation mode is unchanged', async () => {
+    let out = '';
+    const open = async (vp) => { const { c, p } = await page144({ viewport: vp, hasTouch: true, isMobile: true }); const cdp = await c.newCDPSession(p);
+      await p.evaluate(() => { window.__moves = []; window.addEventListener('touchmove', e => window.__moves.push(e.defaultPrevented)); });
+      return { c, p, T: (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(q => ({ x: q[0], y: q[1], id: q[2] || 0 })) }) }; };
+    const slide = async (p, T, at, d, n = 8) => { await p.evaluate(() => { window.__moves = []; }); await T('touchStart', [at]); for (let i = 1; i <= n; i++) await T('touchMove', [[at[0] + d[0] * i / n, at[1] + d[1] * i / n]]); await p.waitForTimeout(100); await T('touchEnd', []); await p.waitForTimeout(350); return p.evaluate(() => window.__moves.slice()); };
+    const st = p => p.evaluate(() => ({ sy: scrollY, view: JSON.stringify(view), n: G.nodes.length, H1: [G.nodes[0].x, G.nodes[0].y], sel: sel ? (sel.id || sel.key) : null }));
+    const empty = p => p.evaluate(() => { const r = svg.getBoundingClientRect(); for (let y = r.top + r.height / 2; y < r.bottom - 30; y += 10) for (let x = r.left + 80; x < r.right - 80; x += 10) if ([x - 60, x, x + 60].every(u => { const el = document.elementFromPoint(u, y); return el === svg || el.id === 'gridRect'; })) return [x, y]; return null; });
+    const all = (m, v) => m.length > 0 && m.every(x => x === v);
+    for (const [size, vp] of [['phone', { width: 390, height: 664 }], ['tablet upright', { width: 768, height: 1024 }]]) {
+      /* at the top, down 80 px on empty drawing: every move cancelled, nothing moves, nothing added, nothing selected */
+      { const { c, p, T } = await open(vp); const at = await empty(p), s0 = await st(p);
+        const m = await slide(p, T, at, [0, 80]); const s1 = await st(p);
+        if (s0.sy !== 0 || !all(m, true) || s1.sy !== 0 || s1.view !== s0.view || s1.n !== s0.n || s1.sel !== s0.sel) out += `${size}, down at the top: start ${s0.sy} px, moves cancelled ${m.join(',')}, page ${s1.sy} px, view ${s1.view === s0.view ? 'kept' : 'moved'}, hypotheses ${s0.n} to ${s1.n}, selection ${s1.sel}. `;
+        /* then a tap on empty drawing still works: a double-tap adds a hypothesis */
+        await T('touchStart', [at]); await T('touchEnd', []); await p.waitForTimeout(120); await T('touchStart', [at]); await T('touchEnd', []); await p.waitForTimeout(400);
+        const s2 = await st(p); if (s2.n !== s0.n + 1) out += `${size}, after the drag down a double-tap added ${s2.n - s0.n} hypotheses, not 1. `;
+        await c.close(); }
+      /* at the top, up 150 px: the page scrolls, nothing cancelled; then down 60 px: the page scrolls back, nothing cancelled */
+      { const { c, p, T } = await open(vp); const at = await empty(p), s0 = await st(p);
+        const m1 = await slide(p, T, at, [0, -150]); const s1 = await st(p);
+        const m2 = await slide(p, T, [at[0], at[1] - 100], [0, 60]); const s2 = await st(p);
+        if (s1.sy - s0.sy < 100 || m1.some(x => x)) out += `${size}, up from the top: page scrolled ${s1.sy - s0.sy} px, moves cancelled ${m1.join(',')}. `;
+        if (s1.sy - s2.sy < 30 || m2.some(x => x)) out += `${size}, down when scrolled: page scrolled back ${s1.sy - s2.sy} px, moves cancelled ${m2.join(',')}. `;
+        await c.close(); }
+      /* at the top, sideways first: not cancelled */
+      { const { c, p, T } = await open(vp); const at = await empty(p);
+        const m = await slide(p, T, at, [60, 20]); if (m.some(x => x)) out += `${size}, sideways at the top: moves cancelled ${m.join(',')}. `;
+        await c.close(); }
+      /* at the top, a finger on H1 drags it down 60 px, as before */
+      { const { c, p, T } = await open(vp); const s0 = await st(p), k = JSON.parse(s0.view).k;
+        const h = await p.evaluate(() => { const r = document.querySelector(`#canvas [data-node="${G.nodes[0].id}"] .node-body`).getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+        await slide(p, T, h, [0, 60]); const s1 = await st(p);
+        if (Math.abs((s1.H1[1] - s0.H1[1]) * k - 60) >= 1 || s1.sy !== 0) out += `${size}, H1 at the top: moved ${((s1.H1[1] - s0.H1[1]) * k).toFixed(1)} px down, not 60; page ${s1.sy} px. `;
+        await c.close(); }
+    }
+    /* presentation mode on a phone: one finger down 60 px still moves the graph */
+    { const { c, p, T } = await open({ width: 390, height: 664 }); await p.evaluate(() => enterPresent()); await p.waitForTimeout(500);
+      const at = await empty(p), s0 = await st(p);
+      if (!at) out += 'present: no empty drawing found. ';
+      else { await slide(p, T, at, [0, 60]); const s1 = await st(p), v0 = JSON.parse(s0.view), v1 = JSON.parse(s1.view);
+        if (Math.abs((v0.cy - v1.cy) * v1.k - 60) >= 1) out += `present: one finger down moved the graph ${((v0.cy - v1.cy) * v1.k).toFixed(1)} px, not 60. `; }
+      await c.close(); }
     if (out) return out;
   });
 
