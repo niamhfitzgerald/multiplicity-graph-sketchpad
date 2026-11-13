@@ -5934,9 +5934,10 @@ let drag = null;
 let linking = null;
 let inline = null;
 let lastDown = { time: 0, x: 0, y: 0, kind: '', id: '' };
-/* Two fingers on the drawing (1.4.11): every finger on it by pointer id, the fingers left out of a gesture, and the pinch */
-const fingers = new Map(), fingersIgnored = new Set();
-let pinch = null;
+/* Two fingers on the drawing (1.4.11): every finger on it by pointer id and the pointers left out, the touches left out of a
+   gesture, the pinch, the finger left down after it, and the number of fingers on the screen */
+const fingers = new Map(), fingersIgnored = new Set(), touchIgnored = new Set();
+let pinch = null, lastFinger = null, touchCount = 0;
 /* One finger scrolls the page (1.4.11, part 2): whether this touch belongs to the page's script, and a redraw held back */
 let fingersOwned = false, holdRender = false, heldRender = false;
 let lastLayout = [];
@@ -8909,28 +8910,53 @@ function drawTempLink(fromId, p) {
    distance between them sets the zoom, within the limits of + and - (0.25 to 3). The point of the graph between the
    fingers stays between them. The second finger is left out while the first is dragging a hypothesis, its blue dot or an
    arrow's label (moved past the tap limit), and a third finger always is. When one of the two is lifted, the other keeps
-   moving the graph until it is lifted too. */
+   moving the graph until it is lifted too.
+   The pinch follows the fingers' touch events, which list every finger on the screen in each event. Safari on an iPhone
+   ended one finger's pointer events as the second finger landed, so a pinch that followed pointer events only moved the
+   graph. The pointer events of the fingers in a pinch are left out until they are lifted. */
 function fingerDown(e) {
   fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   try { svg.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
   /* a finger left out of an earlier gesture and still down takes no part: with it, this finger is the first */
   const active = [...fingers.keys()].filter(id => !fingersIgnored.has(id));
-  if (active.length < 2) return false;
+  if (active.length < 2 && !pinch && !lastFinger) return false;
+  /* a second finger, or a finger during a pinch: the touch events decide what it does */
   e.preventDefault();
-  if (pinch || active.length > 2 || (drag && drag.moved && /^(move|link|bend)$/.test(drag.type))) { fingersIgnored.add(e.pointerId); return true; }
-  drag = null; svg.classList.remove('panning');
-  lastDown.time = 0; /* a later tap never makes a double-tap with these fingers */
-  pinch = { ids: active, moved: false };
-  const s = pinchSpan(), r = svg.getBoundingClientRect();
-  Object.assign(pinch, { mx: s.mx, my: s.my, d: s.d, k: view.k, wx: view.cx + (s.mx - r.left - r.width / 2) / view.k, wy: view.cy + (s.my - r.top - r.height / 2) / view.k });
+  fingersIgnored.add(e.pointerId);
   return true;
 }
-function pinchSpan() {
-  const [a, b] = pinch.ids.map(id => fingers.get(id));
-  return { mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, d: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)) };
+function fingerUp(e) {
+  if (e.pointerType !== 'touch' || !fingers.has(e.pointerId)) return false;
+  fingers.delete(e.pointerId);
+  return fingersIgnored.delete(e.pointerId);
 }
-function pinchMove() {
-  const s = pinchSpan();
+const touchOf = (e, id) => [...e.touches].find(t => t.identifier === id);
+const onDrawing = t => svg.contains(t.target) || !t.target.isConnected;
+function pinchStart(e) {
+  const on = [...e.touches].filter(t => onDrawing(t) && !touchIgnored.has(t.identifier));
+  if (on.length < 2) return;
+  /* left out: a third finger, a finger that lands while the page scrolls, and a second finger while the first drags a
+     hypothesis, its blue dot or a label */
+  if (pinch || on.length > 2 || !e.cancelable || (drag && drag.moved && /^(move|link|bend)$/.test(drag.type))) {
+    for (const t of e.changedTouches) if (on.some(o => o.identifier === t.identifier)) touchIgnored.add(t.identifier);
+    return;
+  }
+  e.preventDefault();
+  drag = null; lastFinger = null; svg.classList.remove('panning');
+  for (const id of fingers.keys()) fingersIgnored.add(id);
+  lastDown.time = 0; /* a later tap never makes a double-tap with these fingers */
+  pinch = { ids: on.map(t => t.identifier), moved: false };
+  const s = pinchSpan(e), r = svg.getBoundingClientRect();
+  Object.assign(pinch, { mx: s.mx, my: s.my, d: s.d, k: view.k, wx: view.cx + (s.mx - r.left - r.width / 2) / view.k, wy: view.cy + (s.my - r.top - r.height / 2) / view.k });
+}
+function pinchSpan(e) {
+  const [a, b] = pinch.ids.map(id => touchOf(e, id));
+  if (!a || !b) return null;
+  return { mx: (a.clientX + b.clientX) / 2, my: (a.clientY + b.clientY) / 2, d: Math.max(1, Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)) };
+}
+function pinchMove(e) {
+  const s = pinchSpan(e);
+  if (!s) return;
   /* a two-finger tap does nothing: the fingers may wander 10 px, as a tap may (1.4.4) */
   if (!pinch.moved && Math.hypot(s.mx - pinch.mx, s.my - pinch.my) < 10 && Math.abs(s.d - pinch.d) < 10) return;
   pinch.moved = true;
@@ -8941,15 +8967,53 @@ function pinchMove() {
   autoFit = false;
   applyView();
 }
-function fingerUp(e) {
-  if (e.pointerType !== 'touch' || !fingers.has(e.pointerId)) return false;
-  fingers.delete(e.pointerId);
-  if (fingersIgnored.delete(e.pointerId)) return true;
-  if (!pinch || !pinch.ids.includes(e.pointerId)) return false;
-  const other = pinch.ids.find(id => id !== e.pointerId), q = fingers.get(other), moved = pinch.moved;
-  pinch = null;
-  if (q) drag = { type: 'pan', pid: other, sx: q.x, sy: q.y, cx: view.cx, cy: view.cy, moved, slop: 10, isDouble: false, kind: 'empty', id: '' };
-  return true;
+function lastFingerMove(e) {
+  const t = touchOf(e, lastFinger.id);
+  if (!t) return;
+  if (!lastFinger.moved && Math.hypot(t.clientX - lastFinger.sx, t.clientY - lastFinger.sy) < 10) return;
+  lastFinger.moved = true;
+  svg.classList.add('panning');
+  view.cx = lastFinger.cx - (t.clientX - lastFinger.sx) / view.k;
+  view.cy = lastFinger.cy - (t.clientY - lastFinger.sy) / view.k;
+  autoFit = false;
+  applyView();
+}
+/* the pinch, or the finger left after it, loses the fingers no longer on the screen */
+function touchesGone(e) {
+  if (pinch && pinch.ids.some(id => !touchOf(e, id))) {
+    const other = pinch.ids.find(id => touchOf(e, id)), t = other === undefined ? null : touchOf(e, other), moved = pinch.moved;
+    pinch = null;
+    if (t) lastFinger = { id: other, sx: t.clientX, sy: t.clientY, cx: view.cx, cy: view.cy, moved };
+  }
+  if (lastFinger && !touchOf(e, lastFinger.id)) { lastFinger = null; svg.classList.remove('panning'); }
+}
+/* One event can reach both the drawing and the element first touched (below), so each is handled once */
+let touchSeen = null;
+function touchMove(e) {
+  if (e === touchSeen) return;
+  touchSeen = e;
+  if ((fingersOwned || pinch || lastFinger) && e.cancelable) e.preventDefault();
+  touchesGone(e);
+  if (pinch) pinchMove(e); else if (lastFinger) lastFingerMove(e);
+}
+function touchUp(e) {
+  if (e === touchSeen) return;
+  touchSeen = e;
+  touchCount = e.touches.length;
+  for (const t of e.changedTouches) touchIgnored.delete(t.identifier);
+  touchesGone(e);
+  /* no finger left on the screen: no finger's pointer is still down either */
+  if (!e.touches.length) { fingers.clear(); fingersIgnored.clear(); touchIgnored.clear(); }
+}
+/* A touch keeps the element it first touched as its target, even after a redraw takes that element out of the page. Its
+   later events then reach that element only, so the drawing listens there too. */
+const touchWatched = new WeakSet();
+function watchTouch(el) {
+  if (touchWatched.has(el)) return;
+  touchWatched.add(el);
+  el.addEventListener('touchmove', touchMove, { passive: false });
+  el.addEventListener('touchend', touchUp);
+  el.addEventListener('touchcancel', touchUp);
 }
 /* One finger scrolls the page (1.4.11, part 2). On a touch screen in the narrow layout, outside presentation mode, the CSS
    lets the browser scroll the page with one finger on the drawing (touch-action: pan-x pan-y in head.html). The script
@@ -8960,25 +9024,35 @@ function fingerUp(e) {
 const pageScrolls = () => getComputedStyle(svg).touchAction !== 'none';
 const claimsFinger = t => !!(t.closest('[data-node]') || t.classList.contains('handle-hit') || (mode === 'design' && (t.closest('[data-bend]') || t.closest('[data-elabel]'))));
 /* fingers on the drawing: a finger resting elsewhere on the screen does not count. A target the drawing has just redrawn away is no longer in the page; it counts. */
-const fingersOnDrawing = e => [...e.touches].filter(t => svg.contains(t.target) || !t.target.isConnected).length;
+const fingersOnDrawing = e => [...e.touches].filter(onDrawing).length;
 svg.addEventListener('touchstart', e => {
-  if (!pageScrolls()) return;
-  fingersOwned = fingersOnDrawing(e) > 1 || claimsFinger(e.target);
-  if (fingersOwned && e.cancelable) e.preventDefault();
+  touchCount = e.touches.length;
+  for (const t of e.changedTouches) if (onDrawing(t)) watchTouch(t.target);
+  if (pageScrolls()) {
+    fingersOwned = fingersOnDrawing(e) > 1 || claimsFinger(e.target);
+    if (fingersOwned && e.cancelable) e.preventDefault();
+  }
+  pinchStart(e);
 }, { passive: false });
-svg.addEventListener('touchmove', e => { if (fingersOwned && e.cancelable) e.preventDefault(); }, { passive: false });
+svg.addEventListener('touchmove', touchMove, { passive: false });
+svg.addEventListener('touchend', touchUp);
+svg.addEventListener('touchcancel', touchUp);
+/* Safari's own pinch, while a finger is on the drawing (a pinch on a Mac's trackpad is left as it was) */
+['gesturestart', 'gesturechange'].forEach(type => svg.addEventListener(type, e => { if (touchCount) e.preventDefault(); }));
 svg.addEventListener('pointerdown', e => {
   if (e.pointerType === 'mouse' && e.button !== 0) return;
   if (e.pointerType === 'touch' && fingerDown(e)) return;
-  if ((e.pointerType === 'touch' || e.pointerType === 'pen') && pageScrolls()) {
-    if (!claimsFinger(e.target)) {
-      /* as before, no mouse events follow a tap on the drawing; and a double-tap is timed from the moments the finger went down */
-      e.preventDefault();
-      drag = { type: 'tap', pid: e.pointerId, sx: e.clientX, sy: e.clientY, moved: false, slop: 10, down: e, time: performance.now() };
-      return;
-    }
+  const scrolls = (e.pointerType === 'touch' || e.pointerType === 'pen') && pageScrolls();
+  if (scrolls && !claimsFinger(e.target)) {
+    /* as before, no mouse events follow a tap on the drawing; and a double-tap is timed from the moments the finger went down */
+    e.preventDefault();
+    drag = { type: 'tap', pid: e.pointerId, sx: e.clientX, sy: e.clientY, moved: false, slop: 10, down: e, time: performance.now() };
+    return;
+  }
+  if (scrolls || e.pointerType === 'touch') {
     /* Chromium sends touchstart after pointerdown, to the element first touched. A redraw now would take that element out
-       of the page, the touchstart would not reach the drawing, and the browser would scroll. So the redraw waits a moment. */
+       of the page, the touchstart would not reach the drawing, the browser would scroll and the pinch would not see the
+       finger. So the redraw waits a moment. */
     holdRender = true;
     setTimeout(() => { holdRender = false; if (heldRender) { heldRender = false; renderCanvas(); positionInline(); } }, 0);
   }
@@ -9039,7 +9113,6 @@ svg.addEventListener('pointermove', e => {
   if (fingers.has(e.pointerId)) {
     fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (fingersIgnored.has(e.pointerId)) return;
-    if (pinch) { if (pinch.ids.includes(e.pointerId)) pinchMove(); return; }
   }
   if (!drag) {
     if (linking) drawTempLink(linking.from, toWorld(e));
@@ -9864,6 +9937,35 @@ new ResizeObserver(() => {
   resolveDownloads();
 })();
 
+</script>
+<script>
+/* PREVIEW ONLY: a log of finger events for the iPhone check. Not part of the Sketchpad, never in index.html or src/. */
+(function () {
+  var box = document.createElement('div');
+  box.style.cssText = 'position:fixed;top:0;right:0;z-index:2147483647;padding:3px 6px;background:rgba(0,0,0,.72);color:#ffe9a8;font:10px/1.25 ui-monospace,Menlo,monospace;white-space:pre;pointer-events:none;border-bottom-left-radius:6px';
+  document.body.appendChild(box);
+  var lines = [], pm = 0, tm = 0, tmNC = 0, tmN = 0;
+  function state() {
+    try { return 'zoom ' + view.k.toFixed(2) + (pinch ? ' PINCH' : '') + (lastFinger ? ' LAST' : '') + (drag ? ' ' + drag.type : '') + ' p' + fingers.size + '/' + fingersIgnored.size; }
+    catch (e) { return '?'; }
+  }
+  function show() { box.textContent = 'preview log  ' + state() + '\nmoves: ptr ' + pm + ', touch ' + tm + ' n=' + tmN + (tmNC ? ' NC ' + tmNC : '') + '\n' + lines.join('\n'); }
+  function add(s) { lines.push(s); if (lines.length > 9) lines.shift(); show(); }
+  function where(t) { return !t || !t.isConnected ? 'gone' : (svg.contains(t) ? 'draw' : 'out'); }
+  ['pointerdown', 'pointerup', 'pointercancel'].forEach(function (type) {
+    window.addEventListener(type, function (e) { if (e.pointerType !== 'mouse') add(type.replace('pointer', 'p-') + ' ' + e.pointerId + ' ' + e.pointerType + ' ' + where(e.target)); }, true);
+  });
+  window.addEventListener('pointermove', function (e) { if (e.pointerType !== 'mouse') { pm++; show(); } }, true);
+  ['touchstart', 'touchend', 'touchcancel'].forEach(function (type) {
+    window.addEventListener(type, function (e) {
+      add(type.replace('touch', 't-') + ' n=' + e.touches.length + ' id ' + Array.prototype.map.call(e.changedTouches, function (t) { return t.identifier; }).join(',') + (e.cancelable ? '' : ' NC') + ' ' + where(e.target));
+    }, true);
+  });
+  window.addEventListener('touchmove', function (e) { tm++; tmN = e.touches.length; if (!e.cancelable) tmNC++; show(); }, true);
+  ['gesturestart', 'gestureend'].forEach(function (type) { window.addEventListener(type, function (e) { add(type + ' ' + (e.scale || 0).toFixed(2)); }, true); });
+  setInterval(show, 500);
+  show();
+})();
 </script>
 </body>
 </html>
