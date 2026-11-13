@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.11 (2026-11-13)
+
+Finger gestures on phones and tablets. A pinch zooms the drawing, two fingers move it, and on a phone one finger on the drawing scrolls the page.
+
+- Pinch and two fingers: on any touch screen, a pinch on the drawing zooms it about the point between the fingers, within the limits of + and − (0.25 to 3). Two fingers move the graph. After a pinch, the finger left down keeps moving the graph until it is lifted. A third finger is ignored, and so is a second finger while a hypothesis, its blue dot or an arrow's label is being dragged. Two fingers never add a hypothesis. This works in presentation mode too, which up to 1.4.10 had no way to zoom on a phone. Up to 1.4.10 a pinch did nothing on an iPhone, and in Chromium it threw the graph sideways.
+- One finger scrolls the page: on a touch screen in the narrow layout (a phone, or a tablet held upright), outside presentation mode, one finger on empty drawing or on an arrow's line scrolls the page. Up to 1.4.10 it moved the graph, so a page scroll that started on the drawing moved the graph instead. A finger on a hypothesis, the blue dot or an arrow's label still drags it. A tap still selects and deselects, and a double-tap still adds a hypothesis. A scroll from the drawing keeps the selection. On a tablet held sideways, in presentation mode and with a mouse, one finger still moves the graph.
+- At the very top of the page, one finger that drags down on the drawing does nothing, so Safari does not reload the page.
+- Help dialog on a touch screen: the zoom line reads "Pinch or tap + or − to zoom, drag with two fingers to pan, Fit re-centres." With a mouse the line is unchanged.
+- User guide: the phone and tablet section says how to zoom, move the graph and scroll the page.
+- Checked on an iPhone in Safari, on preview copies of the page, before release.
+- Tests: four new browser checks (two fingers and a pinch; one finger scrolls the page; two fingers when the browser drops pointer events; a drag down at the top of the page). Each fails on the page before its change. The Help zoom line check reads the new line. Browser suite: 67. Self-tests: 131. Engine stress suite: 48.
+
 ## 1.4.10 (2026-11-11)
 
 The Power tab's R code now matches the test the tab simulates, and a footer button has a clearer name.

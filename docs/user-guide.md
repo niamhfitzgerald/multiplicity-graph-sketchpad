@@ -1,6 +1,6 @@
 # Multiplicity Graph Sketchpad User Guide
 
-Niamh Fitzgerald · version 1.4.10
+Niamh Fitzgerald · version 1.4.11
 
 The Sketchpad draws, tests and explains graphical multiple testing procedures (Bretz et al., 2009) in the browser. Nothing you enter leaves your computer. This guide covers how to use the Sketchpad.
 
@@ -149,9 +149,9 @@ Every export can be downloaded or copied.
 
 - **Add and connect:** double-tap empty space to add a hypothesis. Tap a hypothesis to select it, then drag its blue dot onto another one, or tap the dot and then the target. A tap close to the dot is enough.
 - **Test:** in Test mode, tap a hypothesis to reject it (or claim it, with Plain language ticked).
-- **Zoom:** pinching does not zoom the drawing. Use +, − and Fit.
-- **Scroll the page:** start with your finger outside the drawing. A finger on the drawing moves the graph; Fit puts it back.
-- **Present:** the caption sits above the Next, Back, Reset and Exit buttons, and the graph is fitted above them. It works upright and sideways. Turning the phone fits the graph again, even if you have moved it.
+- **Zoom:** pinch the drawing, or use +, − and Fit.
+- **Scroll the page:** a finger on empty drawing scrolls the page. To move the graph, drag it with two fingers. A finger on a hypothesis still moves the hypothesis. On a tablet held sideways, and in presentation mode, one finger moves the graph too.
+- **Present:** the caption sits above the Next, Back, Reset and Exit buttons, and the graph is fitted above them. It works upright and sideways. Turning the phone fits the graph again, even if you have moved it. Pinch to zoom in on part of the graph.
 - **More menu:** if it is taller than the screen, scroll inside it.
 - **Downloads:** files go to Downloads (on an iPhone or iPad, the Files app). A note under the button says so. If nothing was saved, press Copy, or touch and hold the picture to save it. A browser inside a mail or chat app may not save files at all; open the page in Safari or Chrome instead.
 - **Help:** the hint and the Help dialog speak of taps on a touch screen.
