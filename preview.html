@@ -8989,10 +8989,26 @@ function touchesGone(e) {
 }
 /* One event can reach both the drawing and the element first touched (below), so each is handled once */
 let touchSeen = null;
+/* At the very top of the page, Safari reloads it when a finger drags down (pull to refresh). Since one finger on the drawing
+   scrolls the page, a drag down on the drawing there would reload the page, and Test mode, the zoom and the undo history
+   would be lost. So at the top of the page a single finger that starts on the drawing (not on a hypothesis or label) and
+   first moves down does nothing: its moves are cancelled until it is lifted. A first move up (or sideways) scrolls the
+   page as before. CSS (overscroll-behavior) does not stop Safari's pull to refresh. */
+let topFinger = null;
+function pullingDown(e) {
+  if (!topFinger || e.touches.length !== 1 || e.touches[0].identifier !== topFinger.id) return false;
+  if (topFinger.down === null) {
+    const t = e.touches[0], dx = t.clientX - topFinger.x, dy = t.clientY - topFinger.y;
+    if (!dx && !dy) return false;
+    const top = (window.visualViewport ? visualViewport.pageTop : scrollY) <= 0;
+    topFinger.down = top && dy > 0 && dy >= Math.abs(dx);
+  }
+  return topFinger.down;
+}
 function touchMove(e) {
   if (e === touchSeen) return;
   touchSeen = e;
-  if ((fingersOwned || pinch || lastFinger) && e.cancelable) e.preventDefault();
+  if ((fingersOwned || pinch || lastFinger || pullingDown(e)) && e.cancelable) e.preventDefault();
   touchesGone(e);
   if (pinch) pinchMove(e); else if (lastFinger) lastFingerMove(e);
 }
@@ -9028,9 +9044,11 @@ const fingersOnDrawing = e => [...e.touches].filter(onDrawing).length;
 svg.addEventListener('touchstart', e => {
   touchCount = e.touches.length;
   for (const t of e.changedTouches) if (onDrawing(t)) watchTouch(t.target);
+  topFinger = null;
   if (pageScrolls()) {
     fingersOwned = fingersOnDrawing(e) > 1 || claimsFinger(e.target);
     if (fingersOwned && e.cancelable) e.preventDefault();
+    else if (e.touches.length === 1) topFinger = { id: e.touches[0].identifier, x: e.touches[0].clientX, y: e.touches[0].clientY, down: null };
   }
   pinchStart(e);
 }, { passive: false });
