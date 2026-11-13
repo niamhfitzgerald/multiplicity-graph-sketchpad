@@ -49,6 +49,12 @@ let drag = null;
 let linking = null;
 let inline = null;
 let lastDown = { time: 0, x: 0, y: 0, kind: '', id: '' };
+/* Two fingers on the drawing (1.4.11): every finger on it by pointer id and the pointers left out, the touches left out of a
+   gesture, the pinch, the finger left down after it, and the number of fingers on the screen */
+const fingers = new Map(), fingersIgnored = new Set(), touchIgnored = new Set();
+let pinch = null, lastFinger = null, touchCount = 0;
+/* One finger scrolls the page (1.4.11, part 2): whether this touch belongs to the page's script, and a redraw held back */
+let fingersOwned = false, holdRender = false, heldRender = false;
 let lastLayout = [];
 let V = [];
 let statusFixes = [];
@@ -384,6 +390,7 @@ function designAllVM(Gx) {
 }
 /* ---------- canvas rendering ---------- */
 function renderCanvas() {
+  if (holdRender) { heldRender = true; return; } /* see pointerdown (1.4.11) */
   const ae = document.activeElement;
   const focusedNode = ae && ae.closest && world.contains(ae) && ae.closest('[data-node]') ? ae.closest('[data-node]').getAttribute('data-node') : null;
   const vm = buildVM();
@@ -3014,8 +3021,178 @@ function drawTempLink(fromId, p) {
   world.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
   if (target) { const el = world.querySelector(`[data-node="${target.id}"]`); if (el) el.classList.add('drop-target'); }
 }
+/* Two fingers on the drawing (1.4.11). A second finger starts a pinch: the two fingers move the graph together, and the
+   distance between them sets the zoom, within the limits of + and - (0.25 to 3). The point of the graph between the
+   fingers stays between them. The second finger is left out while the first is dragging a hypothesis, its blue dot or an
+   arrow's label (moved past the tap limit), and a third finger always is. When one of the two is lifted, the other keeps
+   moving the graph until it is lifted too.
+   The pinch follows the fingers' touch events, which list every finger on the screen in each event. Safari on an iPhone
+   ended one finger's pointer events as the second finger landed, so a pinch that followed pointer events only moved the
+   graph. The pointer events of the fingers in a pinch are left out until they are lifted. */
+function fingerDown(e) {
+  fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  try { svg.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+  /* a finger left out of an earlier gesture and still down takes no part: with it, this finger is the first */
+  const active = [...fingers.keys()].filter(id => !fingersIgnored.has(id));
+  if (active.length < 2 && !pinch && !lastFinger) return false;
+  /* a second finger, or a finger during a pinch: the touch events decide what it does */
+  e.preventDefault();
+  fingersIgnored.add(e.pointerId);
+  return true;
+}
+function fingerUp(e) {
+  if (e.pointerType !== 'touch' || !fingers.has(e.pointerId)) return false;
+  fingers.delete(e.pointerId);
+  return fingersIgnored.delete(e.pointerId);
+}
+const touchOf = (e, id) => [...e.touches].find(t => t.identifier === id);
+const onDrawing = t => svg.contains(t.target) || !t.target.isConnected;
+function pinchStart(e) {
+  const on = [...e.touches].filter(t => onDrawing(t) && !touchIgnored.has(t.identifier));
+  if (on.length < 2) return;
+  /* left out: a third finger, a finger that lands while the page scrolls, and a second finger while the first drags a
+     hypothesis, its blue dot or a label */
+  if (pinch || on.length > 2 || !e.cancelable || (drag && drag.moved && /^(move|link|bend)$/.test(drag.type))) {
+    for (const t of e.changedTouches) if (on.some(o => o.identifier === t.identifier)) touchIgnored.add(t.identifier);
+    return;
+  }
+  e.preventDefault();
+  drag = null; lastFinger = null; svg.classList.remove('panning');
+  for (const id of fingers.keys()) fingersIgnored.add(id);
+  lastDown.time = 0; /* a later tap never makes a double-tap with these fingers */
+  pinch = { ids: on.map(t => t.identifier), moved: false };
+  const s = pinchSpan(e), r = svg.getBoundingClientRect();
+  Object.assign(pinch, { mx: s.mx, my: s.my, d: s.d, k: view.k, wx: view.cx + (s.mx - r.left - r.width / 2) / view.k, wy: view.cy + (s.my - r.top - r.height / 2) / view.k });
+}
+function pinchSpan(e) {
+  const [a, b] = pinch.ids.map(id => touchOf(e, id));
+  if (!a || !b) return null;
+  return { mx: (a.clientX + b.clientX) / 2, my: (a.clientY + b.clientY) / 2, d: Math.max(1, Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)) };
+}
+function pinchMove(e) {
+  const s = pinchSpan(e);
+  if (!s) return;
+  /* a two-finger tap does nothing: the fingers may wander 10 px, as a tap may (1.4.4) */
+  if (!pinch.moved && Math.hypot(s.mx - pinch.mx, s.my - pinch.my) < 10 && Math.abs(s.d - pinch.d) < 10) return;
+  pinch.moved = true;
+  const r = svg.getBoundingClientRect(), k = Math.max(0.25, Math.min(3, pinch.k * s.d / pinch.d));
+  view.k = k;
+  view.cx = pinch.wx - (s.mx - r.left - r.width / 2) / k;
+  view.cy = pinch.wy - (s.my - r.top - r.height / 2) / k;
+  autoFit = false;
+  applyView();
+}
+function lastFingerMove(e) {
+  const t = touchOf(e, lastFinger.id);
+  if (!t) return;
+  if (!lastFinger.moved && Math.hypot(t.clientX - lastFinger.sx, t.clientY - lastFinger.sy) < 10) return;
+  lastFinger.moved = true;
+  svg.classList.add('panning');
+  view.cx = lastFinger.cx - (t.clientX - lastFinger.sx) / view.k;
+  view.cy = lastFinger.cy - (t.clientY - lastFinger.sy) / view.k;
+  autoFit = false;
+  applyView();
+}
+/* the pinch, or the finger left after it, loses the fingers no longer on the screen */
+function touchesGone(e) {
+  if (pinch && pinch.ids.some(id => !touchOf(e, id))) {
+    const other = pinch.ids.find(id => touchOf(e, id)), t = other === undefined ? null : touchOf(e, other), moved = pinch.moved;
+    pinch = null;
+    if (t) lastFinger = { id: other, sx: t.clientX, sy: t.clientY, cx: view.cx, cy: view.cy, moved };
+  }
+  if (lastFinger && !touchOf(e, lastFinger.id)) { lastFinger = null; svg.classList.remove('panning'); }
+}
+/* One event can reach both the drawing and the element first touched (below), so each is handled once */
+let touchSeen = null;
+/* At the very top of the page, Safari reloads it when a finger drags down (pull to refresh). Since one finger on the drawing
+   scrolls the page, a drag down on the drawing there would reload the page, and Test mode, the zoom and the undo history
+   would be lost. So at the top of the page a single finger that starts on the drawing (not on a hypothesis or label) and
+   first moves down does nothing: its moves are cancelled until it is lifted. A first move up (or sideways) scrolls the
+   page as before. CSS (overscroll-behavior) does not stop Safari's pull to refresh. */
+let topFinger = null;
+function pullingDown(e) {
+  if (!topFinger || e.touches.length !== 1 || e.touches[0].identifier !== topFinger.id) return false;
+  if (topFinger.down === null) {
+    const t = e.touches[0], dx = t.clientX - topFinger.x, dy = t.clientY - topFinger.y;
+    if (!dx && !dy) return false;
+    const top = (window.visualViewport ? visualViewport.pageTop : scrollY) <= 0;
+    topFinger.down = top && dy > 0 && dy >= Math.abs(dx);
+  }
+  return topFinger.down;
+}
+function touchMove(e) {
+  if (e === touchSeen) return;
+  touchSeen = e;
+  if ((fingersOwned || pinch || lastFinger || pullingDown(e)) && e.cancelable) e.preventDefault();
+  touchesGone(e);
+  if (pinch) pinchMove(e); else if (lastFinger) lastFingerMove(e);
+}
+function touchUp(e) {
+  if (e === touchSeen) return;
+  touchSeen = e;
+  touchCount = e.touches.length;
+  for (const t of e.changedTouches) touchIgnored.delete(t.identifier);
+  touchesGone(e);
+  /* no finger left on the screen: no finger's pointer is still down either */
+  if (!e.touches.length) { fingers.clear(); fingersIgnored.clear(); touchIgnored.clear(); }
+}
+/* A touch keeps the element it first touched as its target, even after a redraw takes that element out of the page. Its
+   later events then reach that element only, so the drawing listens there too. */
+const touchWatched = new WeakSet();
+function watchTouch(el) {
+  if (touchWatched.has(el)) return;
+  touchWatched.add(el);
+  el.addEventListener('touchmove', touchMove, { passive: false });
+  el.addEventListener('touchend', touchUp);
+  el.addEventListener('touchcancel', touchUp);
+}
+/* One finger scrolls the page (1.4.11, part 2). On a touch screen in the narrow layout, outside presentation mode, the CSS
+   lets the browser scroll the page with one finger on the drawing (touch-action: pan-x pan-y in head.html). The script
+   claims a finger that starts on a hypothesis or the blue dot's target, or in design mode on an arrow's label or bend
+   handle, and every finger once two are down, by cancelling their touch events. A finger (or pen) on empty drawing or on
+   an arrow's line does nothing until it is lifted. If the page scrolled meanwhile, the browser cancels it; if not, it was a
+   tap and acts as one. */
+const pageScrolls = () => getComputedStyle(svg).touchAction !== 'none';
+const claimsFinger = t => !!(t.closest('[data-node]') || t.classList.contains('handle-hit') || (mode === 'design' && (t.closest('[data-bend]') || t.closest('[data-elabel]'))));
+/* fingers on the drawing: a finger resting elsewhere on the screen does not count. A target the drawing has just redrawn away is no longer in the page; it counts. */
+const fingersOnDrawing = e => [...e.touches].filter(onDrawing).length;
+svg.addEventListener('touchstart', e => {
+  touchCount = e.touches.length;
+  for (const t of e.changedTouches) if (onDrawing(t)) watchTouch(t.target);
+  topFinger = null;
+  if (pageScrolls()) {
+    fingersOwned = fingersOnDrawing(e) > 1 || claimsFinger(e.target);
+    if (fingersOwned && e.cancelable) e.preventDefault();
+    else if (e.touches.length === 1) topFinger = { id: e.touches[0].identifier, x: e.touches[0].clientX, y: e.touches[0].clientY, down: null };
+  }
+  pinchStart(e);
+}, { passive: false });
+svg.addEventListener('touchmove', touchMove, { passive: false });
+svg.addEventListener('touchend', touchUp);
+svg.addEventListener('touchcancel', touchUp);
+/* Safari's own pinch, while a finger is on the drawing (a pinch on a Mac's trackpad is left as it was) */
+['gesturestart', 'gesturechange'].forEach(type => svg.addEventListener(type, e => { if (touchCount) e.preventDefault(); }));
 svg.addEventListener('pointerdown', e => {
   if (e.pointerType === 'mouse' && e.button !== 0) return;
+  if (e.pointerType === 'touch' && fingerDown(e)) return;
+  const scrolls = (e.pointerType === 'touch' || e.pointerType === 'pen') && pageScrolls();
+  if (scrolls && !claimsFinger(e.target)) {
+    /* as before, no mouse events follow a tap on the drawing; and a double-tap is timed from the moments the finger went down */
+    e.preventDefault();
+    drag = { type: 'tap', pid: e.pointerId, sx: e.clientX, sy: e.clientY, moved: false, slop: 10, down: e, time: performance.now() };
+    return;
+  }
+  if (scrolls || e.pointerType === 'touch') {
+    /* Chromium sends touchstart after pointerdown, to the element first touched. A redraw now would take that element out
+       of the page, the touchstart would not reach the drawing, the browser would scroll and the pinch would not see the
+       finger. So the redraw waits a moment. */
+    holdRender = true;
+    setTimeout(() => { holdRender = false; if (heldRender) { heldRender = false; renderCanvas(); positionInline(); } }, 0);
+  }
+  press(e);
+});
+/* what a finger, pen or mouse does when it goes down on the drawing (for a finger in the narrow layout, on empty drawing or an arrow's line, when it is lifted) */
+function press(e, now = performance.now()) {
   const ae = document.activeElement;
   if (ae && ae !== inl && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) ae.blur();
   closeMenu(); $('arrangeMenu').open = false;
@@ -3038,13 +3215,12 @@ svg.addEventListener('pointerdown', e => {
   else if (bendEl) { kind = 'bend'; id = bendEl.dataset.bend; }
   else if (labEl) { kind = 'label'; id = labEl.dataset.elabel; }
   else if (edgeEl) { kind = 'edge'; id = edgeEl.dataset.edge; }
-  const now = performance.now();
   /* A finger wobbles more than a mouse (1.4.4). For touch and pen, a tap may wander 10 px before it counts as a drag, and
      the two taps of a double-tap may land 30 px apart. A mouse keeps 4 px and 9 px. Android's defaults are 8 dp and 100 dp. */
   const finger = e.pointerType === 'touch' || e.pointerType === 'pen';
   const isDouble = now - lastDown.time < 420 && Math.hypot(e.clientX - lastDown.x, e.clientY - lastDown.y) < (finger ? 30 : 9) && lastDown.kind === kind && lastDown.id === id;
   lastDown = { time: isDouble ? 0 : now, x: e.clientX, y: e.clientY, kind, id };
-  const base = { sx: e.clientX, sy: e.clientY, start: p, moved: false, isDouble, kind, id, slop: finger ? 10 : 4 };
+  const base = { pid: e.pointerId, sx: e.clientX, sy: e.clientY, start: p, moved: false, isDouble, kind, id, slop: finger ? 10 : 4 };
   if (animating && kind !== 'empty') return;
   if (kind === 'node') {
     const n = nodeById(id);
@@ -3065,12 +3241,17 @@ svg.addEventListener('pointerdown', e => {
   }
   try { svg.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
   e.preventDefault();
-});
+}
 svg.addEventListener('pointermove', e => {
+  if (fingers.has(e.pointerId)) {
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (fingersIgnored.has(e.pointerId)) return;
+  }
   if (!drag) {
     if (linking) drawTempLink(linking.from, toWorld(e));
     return;
   }
+  if (e.pointerId !== drag.pid) return;
   const p = toWorld(e);
   if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < drag.slop) return;
   const first = !drag.moved;
@@ -3107,8 +3288,10 @@ svg.addEventListener('pointermove', e => {
   }
 });
 function endDrag(e, cancelled) {
-  if (!drag) return;
+  if (!drag || e.pointerId !== drag.pid) return;
   const d = drag; drag = null;
+  /* a finger on empty drawing or an arrow's line in the narrow layout (1.4.11): lifted without the page scrolling, it was a tap */
+  if (d.type === 'tap') { if (!cancelled && !d.moved) { press(d.down, d.time); endDrag(e, false); } return; }
   svg.classList.remove('panning');
   try { svg.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
   if (cancelled) { overlay.innerHTML = ''; renderCanvas(); return; }
@@ -3141,8 +3324,8 @@ function endDrag(e, cancelled) {
   }
   if (d.type === 'none' && d.isDouble && d.kind === 'edge') openInline({ kind: 'edge', key: d.id });
 }
-svg.addEventListener('pointerup', e => endDrag(e, false));
-svg.addEventListener('pointercancel', e => endDrag(e, true));
+svg.addEventListener('pointerup', e => { if (!fingerUp(e)) endDrag(e, false); });
+svg.addEventListener('pointercancel', e => { if (!fingerUp(e)) endDrag(e, true); });
 svg.addEventListener('wheel', e => {
   e.preventDefault();
   const p = toWorld(e);
@@ -3690,7 +3873,7 @@ $('helpBtn').addEventListener('click', () => openModal('Help and shortcuts', tou
     <li><span class="kbd">Delete</span> removes the selection. <span class="kbd">Esc</span> cancels or deselects.</li>
     <li><span class="kbd">Ctrl</span> <span class="kbd">Z</span> undo, <span class="kbd">Ctrl</span> <span class="kbd">Y</span> redo (<span class="kbd">Cmd</span> on a Mac).</li>
     <li><span class="kbd">Tab</span> moves between hypotheses, arrow keys move the focused one (<span class="kbd">Shift</span> for small steps), <span class="kbd">Enter</span> selects it.</li>
-    <li>${touchScreen() ? 'Tap + or &minus; to zoom' : 'Scroll to zoom'}, drag empty space to pan, Fit re-centres.</li>
+    <li>${touchScreen() ? 'Pinch or tap + or &minus; to zoom, drag with two fingers to pan' : 'Scroll to zoom, drag empty space to pan'}, Fit re-centres.</li>
   </ul>
   <p><b>What the guarantee rests on</b></p>
   <ul class="tips">

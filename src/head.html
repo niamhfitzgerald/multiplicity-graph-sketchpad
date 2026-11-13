@@ -418,6 +418,11 @@ table.t td:first-child { white-space: nowrap; }
   body.present .canvas-wrap { height: calc(100vh - 16px); height: calc(100dvh - 16px); min-height: 0; }
   .present-bar { max-height: calc(100% - 20px); overflow-y: auto; }
 }
+/* One finger scrolls the page (1.4.11): on a touch screen in the narrow layout the page scrolls, so the browser may scroll
+   it with one finger on the drawing. The script claims a finger on a hypothesis or label, and two fingers (ui.js). */
+@media (pointer: coarse) and (max-width: 900px) {
+  body:not(.present) #canvas { touch-action: pan-x pan-y; }
+}
 /* Presentation mode on a phone (1.4.4): the caption gets its own row above the four buttons. Up to 1.4.3 it shared one
    row with them and got about 20 px of width, so the bar grew taller than the drawing. */
 @media (max-width: 640px) {
