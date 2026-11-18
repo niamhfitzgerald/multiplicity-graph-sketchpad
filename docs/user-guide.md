@@ -1,6 +1,6 @@
 # Multiplicity Graph Sketchpad User Guide
 
-Niamh Fitzgerald · version 1.4.11
+Niamh Fitzgerald · version 1.4.12
 
 The Sketchpad draws, tests and explains graphical multiple testing procedures (Bretz et al., 2009) in the browser. Nothing you enter leaves your computer. This guide covers how to use the Sketchpad.
 
@@ -23,7 +23,7 @@ Start from a template or from an empty canvas. The template picker in the toolba
 - **Bend an arrow:** drag its weight label, or use the curvature slider in the Graph panel.
 - **Remove:** select, then press Delete. Undo and redo with the arrow buttons or Ctrl+Z and Ctrl+Y.
 - **Matrix tab:** edit the weight vector and transition matrix as numbers. It stays in step with the canvas.
-- **Fit:** the Fit button fits the whole graph in view. The view also refits by itself when the window changes width, unless you have zoomed or moved it. It always refits when the side panel moves below the drawing or back, for example when you turn a tablet. In presentation mode it also always refits when you turn a phone or tablet. On a phone the graph is fitted below the hint box.
+- **Fit:** the Fit button fits the whole graph in view. The view also refits by itself when the window changes width, unless you have zoomed or moved it. It always refits when the side panel moves below the drawing or back, for example when you turn a tablet. In presentation mode it also always refits when you turn a phone or tablet. On a phone, and on a narrow drawing such as an iPad held sideways, the hint box sits under the toolbar and the graph is fitted below it.
 - **Description and group:** each hypothesis has optional fields such as "dose 1, primary endpoint" and "primary". They feed the plain-language text, the SAP text and the group bands on the canvas.
 
 Alpha is set in the toolbar (default 0.025). Next to it, say whether your p-values are one-sided or two-sided; the SAP text repeats the choice, and the parametric test accepts one-sided p-values only.
@@ -56,7 +56,7 @@ The bar under the canvas checks the graph as you edit. Red messages are errors (
 - **Arrange (top right of the canvas):** snap every hypothesis into a circle, two rows, a line, a grid, a column, or the order of testing. Choose the spacing and whether to straighten bent arrows. Undo puts them back.
 - **Colour:** select a hypothesis and pick a swatch or any colour. "Use this colour for every hypothesis" applies it to the whole graph.
 - **Groups:** hypotheses with the same group are drawn inside a shaded band with the group name, on the canvas and in the picture exports.
-- **More menu:** hints on the canvas, snap to grid, decimals instead of fractions, the colour theme, import, the self-test, Clear graph, and About (version, how to cite, licence, limitations and references). The version number in the footer opens About too.
+- **More menu:** hints on the canvas, snap to grid, decimals instead of fractions, the colour theme, Download a picture (PNG), import, the self-test, Clear graph, and About (version, how to cite, licence, limitations and references). The version number in the footer opens About too.
 
 ## Test the Graph
 
@@ -131,9 +131,10 @@ When the graph or a setting changes after a comparison, a notice asks you to run
 
 ## Export
 
-All exports are in the Export tab. Pictures and TikZ show the graph as it is on the canvas, including any test progress; the R code describes the initial graph.
+Every export is in the Export tab. Pictures and TikZ show the graph as it is on the canvas, including any test progress; the R code describes the initial graph.
 
-- **Picture:** PNG at twice screen resolution, or SVG under More formats. Both have a white background and include group bands and colours. For an entangled graph, **Graphs side by side (PNG)** draws each component graph on its own (see Entangled Graphs).
+- **Download button:** press **Download** next to Fit to save the PNG picture in one press. On a phone held upright it is next to More at the top. The More menu has it too, as "Download a picture (PNG)". It saves the same file as the Export tab.
+- **Picture:** PNG at twice screen resolution, or **Vector picture (SVG)** under "For documents and slides" (untick Plain language to see it). Both have a white background and include group bands and colours. For an entangled graph, **Graphs side by side (PNG)** draws each component graph on its own (see Entangled Graphs).
 - **LaTeX (TikZ):** the same positions and curves as the canvas, with the `\usetikzlibrary` line it needs in a comment at the top.
 - **Beamer, step by step:** one frame with one overlay per rejection, following the steps you took in Test mode (or the automatic run on the p-values). Each overlay shows the levels and a caption. It works with the Metropolis theme.
 - **R:** `graph_create()` for graphicalMCP, with `graph_test_shortcut()` when every p-value is entered; `matrix2graph()` for gMCP. For an entangled graph, see the Entangled Graphs section.
@@ -153,6 +154,7 @@ Every export can be downloaded or copied.
 - **Scroll the page:** a finger on empty drawing scrolls the page. To move the graph, drag it with two fingers. A finger on a hypothesis still moves the hypothesis. On a tablet held sideways, and in presentation mode, one finger moves the graph too.
 - **Present:** the caption sits above the Next, Back, Reset and Exit buttons, and the graph is fitted above them. It works upright and sideways. Turning the phone fits the graph again, even if you have moved it. Pinch to zoom in on part of the graph.
 - **More menu:** if it is taller than the screen, scroll inside it.
+- **Download a picture:** on a phone held upright the Download button is next to More at the top. After you tap it, a message says where to find the picture.
 - **Downloads:** files go to Downloads (on an iPhone or iPad, the Files app). A note under the button says so. If nothing was saved, press Copy, or touch and hold the picture to save it. A browser inside a mail or chat app may not save files at all; open the page in Safari or Chrome instead.
 - **Help:** the hint and the Help dialog speak of taps on a touch screen.
 

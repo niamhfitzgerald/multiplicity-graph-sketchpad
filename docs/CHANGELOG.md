@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.4.12 (2026-11-18)
+
+A Download button for the picture of the graph, after a visitor asked for a PNG export and did not find the one in the Export tab.
+
+- Download button: **Download** sits between Fit and Present. One press saves `multiplicity-graph.png`, the same file as the Export tab's Picture (PNG), with no preview first. On a phone held upright (640 px wide and narrower) the drawing's toolbar has no room, so the button sits in the top bar next to More. It shows with Plain language ticked or unticked, in Design and Test mode, and for an entangled graph (the view on the canvas). It is hidden in presentation mode. With an empty drawing it says "Add some hypotheses first."
+- More menu: a new item, "Download a picture (PNG)", does the same.
+- On a phone or tablet, after a download a message on the drawing says "Look for multiplicity-graph.png in Downloads (on an iPhone or iPad, in the Files app)." If the download fails, the message says how to save the picture from the Export tab instead.
+- The hint box: with the wider toolbar it keeps more room clear on its right, so it never runs under the toolbar. On a drawing narrower than 660 px (for example an iPad held sideways, or a window about 900 to 1,080 px wide) it now sits under the toolbar, across the drawing, as on a phone, and the graph is fitted below it. Up to 1.4.11 that was on a phone only.
+- The smallest phones: below 360 px wide the drawing's toolbar has slightly smaller gaps and padding. At 320 px (an iPhone SE, first generation) it was 4 px wider than the drawing, so the edge of Arrange was cut off; it now fits. 360 px and wider are unchanged.
+- Help dialog: the Export line names the Download button and the menu item.
+- User guide: the Export section names the Download button, and the Picture line gives the SVG button its real name, Vector picture (SVG) under "For documents and slides". It said "under More formats", a heading the page never had. The phone section and the Fit and More menu lines are updated too.
+- Tests: three new browser checks (the Download button and menu item, which download byte for byte the Export tab's picture; the hint on narrow drawings; the toolbar on the smallest phones). Each fails on the 1.4.11 page. The clinician-view check lists the new menu item as a planned difference. Browser suite: 70. Self-tests: 131. Engine stress suite: 48.
+
 ## 1.4.11 (2026-11-13)
 
 Finger gestures on phones and tablets. A pinch zooms the drawing, two fingers move it, and on a phone one finger on the drawing scrolls the page.
