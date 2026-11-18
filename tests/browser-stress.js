@@ -1351,8 +1351,11 @@ async function step(name, fn) {
     const views = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, 'views-1.3.0.json'), 'utf8'));
     /* planned differences: Import opens the Matrix tab, so it is hidden with the tab in the clinician view (1.3.2);
        1.3.6: the side-by-side export of an entangled graph (Maurer and Bretz 2013, Fig. 2): the "Graphs side by side"
-       button and its note show in both views, the tick box for the SVG, TikZ and beamer exports with Plain language off only */
-    const planned = ['menu: only with 1.3.0 Advanced off: importBtn',
+       button and its note show in both views, the tick box for the SVG, TikZ and beamer exports with Plain language off only;
+       1.4.12: "Download a picture (PNG)" in the More menu, in both views (Niamh's choice, 18 November). With
+       Plain language on it shares the menu line with the 1.3.2 Import difference, so that line is listed whole. */
+    const planned = ['menu: only with 1.3.0 Advanced off: importBtn; only with Plain language on: downloadMenuBtn',
+      'menu: only with Plain language off: downloadMenuBtn',
       'entangledDesign.export: only with Plain language on: #sbsNote, export:sbs',
       'entangledDesign.export: only with Plain language off: #sbsNote, #sbsRow, #sbsToggle, export:sbs'];
     let out = '';
@@ -2520,6 +2523,167 @@ async function step(name, fn) {
       else { await slide(p, T, at, [0, 60]); const s1 = await st(p), v0 = JSON.parse(s0.view), v1 = JSON.parse(s1.view);
         if (Math.abs((v0.cy - v1.cy) * v1.k - 60) >= 1) out += `present: one finger down moved the graph ${((v0.cy - v1.cy) * v1.k).toFixed(1)} px, not 60. `; }
       await c.close(); }
+    if (out) return out;
+  });
+
+  /* 1.4.12: a Download button for the PNG picture, after a visitor asked for a PNG export that the Export tab already had
+     (Picture (PNG), then Download). Above 640 px it sits between Fit and Present; at 640 px and narrower, in the top bar
+     beside More, since the drawing's toolbar has no room there. One press saves the file the Export tab saves, with no
+     preview. The hint keeps 416 px free on its right (330 up to 1.4.11), so it does not run under the wider toolbar. */
+  await step('Download button (1.4.12): one press, on the button or in the More menu, saves multiplicity-graph.png, byte for byte the Export tab\'s picture, in both views, in Test mode and for an entangled graph; it sits between Fit and Present above 640 px and beside More at 640 px and narrower; the hint keeps clear of it; no extra top bar row or sideways scroll on a phone; hidden in presentation mode', async () => {
+    let out = '';
+    const fs = require('fs');
+    const shown = (p, id) => p.evaluate(id => { const e = document.getElementById(id); return !!e && getComputedStyle(e).display !== 'none' && e.getClientRects().length > 0; }, id);
+    const grab = async (p, sel, tap) => {
+      const got = p.waitForEvent('download', { timeout: 5000 }).then(async d => ({ name: d.suggestedFilename(), bytes: fs.readFileSync(await d.path()) }), () => null);
+      if (tap) await p.tap(sel); else await p.click(sel);
+      return got;
+    };
+    /* the bytes the Export tab's Download multiplicity-graph.png would save, for the graph as it is now */
+    const tabBytes = async p => {
+      const u = await p.evaluate(async () => { const back = activeTab; setTab('export'); await showExport('png'); const u = exportPayload; setTab(back); return u; });
+      return Buffer.from(u.split(',')[1], 'base64');
+    };
+    const same = async (p, sel, tap, what) => {
+      if (!(await shown(p, sel.slice(1)))) { out += `${what}: ${sel} is not shown. `; return; }
+      const d = await grab(p, sel, tap);
+      if (!d) { out += `${what}: no download. `; return; }
+      if (d.name !== 'multiplicity-graph.png') out += `${what}: the file is "${d.name}". `;
+      const want = await tabBytes(p);
+      if (!d.bytes.equals(want)) out += `${what}: the file differs from the Export tab's picture (${d.bytes.length} and ${want.length} bytes). `;
+    };
+    const hint = p => p.evaluate(() => $('hintChip').hidden ? '' : $('hintText').textContent);
+    { /* desktop, 1280 x 800, with a mouse */
+      const { c, p } = await page144({ viewport: { width: 1280, height: 800 }, acceptDownloads: true });
+      if (await shown(p, 'downloadTopBtn')) out += 'Desktop: the top bar button shows. ';
+      const r = await p.evaluate(() => { const b = $('downloadBtn'); return b ? { prev: b.previousElementSibling && b.previousElementSibling.id, next: b.nextElementSibling && b.nextElementSibling.id, name: b.getAttribute('aria-label') || b.textContent, text: b.textContent.trim() } : null; });
+      if (!r) out += 'Desktop: no #downloadBtn. ';
+      else {
+        if (r.prev !== 'zoomFit' || r.next !== 'presentBtn') out += `Desktop: the button sits between #${r.prev} and #${r.next}. `;
+        if (r.text !== 'Download' || !r.name.startsWith(r.text)) out += `Desktop: the button reads "${r.text}" with the name "${r.name}". `;
+        await same(p, '#downloadBtn', false, 'Desktop, Design');
+        await p.click('#moreMenu > summary'); await p.waitForTimeout(150);
+        await same(p, '#downloadMenuBtn', false, 'Desktop, More menu');
+        if (await p.evaluate(() => $('moreMenu').open)) out += 'Desktop: the More menu stays open after its Download item. ';
+        if (/Downloads/.test(await hint(p))) out += 'Desktop: the touch-screen message shows after a mouse download. ';
+        await p.evaluate(() => setPlain(true)); await p.waitForTimeout(200);
+        await same(p, '#downloadBtn', false, 'Desktop, Plain language');
+        await p.evaluate(() => setPlain(false)); await p.waitForTimeout(200);
+        await p.evaluate(() => { const ps = [0.004, 0.009, 0.011, 0.03]; G.nodes.forEach((n, i) => { n.p = String(ps[i] || 0.5); }); setMode('test'); });
+        await p.waitForTimeout(300);
+        await p.evaluate(() => { const id = rejectableIds(T.st, pOf, G.alpha)[0]; if (id) tryReject(id); });
+        await p.waitForTimeout(1800);
+        if (!(await p.evaluate(() => T && T.st.ids.length < G.nodes.length))) out += 'Desktop, Test: nothing was rejected before the download. ';
+        await same(p, '#downloadBtn', false, 'Desktop, Test mode');
+        await p.evaluate(() => setMode('design')); await p.waitForTimeout(300);
+        await p.selectOption('#templateSelect', 'ent:maurerFig2'); await p.waitForTimeout(400);
+        await same(p, '#downloadBtn', false, 'Desktop, entangled graph');
+        /* the hint and the toolbar never overlap */
+        await p.selectOption('#templateSelect', 'bretz'); await p.waitForTimeout(300);
+        for (const [w, h] of [[641, 900], [768, 1024], [1024, 768], [1280, 800], [1366, 768], [1440, 900], [1920, 1080]]) {
+          await p.setViewportSize({ width: w, height: h }); await p.waitForTimeout(250);
+          const o = await p.evaluate(() => { const hc = $('hintChip'); if (hc.hidden) return 'hidden'; const a = hc.getBoundingClientRect(), z = document.querySelector('.zoom').getBoundingClientRect(); return !(a.right <= z.left || a.left >= z.right || a.bottom <= z.top || a.top >= z.bottom) ? `overlap (hint right ${Math.round(a.right)}, toolbar left ${Math.round(z.left)})` : ''; });
+          if (o === 'hidden') out += `${w} px: the hint is hidden, so the overlap was not checked. `;
+          else if (o) out += `${w} px: ${o}. `;
+          if (!(await shown(p, 'downloadBtn'))) out += `${w} px: the toolbar button is hidden. `;
+        }
+        /* an empty drawing: no download, and a message */
+        await p.setViewportSize({ width: 1280, height: 800 }); await p.waitForTimeout(200);
+        await p.evaluate(() => { $('clearYes').click(); }); await p.waitForTimeout(300);
+        const d = await (async () => { const got = p.waitForEvent('download', { timeout: 1500 }).then(() => true, () => false); await p.click('#downloadBtn'); return got; })();
+        if (d) out += 'Empty drawing: a file was downloaded. ';
+        if ((await hint(p)) !== 'Add some hypotheses first.') out += `Empty drawing: the hint reads "${await hint(p)}". `;
+        await p.evaluate(() => loadGraph(templateJSON('holm'))); await p.waitForTimeout(300);
+        await p.evaluate(() => enterPresent()); await p.waitForTimeout(400);
+        if ((await shown(p, 'downloadBtn')) || (await shown(p, 'downloadTopBtn'))) out += 'Presentation mode: a Download button shows. ';
+      }
+      await c.close();
+    }
+    { /* phone held upright, 390 x 844, touch */
+      const { c, p } = await page144({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, acceptDownloads: true });
+      if (await shown(p, 'downloadBtn')) out += 'Phone: the toolbar button shows. ';
+      const prev = await p.evaluate(() => { const b = $('downloadTopBtn'); return b ? b.previousElementSibling && b.previousElementSibling.id : null; });
+      if (prev !== 'moreMenu') out += `Phone: the top bar button comes after #${prev}. `;
+      await same(p, '#downloadTopBtn', true, 'Phone');
+      await p.tap('#moreMenu > summary'); await p.waitForTimeout(200);
+      await same(p, '#downloadMenuBtn', true, 'Phone, More menu');
+      const t = await hint(p);
+      if (t !== 'Look for multiplicity-graph.png in Downloads (on an iPhone or iPad, in the Files app).') out += `Phone: the message reads "${t}". `;
+      for (const w of [390, 375, 360, 320]) {
+        await p.setViewportSize({ width: w, height: 740 }); await p.waitForTimeout(250);
+        const r = await p.evaluate(() => { const tb = document.querySelector('.topbar'), b = $('downloadTopBtn'); if (!b) return { extra: 0, wide: document.documentElement.scrollWidth - innerWidth }; const h1 = tb.getBoundingClientRect().height; b.style.display = 'none'; const h0 = tb.getBoundingClientRect().height; b.style.display = ''; return { extra: Math.round(h1 - h0), wide: document.documentElement.scrollWidth - innerWidth }; });
+        if (w >= 360 && r.extra) out += `${w} px: the button adds ${r.extra} px to the top bar. `;
+        if (r.wide > 0) out += `${w} px: the page scrolls ${r.wide} px sideways. `;
+      }
+      await p.setViewportSize({ width: 390, height: 844 }); await p.waitForTimeout(250);
+      if (await shown(p, 'downloadTopBtn')) {
+        await p.evaluate(() => { URL.createObjectURL = () => { throw new Error('blocked'); }; });
+        await p.tap('#downloadTopBtn'); await p.waitForTimeout(400);
+        const t2 = await hint(p);
+        if (t2 !== 'The picture could not be saved here. Open the Export tab, press Picture (PNG), then touch and hold the picture to save it.') out += `Phone, failed download: the message reads "${t2}". `;
+      }
+      await c.close();
+    }
+    if (out) return out;
+  });
+
+  /* 1.4.12, Niamh's choice D4 (b): with the Download button the toolbar is wider, so on a drawing narrower than 660 px the
+     hint goes under the toolbar, across the drawing, as on a phone, and Fit leaves room for it. Beside the toolbar it would
+     be under 244 px wide and cover H1 on an iPad held sideways. On a wider drawing it stays beside the toolbar. */
+  await step('Hint on a narrow drawing (1.4.12): below 660 px of drawing the hint sits under the toolbar and covers no hypothesis, in Design and Test mode and after a resize; on a wider drawing it sits beside the toolbar; the toolbar and the hint never overlap', async () => {
+    let out = '';
+    const look = p => p.evaluate(() => {
+      const hc = $('hintChip'), z = document.querySelector('.zoom').getBoundingClientRect(), a = hc.getBoundingClientRect();
+      const covered = G.nodes.filter(n => { const r = document.querySelector(`#canvas [data-node="${n.id}"] .node-body`).getBoundingClientRect(); const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return el && el.closest('#hintChip'); }).map(n => n.label);
+      return { hidden: hc.hidden, below: a.top >= z.bottom - 0.5, beside: Math.abs(a.top - z.top) < 2 && a.right <= z.left + 0.5, overlap: !(a.right <= z.left || a.left >= z.right || a.bottom <= z.top || a.top >= z.bottom), covered, drawW: Math.round(svg.getBoundingClientRect().width) };
+    });
+    const expect = async (p, what, wantBelow) => {
+      const r = await look(p);
+      if (r.hidden) { out += `${what}: the hint is hidden. `; return; }
+      if (wantBelow && !r.below) out += `${what} (drawing ${r.drawW} px): the hint is not under the toolbar. `;
+      if (!wantBelow && !r.beside) out += `${what} (drawing ${r.drawW} px): the hint is not beside the toolbar. `;
+      if (r.overlap) out += `${what}: the hint and the toolbar overlap. `;
+      if (wantBelow && r.covered.length) out += `${what}: the hint covers ${r.covered.join(', ')}. `;
+    };
+    for (const [w, h, touch, below] of [[1440, 900, false, false], [1280, 800, false, false], [1100, 800, false, false], [1024, 768, true, true], [1000, 800, false, true], [901, 800, false, true], [720, 900, false, false], [680, 900, false, true], [390, 844, true, true]]) {
+      const { c, p } = await page144(Object.assign({ viewport: { width: w, height: h } }, touch ? { hasTouch: true, isMobile: true } : {}));
+      await expect(p, `${w} px, Design`, below);
+      if (w === 1024) {
+        await p.evaluate(() => { const ps = [0.004, 0.009, 0.011, 0.03]; G.nodes.forEach((n, i) => { n.p = String(ps[i] || 0.5); }); setMode('test'); });
+        await p.waitForTimeout(500);
+        await expect(p, '1024 px, Test', true);
+      }
+      await c.close();
+    }
+    { /* a window narrowed from 1280 to 1000 px, then widened again: the hint moves under the toolbar and back */
+      const { c, p } = await page144({ viewport: { width: 1280, height: 800 } });
+      await p.setViewportSize({ width: 1000, height: 800 }); await p.waitForTimeout(400);
+      await expect(p, 'narrowed to 1000 px', true);
+      await p.setViewportSize({ width: 1280, height: 800 }); await p.waitForTimeout(400);
+      await expect(p, 'widened to 1280 px', false);
+      await c.close();
+    }
+    if (out) return out;
+  });
+
+  /* 1.4.12, Niamh's choice D7: on the smallest phones the drawing's toolbar was 4 px wider than the drawing at 320 px (an
+     iPhone SE, first generation), so the edge of Arrange was cut off (found while measuring for the Download button, 16
+     November). Below 360 px the toolbar's gaps and side padding are smaller; 360 px and wider are as in 1.4.11. */
+  await step('Toolbar on the smallest phones (1.4.12): at 320 to 359 px the drawing\'s toolbar fits inside the drawing on one row with every button at least 24 px wide; at 360 px and wider it is as in 1.4.11', async () => {
+    let out = '';
+    for (const w of [320, 340, 359, 360, 390]) {
+      const { c, p } = await page144({ viewport: { width: w, height: 700 }, hasTouch: true, isMobile: true });
+      const r = await p.evaluate(() => {
+        const z = document.querySelector('.zoom'), zr = z.getBoundingClientRect(), wr = document.querySelector('.canvas-wrap').getBoundingClientRect();
+        const bs = [...z.querySelectorAll(':scope > .btn, :scope > details > summary')].filter(e => e.getClientRects().length).map(e => e.getBoundingClientRect());
+        return { inside: zr.left >= wr.left + 1 && zr.right <= wr.right - 1, rows: new Set(bs.map(b => Math.round(b.top))).size, narrowest: Math.min(...bs.map(b => b.width)), width: Math.round(zr.width), gap: getComputedStyle(z).columnGap };
+      });
+      if (!r.inside) out += `${w} px: the toolbar runs past the drawing's edge. `;
+      if (r.rows !== 1) out += `${w} px: the toolbar takes ${r.rows} rows. `;
+      if (r.narrowest < 24) out += `${w} px: a button is ${r.narrowest.toFixed(1)} px wide. `;
+      if (w >= 360 && (r.width !== 285 || r.gap !== '6px')) out += `${w} px: the toolbar is ${r.width} px wide with gaps of ${r.gap}, not 285 px and 6px as in 1.4.11. `;
+      await c.close();
+    }
     if (out) return out;
   });
 
