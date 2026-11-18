@@ -313,7 +313,7 @@ footer .lock { display: inline-flex; gap: 6px; align-items: center; }
 .menu-confirm .row { display: flex; gap: 8px; justify-content: flex-end; }
 
 /* ---- canvas hint and starter ---- */
-.canvas-hint { position: absolute; left: 10px; top: calc(10px + var(--comp-h, 0px)); max-width: min(560px, calc(100% - 330px)); display: flex; align-items: flex-start; gap: 8px; background: var(--surface); border: 1px solid var(--line-strong); padding: 6px 6px 6px 10px; border-radius: 8px; font-size: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+.canvas-hint { position: absolute; left: 10px; top: calc(10px + var(--comp-h, 0px)); max-width: min(560px, calc(100% - 416px)); display: flex; align-items: flex-start; gap: 8px; background: var(--surface); border: 1px solid var(--line-strong); padding: 6px 6px 6px 10px; border-radius: 8px; font-size: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
 .canvas-hint.test { background: var(--accent-soft); border-color: var(--accent); }
 .hint-ic { flex: none; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 700; display: inline-grid; place-items: center; font-style: italic; font-family: Georgia, serif; margin-top: 1px; }
 .hint-x { flex: none; border: 0; background: none; cursor: pointer; font-size: 18px; line-height: 1; padding: 0 6px; color: var(--muted); border-radius: 4px; min-height: 24px; }
@@ -402,6 +402,17 @@ body.present .node-body { stroke-width: 3; }
 #alphaPct { white-space: nowrap; }
 @media (max-width: 1439px) { #alphaPct { display: none !important; } }
 @media (max-width: 640px) { .canvas-hint { right: 10px; top: calc(52px + var(--comp-h, 0px)); max-width: none; } }
+/* The Download button (1.4.12): in the drawing's toolbar between Fit and Present, and on a phone held upright (640 px and
+   narrower) in the top bar beside More, since the toolbar has no room there. The hint above keeps 416 px free on its right
+   for the toolbar with it (330 px up to 1.4.11). */
+.topbar .dl-narrow { display: none; }
+/* On a drawing narrower than 660 px the hint goes under the toolbar, as on a phone; ui.js sets the class (placeHint) */
+.canvas-wrap.hint-below .canvas-hint { right: 10px; top: calc(52px + var(--comp-h, 0px)); max-width: none; }
+@media (max-width: 640px) { .topbar .dl-narrow { display: inline-flex; } .zoom .dl-btn { display: none; } }
+/* The smallest phones (1.4.12): below 360 px the toolbar was 4 px wider than the drawing at 320 px (an iPhone SE, first
+   generation), so the edge of Arrange was cut off. Smaller gaps and side padding make it 20 px narrower; every button
+   stays at least 32 px wide. 360 px and wider are unchanged. */
+@media (max-width: 359px) { .zoom { gap: 4px; } .zoom .btn.small:not(.icon) { padding: 0 7px; } }
 table.t td:first-child { white-space: nowrap; }
 @media (max-width: 900px) {
   html, body { height: auto; }
@@ -512,6 +523,7 @@ table.t td:first-child { white-space: nowrap; }
             </select>
           </label>
           <hr>
+          <button class="menu-item" id="downloadMenuBtn" title="Download the graph as a PNG picture">Download a picture (PNG)</button>
           <button class="menu-item adv" id="importBtn">Import from R or a matrix&hellip;</button>
           <button class="menu-item" id="selftestBtn">Run the self-test</button>
           <button class="menu-item" id="aboutBtn">About, references and licence&hellip;</button>
@@ -522,6 +534,7 @@ table.t td:first-child { white-space: nowrap; }
           </div>
         </div>
       </details>
+      <button class="btn dl-btn dl-narrow" id="downloadTopBtn" aria-label="Download PNG picture of the graph" title="Download the graph as a PNG picture">Download</button>
       <button class="btn icon" id="helpBtn" aria-label="Help and shortcuts" title="Help and shortcuts">?</button>
     </div>
   </header>
@@ -578,6 +591,7 @@ table.t td:first-child { white-space: nowrap; }
         <button class="btn icon small" id="zoomIn" aria-label="Zoom in" title="Zoom in">+</button>
         <button class="btn icon small" id="zoomOut" aria-label="Zoom out" title="Zoom out">&minus;</button>
         <button class="btn small" id="zoomFit" title="Fit the graph to the view">Fit</button>
+        <button class="btn small dl-btn" id="downloadBtn" aria-label="Download PNG picture of the graph" title="Download the graph as a PNG picture">Download</button>
         <button class="btn small" id="presentBtn" title="Large view for talking a team through the graph">Present</button>
       </div>
       <input id="inlineEdit" class="inline-edit" hidden autocomplete="off" aria-label="Transition weight">

@@ -298,6 +298,15 @@ function applyView() {
   world.querySelectorAll('.handle-hit').forEach(c => c.setAttribute('r', handleHitR()));
   positionInline();
 }
+/* Where the hint box goes (1.4.12). On a drawing narrower than 660 px it goes under the toolbar, across the drawing, as on
+   a phone since 1.1.5: beside the toolbar with the Download button it would be under 244 px wide and cover the top left
+   of the graph (an iPad held sideways, a window about 900 to 1,080 px wide). Gives true when it is under the toolbar. */
+const HINT_BELOW_W = 660;
+function placeHint() {
+  const below = narrowScreen() || svg.getBoundingClientRect().width < HINT_BELOW_W;
+  svg.closest('.canvas-wrap').classList.toggle('hint-below', below);
+  return below;
+}
 /* radius of the touch target round the blue dot (1.4.7): 12 px on the screen, and never smaller than the dot with its outline */
 function handleHitR() { return Math.max(8, 12 / view.k).toFixed(1); }
 function fitView() {
@@ -306,10 +315,11 @@ function fitView() {
   const xs = G.nodes.map(n => [n.x - nodeRx(n.label), n.x + nodeRx(n.label)]).flat();
   const ys = G.nodes.map(n => [n.y - NODE_R, n.y + NODE_R]).flat();
   const minX = Math.min(...xs) - 80, maxX = Math.max(...xs) + 80, minY = Math.min(...ys) - 95, maxY = Math.max(...ys) + 90;
-  /* On a phone the hint box spans the top of the canvas: fit the graph into the space below it */
+  /* On a phone, and on a drawing narrower than 660 px (1.4.12), the hint box spans the top of the canvas under the
+     toolbar: fit the graph into the space below it */
   let top = 0;
   const chip = $('hintChip');
-  if (narrowScreen() && chip && !chip.hidden && !presenting) top = Math.max(0, Math.min(H * 0.5, chip.getBoundingClientRect().bottom - svg.getBoundingClientRect().top + 6));
+  if (placeHint() && chip && !chip.hidden && !presenting) top = Math.max(0, Math.min(H * 0.5, chip.getBoundingClientRect().bottom - svg.getBoundingClientRect().top + 6));
   /* Presentation mode in the narrow layout (1.4.4): fit the graph into the space above the bar, so the bar covers no hypothesis */
   let bottom = 0;
   const bar = $('presentBar');
@@ -1137,8 +1147,8 @@ function setMode(m, silent) {
     if (activeTab !== 'matrix') setTab('test');
   } else { T = null; manual = false; if (presenting) { presenting = false; document.body.classList.remove('present'); $('presentBar').hidden = true; } }
   if (!silent) renderAll();
-  /* the hint text changes with the mode; on a phone, refit so it does not cover the graph */
-  if (autoFit && narrowScreen()) requestAnimationFrame(fitView);
+  /* the hint text changes with the mode; where the hint is under the toolbar (a phone, a narrow drawing), refit so it does not cover the graph */
+  if (autoFit && placeHint()) requestAnimationFrame(fitView);
 }
 function setWhatIf(on) {
   if (animating || (T && T.running)) return;
@@ -2422,11 +2432,16 @@ function downloadNote(btn, failed) {
   if (!p || !p.classList.contains('dl-note')) { p = document.createElement('p'); p.className = 'small muted dl-note'; p.setAttribute('role', 'status'); row.after(p); }
   p.textContent = text;
 }
+/* Gives false when the download failed, so the Download button on the drawing, which has no note under it, can say so (1.4.12) */
 async function download(name, mime, data, btn) {
   if (dlCap) {
     try { await dlCap.save({ filename: name, data }); }
-    catch (err) { if (btn && err && err.code !== 'declined') btn.textContent = 'Saving is not available here: use Copy'; }
-    return;
+    catch (err) {
+      if (err && err.code === 'declined') return true;
+      if (btn) btn.textContent = 'Saving is not available here: use Copy';
+      return false;
+    }
+    return true;
   }
   try {
     const blob = data instanceof Blob ? data : new Blob([data], { type: mime });
@@ -2437,7 +2452,23 @@ async function download(name, mime, data, btn) {
        for a minute (1.4.4; it was 5 seconds, and a slower tap saved nothing) */
     setTimeout(() => URL.revokeObjectURL(url), 60000);
     downloadNote(btn, false);
-  } catch (e) { downloadNote(btn, true); }
+    return true;
+  } catch (e) { downloadNote(btn, true); return false; }
+}
+/* The Download button between Fit and Present, or beside More on a phone held upright (1.4.12). One press saves the
+   picture that the Export tab's Picture (PNG) shows, the same file under the same name, with no preview first. On a
+   touch screen a message on the drawing says where the file went, as the note under the Export tab's button does. Where
+   this page cannot save files, the Export tab opens at the picture instead, with its note on saving it by hand. */
+async function downloadPicture() {
+  if (!G.nodes.length) { flashMessage('Add some hypotheses first.'); return; }
+  if (!canDownload('x.png')) { setTab('export'); await showExport('png'); return; }
+  const { vm, layout } = currentPicture();
+  let url;
+  try { url = await svgToPng(exportSVG(vm, layout, fmt)); }
+  catch (err) { flashMessage(err.message); return; }
+  const ok = await download('multiplicity-graph.png', 'image/png', dataUrlToBlob(url), null);
+  if (!ok) flashMessage(touchWords('The picture could not be saved here. Open the Export tab, press Picture (PNG), then right-click the picture to save it.'));
+  else if (touchScreen()) flashMessage('Look for multiplicity-graph.png in Downloads (on an iPhone or iPad, in the Files app).');
 }
 async function showExport(kind) {
   exportView = kind;
@@ -3798,6 +3829,8 @@ function applySkin(v) {
 }
 $('skinSelect').addEventListener('change', e => { applySkin(e.target.value); store.set('mgs-skin', e.target.value); });
 $('importBtn').addEventListener('click', () => { closeMenu(); openImport(); });
+/* the same one-press download as the Download button, from the More menu too (1.4.12) */
+$('downloadMenuBtn').addEventListener('click', () => { closeMenu(); downloadPicture(); });
 $('clearBtn').addEventListener('click', () => { $('clearConfirm').hidden = false; if (fitMenuHeight()) $('clearConfirm').scrollIntoView({ block: 'nearest' }); $('clearNo').focus(); });
 $('clearNo').addEventListener('click', () => { $('clearConfirm').hidden = true; });
 $('clearYes').addEventListener('click', () => {
@@ -3840,6 +3873,8 @@ document.addEventListener('click', e => { if ($('arrangeMenu').open && !$('arran
 $('zoomIn').addEventListener('click', () => zoomBy(1.25));
 $('zoomOut').addEventListener('click', () => zoomBy(0.8));
 $('zoomFit').addEventListener('click', fitView);
+$('downloadBtn').addEventListener('click', downloadPicture);
+$('downloadTopBtn').addEventListener('click', downloadPicture);
 for (const t of TABS) $('tabbtn-' + t).addEventListener('click', () => setTab(t));
 document.querySelector('.tabs').addEventListener('keydown', e => {
   const i = TABS.indexOf(activeTab);
@@ -3865,7 +3900,7 @@ $('helpBtn').addEventListener('click', () => openModal('Help and shortcuts', tou
     <li><b>Compare:</b> keep a copy of the graph, change it, and the Compare tab shows both pictures, the weights and transitions that differ, the test result on the same p-values and the power on the same simulated trials.</li>
     <li><b>Optimise</b> (shown with Plain language off): say what each set of claims is worth (a gain function: quick rules, build from values, or write your own), and lock the parts of the graph that must not change. The tab then writes an R script for the multigrain package. Run it in R, open the file it saves, and the tab compares multigrain's expected gain with a fresh estimate and the starting graph.</li>
     <li><b>Matrix tab:</b> edit w and G as numbers, or import R code. In Test mode it shows the graph after each step.</li>
-    <li><b>Export:</b> picture (PNG or SVG), TikZ, beamer frames step by step, SAP or protocol text, R code for graphicalMCP or gMCP, a share link, or a saved file. Open a saved graph reads a saved file, a share link or code, or a multigrain result. For an entangled graph, Graphs side by side draws each component graph on its own, and a tick box does the same for the SVG, TikZ and beamer exports.</li>
+    <li><b>Export:</b> picture (PNG or SVG), TikZ, beamer frames step by step, SAP or protocol text, R code for graphicalMCP or gMCP, a share link, or a saved file. The Download button, or Download a picture (PNG) in the More menu, saves the PNG picture in one press. Open a saved graph reads a saved file, a share link or code, or a multigrain result. For an entangled graph, Graphs side by side draws each component graph on its own, and a tick box does the same for the SVG, TikZ and beamer exports.</li>
     <li><b>Plain language</b> (foot of the side panel, or the More menu): everyday words for a clinical team, and only the parts they need. Untick it to see every tab, template and export.</li>
   </ul>
   <p><b>Shortcuts</b></p>
@@ -4031,6 +4066,7 @@ let lastCanvasW = 0, lastNarrowLayout = narrowLayout(), lastPortrait = portraitV
 new ResizeObserver(() => {
   const w = Math.round(svg.getBoundingClientRect().width), nl = narrowLayout(), switched = nl !== lastNarrowLayout;
   const pv = portraitView(), turned = presenting && pv !== lastPortrait;
+  placeHint(); /* the hint moves under the toolbar or back beside it as the drawing narrows or widens (1.4.12) */
   if (lastCanvasW && ((autoFit && Math.abs(w - lastCanvasW) > 2) || switched || turned)) fitView(); else applyView();
   lastCanvasW = w; lastNarrowLayout = nl; lastPortrait = pv;
 }).observe(svg);
