@@ -2668,7 +2668,9 @@ async function step(name, fn) {
 
   /* 1.4.12, Niamh's choice D7: on the smallest phones the drawing's toolbar was 4 px wider than the drawing at 320 px (an
      iPhone SE, first generation), so the edge of Arrange was cut off (found while measuring for the Download button, 16
-     November). Below 360 px the toolbar's gaps and side padding are smaller; 360 px and wider are as in 1.4.11. */
+     November). Below 360 px the toolbar's gaps and side padding are smaller; 360 px and wider are as in 1.4.11.
+     At 360 px and wider the check reads the gaps and the side padding, not the toolbar's width: the width depends on how
+     each Chromium version measures text (285 px in Chromium 153, 290 px in Chromium 129 on the automatic checks). */
   await step('Toolbar on the smallest phones (1.4.12): at 320 to 359 px the drawing\'s toolbar fits inside the drawing on one row with every button at least 24 px wide; at 360 px and wider it is as in 1.4.11', async () => {
     let out = '';
     for (const w of [320, 340, 359, 360, 390]) {
@@ -2676,12 +2678,13 @@ async function step(name, fn) {
       const r = await p.evaluate(() => {
         const z = document.querySelector('.zoom'), zr = z.getBoundingClientRect(), wr = document.querySelector('.canvas-wrap').getBoundingClientRect();
         const bs = [...z.querySelectorAll(':scope > .btn, :scope > details > summary')].filter(e => e.getClientRects().length).map(e => e.getBoundingClientRect());
-        return { inside: zr.left >= wr.left + 1 && zr.right <= wr.right - 1, rows: new Set(bs.map(b => Math.round(b.top))).size, narrowest: Math.min(...bs.map(b => b.width)), width: Math.round(zr.width), gap: getComputedStyle(z).columnGap };
+        return { inside: zr.left >= wr.left + 1 && zr.right <= wr.right - 1, rows: new Set(bs.map(b => Math.round(b.top))).size, narrowest: Math.min(...bs.map(b => b.width)), gap: getComputedStyle(z).columnGap,
+          pads: [...new Set([...z.querySelectorAll(':scope > .btn.small:not(.icon)')].filter(e => e.getClientRects().length).map(e => { const s = getComputedStyle(e); return s.paddingLeft + ' ' + s.paddingRight; }))].join(', ') };
       });
       if (!r.inside) out += `${w} px: the toolbar runs past the drawing's edge. `;
       if (r.rows !== 1) out += `${w} px: the toolbar takes ${r.rows} rows. `;
       if (r.narrowest < 24) out += `${w} px: a button is ${r.narrowest.toFixed(1)} px wide. `;
-      if (w >= 360 && (r.width !== 285 || r.gap !== '6px')) out += `${w} px: the toolbar is ${r.width} px wide with gaps of ${r.gap}, not 285 px and 6px as in 1.4.11. `;
+      if (w >= 360 && (r.gap !== '6px' || r.pads !== '9px 9px')) out += `${w} px: the toolbar has gaps of ${r.gap} and side padding of ${r.pads}, not 6px and 9px 9px as in 1.4.11. `;
       await c.close();
     }
     if (out) return out;
