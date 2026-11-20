@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.14 (2026-11-20)
+
+The tab icon in Safari.
+
+- Safari on the Mac showed a grey letter in place of the 1.4.13 tab icon, and Safari on the iPhone a globe. Safari does not use an icon written into the page. The same icon now also comes as two picture files beside the page: `favicon.png` (64 px) and `apple-touch-icon.png` (180 px, for iPhone and iPad Home Screens). The icon written into the page stays, so a downloaded copy of `index.html` still has one in Chrome and Firefox.
+- Fetching the icon file is now the page's only network request. It goes to the site the page came from and carries nothing you enter. The README says so.
+- Tests: the tab icon check also tests the two links and the two files. It fails on the 1.4.13 page. Browser suite: 74. Self-tests: 131. Engine stress suite: 48.
+
 ## 1.4.13 (2026-11-20)
 
 Four accessibility fixes, from a check of every tab with an accessibility checker in light and dark mode.
