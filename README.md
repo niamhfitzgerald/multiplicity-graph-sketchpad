@@ -2,7 +2,7 @@
 
 A single-page browser tool for drawing, testing and documenting graphical multiple comparison procedures (Bretz, Maurer, Brannath and Posch, 2009) and their closed-test extensions with weighted Simes and parametric tests (Bretz et al., 2011; Xi et al., 2017).
 
-Everything runs in the browser. Nothing you enter is sent anywhere; the page makes no network requests at all (the fonts are embedded).
+Everything runs in the browser. Nothing you enter is sent anywhere. Apart from its tab icon, the page makes no network requests (the fonts are embedded).
 
 **Use it online:** https://niamhfitzgerald.github.io/multiplicity-graph-sketchpad/
 
@@ -27,6 +27,7 @@ Created by Niamh Fitzgerald.
 | Path | Contents |
 | --- | --- |
 | `index.html` | The built page. This is the only file a user needs. |
+| `favicon.png`, `apple-touch-icon.png` | The tab icon as picture files, for Safari, which does not use the icon written into the page. The page works without them. |
 | `src/head.html` | Markup and CSS (fonts embedded). |
 | `src/core.js` | Engine: exact rational arithmetic, graph update, closed tests, parsers, exporters, self-tests. No DOM access. |
 | `src/ui.js` | Canvas, panels, events. |
@@ -84,7 +85,7 @@ The built-in self-test (More menu, or the "Self-test" button in the footer) runs
 
 ## Citation
 
-Fitzgerald N (2026). Multiplicity Graph Sketchpad, version 1.4.13. Newcastle University and GSK. https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad. See `CITATION.cff`.
+Fitzgerald N (2026). Multiplicity Graph Sketchpad, version 1.4.14. Newcastle University and GSK. https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad. See `CITATION.cff`.
 
 ## Licence
 
