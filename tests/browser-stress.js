@@ -2725,33 +2725,48 @@ async function step(name, fn) {
     if (out) return out;
   });
 
-  await step('Tab icon (1.4.13): the head has an SVG icon and a 32 px PNG copy, both written into the page as data: addresses, and both images load', async () => {
+  await step('Tab icon (1.4.13, 1.4.14): the head has an SVG icon and a 32 px PNG copy, both written into the page as data: addresses; from 1.4.14 also a 64 px favicon.png and a 180 px apple-touch-icon.png beside the page, since Safari does not use data: icons; every icon loads and draws the blue square with the white logo', async () => {
     const r = await ev(async () => {
-      const links = [...document.head.querySelectorAll('link[rel="icon"]')];
+      const links = [...document.head.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"]')];
       const load = src => new Promise(res => { const im = new Image(); im.onload = () => res([im.naturalWidth, im.naturalHeight]); im.onerror = () => res(null); im.src = src; });
       const out = [];
-      for (const l of links) out.push({ type: l.type, sizes: l.getAttribute('sizes'), data: l.href.startsWith('data:'), size: await load(l.href) });
+      for (const l of links) out.push({ rel: l.rel, type: l.type, sizes: l.getAttribute('sizes'), data: l.href.startsWith('data:'), href: l.href.startsWith('data:') ? 'data:' : l.getAttribute('href'), size: await load(l.href) });
       return out;
     });
-    const svg = r.find(x => x.type === 'image/svg+xml'), png = r.find(x => x.type === 'image/png');
-    if (r.length !== 2 || !svg || !png) return 'icons: ' + JSON.stringify(r);
-    if (!svg.data || !png.data) return 'not data: addresses ' + JSON.stringify(r);
+    const icons = r.filter(x => x.rel === 'icon'), inPage = icons.filter(x => x.data);
+    const svg = inPage.find(x => x.type === 'image/svg+xml'), png = inPage.find(x => x.type === 'image/png');
+    if (inPage.length !== 2 || !svg || !png) return 'icons written into the page: ' + JSON.stringify(r);
     if (!svg.size || !svg.size[0]) return 'the SVG icon does not load';
     if (!png.size || png.size[0] !== 32 || png.size[1] !== 32 || png.sizes !== '32x32') return 'the PNG icon: ' + JSON.stringify(png);
+    /* 1.4.14: the two files beside the page, for Safari */
+    const fav = icons.filter(x => !x.data), touch = r.filter(x => x.rel === 'apple-touch-icon');
+    if (fav.length !== 1 || fav[0].href !== 'favicon.png' || fav[0].type !== 'image/png' || fav[0].sizes !== '64x64') return 'the favicon.png link: ' + JSON.stringify(fav);
+    if (touch.length !== 1 || touch[0].href !== 'apple-touch-icon.png' || touch[0].data) return 'the apple-touch-icon.png link: ' + JSON.stringify(touch);
+    if (!fav[0].size || fav[0].size[0] !== 64 || fav[0].size[1] !== 64) return 'favicon.png does not load at 64 x 64: ' + JSON.stringify(fav[0].size);
+    if (!touch[0].size || touch[0].size[0] !== 180 || touch[0].size[1] !== 180) return 'apple-touch-icon.png does not load at 180 x 180: ' + JSON.stringify(touch[0].size);
+    /* the files are drawn from their bytes, since a file: picture would taint the canvas */
+    const fsm = require('fs'), dir = path.dirname(FILE.replace('file://', '')), files = {};
+    for (const f of ['favicon.png', 'apple-touch-icon.png']) {
+      const fp = path.join(dir, f);
+      if (!fsm.existsSync(fp)) return f + ' is missing beside the page';
+      files[f] = 'data:image/png;base64,' + fsm.readFileSync(fp).toString('base64');
+    }
     /* what each icon draws at 32 px: the page's blue near the top edge, and white lines (the two circles and the arrow) */
-    const px = await ev(async () => {
+    const px = await ev(async files => {
       const res = {};
-      for (const l of document.head.querySelectorAll('link[rel="icon"]')) {
-        const im = new Image(); await new Promise(r => { im.onload = r; im.onerror = r; im.src = l.href; });
+      const all = [...document.head.querySelectorAll('link[rel="icon"]')].filter(l => l.href.startsWith('data:')).map(l => [l.type, l.href]).concat(Object.entries(files));
+      for (const [name, src] of all) {
+        const im = new Image(); await new Promise(r => { im.onload = r; im.onerror = r; im.src = src; });
         const cv = document.createElement('canvas'); cv.width = cv.height = 32; const g = cv.getContext('2d');
         try {
           g.drawImage(im, 0, 0, 32, 32); const d = g.getImageData(0, 0, 32, 32).data;
           let white = 0; for (let i = 0; i < d.length; i += 4) if (d[i] > 230 && d[i + 1] > 230 && d[i + 2] > 230 && d[i + 3] > 230) white++;
-          const k = (3 * 32 + 24) * 4; res[l.type] = { blue: [d[k], d[k + 1], d[k + 2], d[k + 3]], white };
-        } catch (e) { res[l.type] = { err: String(e) }; }
+          const k = (3 * 32 + 24) * 4; res[name] = { blue: [d[k], d[k + 1], d[k + 2], d[k + 3]], white };
+        } catch (e) { res[name] = { err: String(e) }; }
       }
       return res;
-    });
+    }, files);
+    if (Object.keys(px).length !== 4) return 'icons drawn: ' + Object.keys(px).join(', ');
     let out = '';
     for (const [type, v] of Object.entries(px)) {
       if (v.err) { out += `${type}: ${v.err}. `; continue; }
