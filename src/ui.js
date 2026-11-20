@@ -854,12 +854,14 @@ function renderGraphPanel() {
 }
 
 /* ---------- matrix tab ---------- */
+/* From 1.4.13 the top-left cell of each matrix table (here, the component weights, and the correlations in the Test, Power
+   and Optimise tabs) holds words for screen readers only. Up to 1.4.12 it was an empty header cell, read out as a nameless column. */
 function matrixTables(editable, labels, wCells, gCell, wSum, rowSums) {
   const head = labels.map(l => `<th scope="col">${esc(l)}</th>`).join('');
   return `<h3>Weights w</h3>
-    <div class="mx-scroll"><table class="mx"><thead><tr><th></th>${head}<th>Sum</th></tr></thead><tbody><tr><th scope="row">w</th>${wCells}<td class="sum ${wSum.cls}">${wSum.html}</td></tr></tbody></table></div>
+    <div class="mx-scroll"><table class="mx"><thead><tr><th scope="col"><span class="sr-only">Weights</span></th>${head}<th>Sum</th></tr></thead><tbody><tr><th scope="row">w</th>${wCells}<td class="sum ${wSum.cls}">${wSum.html}</td></tr></tbody></table></div>
     <h3>Transition matrix G <span style="text-transform:none;letter-spacing:0;font-weight:400">(row = from, column = to)</span></h3>
-    <div class="mx-scroll"><table class="mx"><thead><tr><th></th>${head}<th>Sum</th></tr></thead><tbody>${labels.map((l, i) => `<tr><th scope="row">${esc(l)}</th>${labels.map((_, j) => gCell(i, j)).join('')}<td class="sum ${rowSums[i].cls}">${rowSums[i].html}</td></tr>`).join('')}</tbody></table></div>`;
+    <div class="mx-scroll"><table class="mx"><thead><tr><th scope="col"><span class="sr-only">From (rows), to (columns)</span></th>${head}<th>Sum</th></tr></thead><tbody>${labels.map((l, i) => `<tr><th scope="row">${esc(l)}</th>${labels.map((_, j) => gCell(i, j)).join('')}<td class="sum ${rowSums[i].cls}">${rowSums[i].html}</td></tr>`).join('')}</tbody></table></div>`;
 }
 /* Matrix view of an entangled graph: the component weights c, then w and G for each component (Maurer and Bretz,
    2013, section 3.2). Every component is editable here, whichever one the canvas shows. */
@@ -872,7 +874,7 @@ function renderMatrixEntangled(el) {
   const cellTxt = (txt, muted) => `<td style="text-align:center;padding:6px 8px;${muted ? 'color:var(--rej)' : ''}">${txt}</td>`;
   let cs = Q.ZERO; for (const v of G.ent.c) cs = Q.add(cs, v);
   const css = sumStatus(cs);
-  const cRow = `<h3>Component weights c</h3><div class="mx-scroll"><table class="mx"><thead><tr><th></th>${G.ent.comps.map((_, k) => `<th scope="col">${compName(k)}</th>`).join('')}<th>Sum</th></tr></thead><tbody><tr><th scope="row">c</th>${G.ent.comps.map((_, k) => `<td><input id="mc-${k}" data-mc="${k}" value="${esc(weightText(G.ent.c[k], (G.ent.cexpr || [])[k]))}" aria-label="Component weight c${k + 1}" ${dis} ${ro}></td>`).join('')}<td class="sum ${css.cls}">${esc(fmt(cs))} ${css.text}</td></tr></tbody></table></div>`;
+  const cRow = `<h3>Component weights c</h3><div class="mx-scroll"><table class="mx"><thead><tr><th scope="col"><span class="sr-only">Component weights</span></th>${G.ent.comps.map((_, k) => `<th scope="col">${compName(k)}</th>`).join('')}<th>Sum</th></tr></thead><tbody><tr><th scope="row">c</th>${G.ent.comps.map((_, k) => `<td><input id="mc-${k}" data-mc="${k}" value="${esc(weightText(G.ent.c[k], (G.ent.cexpr || [])[k]))}" aria-label="Component weight c${k + 1}" ${dis} ${ro}></td>`).join('')}<td class="sum ${css.cls}">${esc(fmt(cs))} ${css.text}</td></tr></tbody></table></div>`;
   const parts = G.ent.comps.map((comp, k) => {
     const v = entViewGraph(G, k);
     const wOf = id => v.nodes.find(n => n.id === id).w, wxOf = id => v.nodes.find(n => n.id === id).wexpr;
@@ -1409,7 +1411,7 @@ function testTypeSection() {
       <p class="small muted">${CORR_WHAT_TO_ENTER}</p>
       ${prob ? `<p class="${/same as Bonferroni/.test(prob) ? 'small muted' : 'err-text'}">${/same as Bonferroni/.test(prob) ? '' : '✕ '}${esc(prob)}</p>` : ''}
       ${!prob && corrSingularNote() ? `<p class="small muted" data-note="singular">${esc(corrSingularNote())}</p>` : ''}
-      <div class="mx-scroll"><table class="mx"><thead><tr><th></th>${G.nodes.map(n => `<th scope="col">${esc(n.label)}</th>`).join('')}</tr></thead><tbody>${G.nodes.map((a, i) => `<tr><th scope="row">${esc(a.label)}</th>${G.nodes.map((b, j) => j <= i ? `<td style="text-align:center;color:var(--muted)">${j === i ? '1' : ''}</td>` : `<td><input id="tc-${a.id}-${b.id}" data-tcorr="${a.id < b.id ? a.id + '|' + b.id : b.id + '|' + a.id}" value="${testCorrAt(i, j) == null ? '' : esc(String(testCorrAt(i, j)))}" placeholder="?" aria-label="Correlation between ${esc(a.label)} and ${esc(b.label)}"></td>`).join('')}</tr>`).join('')}</tbody></table></div>
+      <div class="mx-scroll"><table class="mx"><thead><tr><th scope="col"><span class="sr-only">Correlation</span></th>${G.nodes.map(n => `<th scope="col">${esc(n.label)}</th>`).join('')}</tr></thead><tbody>${G.nodes.map((a, i) => `<tr><th scope="row">${esc(a.label)}</th>${G.nodes.map((b, j) => j <= i ? `<td style="text-align:center;color:var(--muted)">${j === i ? '1' : ''}</td>` : `<td><input id="tc-${a.id}-${b.id}" data-tcorr="${a.id < b.id ? a.id + '|' + b.id : b.id + '|' + a.id}" value="${testCorrAt(i, j) == null ? '' : esc(String(testCorrAt(i, j)))}" placeholder="?" aria-label="Correlation between ${esc(a.label)} and ${esc(b.label)}"></td>`).join('')}</tr>`).join('')}</tbody></table></div>
       <div class="row-actions" style="align-items:center"><label class="small" for="tcFill">Fill every pair with</label><input class="txt" id="tcFill" value="0.5" style="width:5em"><button class="btn small" data-action="tc-fill">Fill</button><button class="btn small" data-action="tc-clear">Clear all</button>${G.nodes.length > 1 ? '<button class="btn small" data-action="tc-from-sim">Copy from the power simulation</button>' : ''}</div>`;
   }
   body += `<label class="chk small" style="align-items:flex-start"><input type="checkbox" id="upscaleToggle" ${t.upscale ? 'checked' : ''}> <span>Upscale weights: test each intersection at the full &alpha; even when its weights sum to less than 1 (gMCP's upscale = TRUE; for the parametric test, Xi et al., 2017, section 4.2). Off, each intersection is tested at &alpha; times the sum of its weights (gMCP's default, and what Xi et al., 2017, recommend). On a graph that is not alpha-exhaustive, upscaling changes the procedure and can undo its gatekeeping. It applies only to the closed tests, and has no effect on the step-by-step Bonferroni graph.</span></label>`;
@@ -1693,7 +1695,7 @@ function simInputsHTML(pre) {
   }).join('');
   const corrBad = (a, b) => { const v = Number(corrOf(a, b)); return !(v >= -1 && v <= 1); };
   const corrTable = `<label class="chk"><input type="checkbox" id="${pre}sim-usematrix" data-usematrix="1" ${SIM.useMatrix ? 'checked' : ''}> Use the values below instead</label>
-    <div class="mx-scroll"><table class="mx"><thead><tr><th></th>${G.nodes.map(n => `<th scope="col">${esc(n.label)}</th>`).join('')}</tr></thead><tbody>${G.nodes.map((a, i) => `<tr><th scope="row">${esc(a.label)}</th>${G.nodes.map((b, j) => j <= i ? `<td style="text-align:center;color:var(--muted)">${j === i ? '1' : ''}</td>` : `<td><input id="${pre}sc-${a.id}-${b.id}" data-corr="${pairKey(a.id, b.id)}" value="${esc(String(corrOf(a.id, b.id)))}" class="${SIM.useMatrix && corrBad(a.id, b.id) ? 'bad' : ''}" aria-label="Correlation between ${esc(a.label)} and ${esc(b.label)}" ${SIM.useMatrix ? '' : 'disabled'}></td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    <div class="mx-scroll"><table class="mx"><thead><tr><th scope="col"><span class="sr-only">Correlation</span></th>${G.nodes.map(n => `<th scope="col">${esc(n.label)}</th>`).join('')}</tr></thead><tbody>${G.nodes.map((a, i) => `<tr><th scope="row">${esc(a.label)}</th>${G.nodes.map((b, j) => j <= i ? `<td style="text-align:center;color:var(--muted)">${j === i ? '1' : ''}</td>` : `<td><input id="${pre}sc-${a.id}-${b.id}" data-corr="${pairKey(a.id, b.id)}" value="${esc(String(corrOf(a.id, b.id)))}" class="${SIM.useMatrix && corrBad(a.id, b.id) ? 'bad' : ''}" aria-label="Correlation between ${esc(a.label)} and ${esc(b.label)}" ${SIM.useMatrix ? '' : 'disabled'}></td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   return `<table class="t"><thead><tr><th scope="col">Hyp.</th><th scope="col">Power alone (%)</th><th scope="col" class="num">Mean z</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="form"><label for="${pre}sim-rho">Correlation between test statistics <span class="hint">The same value for every pair, between &minus;1 and 1</span><input class="txt" id="${pre}sim-rho" data-rho="1" value="${esc(String(SIM.rho))}" inputmode="decimal" style="max-width:8em" ${SIM.useMatrix ? 'disabled' : ''}></label></div>
       <p class="small muted">${CORR_WHAT_TO_ENTER}</p>
@@ -3833,6 +3835,12 @@ $('importBtn').addEventListener('click', () => { closeMenu(); openImport(); });
 $('downloadMenuBtn').addEventListener('click', () => { closeMenu(); downloadPicture(); });
 $('clearBtn').addEventListener('click', () => { $('clearConfirm').hidden = false; if (fitMenuHeight()) $('clearConfirm').scrollIntoView({ block: 'nearest' }); $('clearNo').focus(); });
 $('clearNo').addEventListener('click', () => { $('clearConfirm').hidden = true; });
+/* "Skip to the drawing" (1.4.13): moves keyboard focus past the toolbar to the first hypothesis or, on an empty drawing, to the
+   first card of the start panel. A button, not a link: a link to #canvas would replace the share address (#g1...). */
+$('skipToDrawing').addEventListener('click', () => {
+  const to = document.querySelector('#world [data-node]') || (!$('starter').hidden && document.querySelector('#starterGrid .start-card'));
+  if (to) to.focus();
+});
 $('clearYes').addEventListener('click', () => {
   checkpoint(); G = { nodes: [], edges: [], diag: {}, alpha: G.alpha, sided: G.sided, note: '', test: defaultTest() }; sel = null;
   closeMenu(); afterChange(); fitView();
