@@ -1,6 +1,6 @@
 # Multiplicity Graph Sketchpad User Guide
 
-Niamh Fitzgerald · version 1.4.12
+Niamh Fitzgerald · version 1.4.13
 
 The Sketchpad draws, tests and explains graphical multiple testing procedures (Bretz et al., 2009) in the browser. Nothing you enter leaves your computer. This guide covers how to use the Sketchpad.
 
@@ -162,6 +162,7 @@ Every export can be downloaded or copied.
 
 | Key | Design mode | Test mode |
 | --- | --- | --- |
+| Tab (first press) | Skip to the drawing | Skip to the drawing |
 | Delete or Backspace | Remove the selected hypothesis or arrow |  |
 | Ctrl+Z, Ctrl+Y | Undo, redo | Step back, redo step |
 | Esc | Cancel a connection, deselect, close a menu | Leave presentation mode |

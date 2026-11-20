@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.4.13 (2026-11-20)
+
+Four accessibility fixes, from a check of every tab with an accessibility checker in light and dark mode.
+
+- Footer: the version number and the Self-test button are now the same grey as the rest of the footer. They were faded, with a contrast of 2.3 to 1 on the cream page, below the 4.5 to 1 that the WCAG guidelines ask for. They are now 5.7 to 1 on cream and 7.8 to 1 in dark mode. Hovering with a mouse underlines them.
+- Tab icon: browser tabs and bookmarks show a small icon, the logo from the top bar in white on a blue square. It is written into the page, so the page still makes no outside requests, and browsers no longer ask the site for a favicon.ico file that does not exist.
+- Screen readers: the empty top-left cell of the six matrix tables now holds words that only a screen reader reads out. They are "Weights" and "From (rows), to (columns)" in the Matrix tab, "Component weights" for an entangled graph, and "Correlation" in the Test, Power and Optimise tabs. Up to 1.4.12 a screen reader announced a column with no name. Nothing changes on screen.
+- Keyboard: the first press of Tab shows a "Skip to the drawing" button. Enter then moves straight to the first hypothesis, or to the start panel on an empty drawing, which saves nine presses of Tab. A mouse or a finger never shows it, and the share address in the address bar stays as it was.
+- User guide: the keyboard table has a row for the skip button.
+- Tests: four new browser checks (the footer's contrast in the cream, white and dark themes; the tab icon; the table corners; the skip button, also at phone width). Each fails on the 1.4.12 page. Browser suite: 74. Self-tests: 131. Engine stress suite: 48.
+
 ## 1.4.12 (2026-11-18)
 
 A Download button for the picture of the graph, after a visitor asked for a PNG export and did not find the one in the Export tab.
