@@ -2690,6 +2690,187 @@ async function step(name, fn) {
     if (out) return out;
   });
 
+  /* 1.4.13: accessibility fixes from the site audit of 13 November (axe-core 4.14.0, every tab, both views, light and dark).
+     Contrast is worked out in the page: the text colour with its alpha and every ancestor's opacity, laid over the first
+     background that is not transparent, then the WCAG 2.2 formula. */
+  const contrastOf = (p, ids) => p.evaluate(ids => {
+    const rgb = s => (s.match(/[\d.]+/g) || []).map(Number);
+    const lum = c => { const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
+    return ids.map(id => {
+      const el = document.getElementById(id);
+      let a = 1; for (let e = el; e; e = e.parentElement) a *= Number(getComputedStyle(e).opacity);
+      const fg = rgb(getComputedStyle(el).color); if (fg.length > 3) a *= fg[3];
+      let bg = null; for (let e = el; e && !bg; e = e.parentElement) { const v = rgb(getComputedStyle(e).backgroundColor); if (v.length === 3 || v[3] > 0) bg = v.slice(0, 3); }
+      bg = bg || [255, 255, 255];
+      const mix = fg.slice(0, 3).map((v, i) => a * v + (1 - a) * bg[i]), L1 = lum(mix), L2 = lum(bg);
+      return [id, (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05)];
+    });
+  }, ids);
+
+  await step('Footer contrast (1.4.13): the version and Self-test buttons reach 4.5 to 1 in the cream, white and dark themes, and on Auto with the system set to light or dark', async () => {
+    const c = await b.newContext({ viewport: { width: 1400, height: 900 } }); const p = await c.newPage();
+    let out = '';
+    p.on('pageerror', e => { out += `page error: ${e.message}. `; });
+    await p.goto(FILE); await p.waitForTimeout(500);
+    for (const skin of ['cream', 'white', 'dark']) {
+      await p.evaluate(s => { document.documentElement.dataset.skin = s; }, skin); await p.waitForTimeout(50);
+      for (const [id, cr] of await contrastOf(p, ['versionBtn', 'debugBtn'])) if (!(cr >= 4.5)) out += `${skin}: #${id} ${cr.toFixed(2)} to 1. `;
+    }
+    await p.evaluate(() => { delete document.documentElement.dataset.skin; });
+    for (const scheme of ['light', 'dark']) {
+      await p.emulateMedia({ colorScheme: scheme }); await p.waitForTimeout(50);
+      for (const [id, cr] of await contrastOf(p, ['versionBtn', 'debugBtn'])) if (!(cr >= 4.5)) out += `Auto, system ${scheme}: #${id} ${cr.toFixed(2)} to 1. `;
+    }
+    await c.close();
+    if (out) return out;
+  });
+
+  await step('Tab icon (1.4.13): the head has an SVG icon and a 32 px PNG copy, both written into the page as data: addresses, and both images load', async () => {
+    const r = await ev(async () => {
+      const links = [...document.head.querySelectorAll('link[rel="icon"]')];
+      const load = src => new Promise(res => { const im = new Image(); im.onload = () => res([im.naturalWidth, im.naturalHeight]); im.onerror = () => res(null); im.src = src; });
+      const out = [];
+      for (const l of links) out.push({ type: l.type, sizes: l.getAttribute('sizes'), data: l.href.startsWith('data:'), size: await load(l.href) });
+      return out;
+    });
+    const svg = r.find(x => x.type === 'image/svg+xml'), png = r.find(x => x.type === 'image/png');
+    if (r.length !== 2 || !svg || !png) return 'icons: ' + JSON.stringify(r);
+    if (!svg.data || !png.data) return 'not data: addresses ' + JSON.stringify(r);
+    if (!svg.size || !svg.size[0]) return 'the SVG icon does not load';
+    if (!png.size || png.size[0] !== 32 || png.size[1] !== 32 || png.sizes !== '32x32') return 'the PNG icon: ' + JSON.stringify(png);
+    /* what each icon draws at 32 px: the page's blue near the top edge, and white lines (the two circles and the arrow) */
+    const px = await ev(async () => {
+      const res = {};
+      for (const l of document.head.querySelectorAll('link[rel="icon"]')) {
+        const im = new Image(); await new Promise(r => { im.onload = r; im.onerror = r; im.src = l.href; });
+        const cv = document.createElement('canvas'); cv.width = cv.height = 32; const g = cv.getContext('2d');
+        try {
+          g.drawImage(im, 0, 0, 32, 32); const d = g.getImageData(0, 0, 32, 32).data;
+          let white = 0; for (let i = 0; i < d.length; i += 4) if (d[i] > 230 && d[i + 1] > 230 && d[i + 2] > 230 && d[i + 3] > 230) white++;
+          const k = (3 * 32 + 24) * 4; res[l.type] = { blue: [d[k], d[k + 1], d[k + 2], d[k + 3]], white };
+        } catch (e) { res[l.type] = { err: String(e) }; }
+      }
+      return res;
+    });
+    let out = '';
+    for (const [type, v] of Object.entries(px)) {
+      if (v.err) { out += `${type}: ${v.err}. `; continue; }
+      if (!(Math.abs(v.blue[0] - 0x1C) <= 6 && Math.abs(v.blue[1] - 0x5A) <= 6 && Math.abs(v.blue[2] - 0x88) <= 6 && v.blue[3] > 240)) out += `${type}: the pixel at (24, 3) is ${v.blue}, not the blue #1C5A88. `;
+      if (!(v.white >= 30)) out += `${type}: only ${v.white} white pixels. `;
+    }
+    if (out) return out;
+  });
+
+  await step('Table corners (1.4.13): the top-left header cell of every matrix table has words for screen readers only and is no wider than the row labels below it, in the Matrix tab (an ordinary and an entangled graph), the Test tab with the parametric test, and the Power and Optimise tabs', async () => {
+    const c = await b.newContext({ viewport: { width: 1400, height: 900 } }); const p = await c.newPage();
+    let out = '';
+    p.on('pageerror', e => { out += `page error: ${e.message}. `; });
+    await p.goto(FILE); await p.waitForTimeout(500);
+    /* wideBy: how much wider the first column is than its widest row label with padding and borders; hidden words must add nothing */
+    const corners = tab => p.evaluate(tab => [...document.querySelectorAll(`#tab-${tab} table.mx`)].map(t => {
+      const th = t.querySelector('thead tr').firstElementChild, sp = th.querySelector('.sr-only'), r = sp ? sp.getBoundingClientRect() : null;
+      let need = 0;
+      for (const tr of t.querySelectorAll('tbody tr')) {
+        const cell = tr.firstElementChild, cs = getComputedStyle(cell), rg = document.createRange(); rg.selectNodeContents(cell);
+        need = Math.max(need, rg.getBoundingClientRect().width + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth));
+      }
+      return { tag: th.tagName, words: th.textContent.trim(), hidden: !!sp && sp.textContent.trim() === th.textContent.trim() && r.width <= 1 && r.height <= 1, wideBy: Math.round(th.getBoundingClientRect().width - need) };
+    }), tab);
+    const look = async (key, tab, want) => {
+      const cs = await corners(tab);
+      if (cs.length !== want.length) { out += `${key}: ${cs.length} matrix tables, not ${want.length}. `; return; }
+      cs.forEach((x, i) => {
+        if (x.tag !== 'TH' || x.words !== want[i] || !x.hidden) out += `${key} table ${i + 1}: ${JSON.stringify(x)}, not "${want[i]}" for screen readers only. `;
+        if (x.wideBy > 2) out += `${key} table ${i + 1}: the first column is ${x.wideBy} px wider than its row labels need. `;
+      });
+    };
+    await p.evaluate(() => setTab('matrix')); await p.waitForTimeout(150);
+    await look('Matrix tab', 'matrix', ['Weights', 'From (rows), to (columns)']);
+    await p.selectOption('#templateSelect', 'ent:maurerFig2'); await p.waitForTimeout(200);
+    await p.evaluate(() => setTab('matrix')); await p.waitForTimeout(150);
+    const ent = await corners('matrix');
+    if (!ent.length || ent[0].words !== 'Component weights' || !ent[0].hidden) out += `entangled Matrix tab, first table: ${JSON.stringify(ent[0])}. `;
+    if (ent.some(x => !x.words || !x.hidden)) out += `entangled Matrix tab: a corner without hidden words ${JSON.stringify(ent)}. `;
+    await p.selectOption('#templateSelect', 'holm'); await p.waitForTimeout(200);
+    await p.evaluate(() => setTab('test')); await p.waitForTimeout(150);
+    await p.evaluate(() => { const d = document.getElementById('det-testtype'); if (!d.open) d.querySelector('summary').click(); }); await p.waitForTimeout(100);
+    await p.selectOption('#testType', 'parametric'); await p.waitForTimeout(200);
+    await look('Test tab, parametric', 'test', ['Correlation']);
+    await p.evaluate(() => setTab('power')); await p.waitForTimeout(200);
+    await look('Power tab', 'power', ['Correlation']);
+    await p.evaluate(() => setTab('optimise')); await p.waitForTimeout(200);
+    await look('Optimise tab', 'optimise', ['Correlation']);
+    await c.close();
+    if (out) return out;
+  });
+
+  await step('Skip to the drawing (1.4.13): the first Tab press focuses the skip button and shows it, in every theme at 4.5 to 1 or more, and a second Tab hides it again; Enter (or Space) moves focus to the first hypothesis, or on an empty drawing to the first card of the start panel, and keeps the share address; hidden until focused and in presentation mode; the same words in both views; at 390 px it fits the screen beside the top bar\'s Download button and moves nothing', async () => {
+    const c = await b.newContext({ viewport: { width: 1400, height: 900 } }); const p = await c.newPage();
+    const errs = []; p.on('pageerror', e => errs.push(e.message));
+    await p.goto(FILE); await p.waitForTimeout(500);
+    const box = (pg = p) => pg.evaluate(() => { const e = document.getElementById('skipToDrawing'); if (!e) return null; const r = e.getBoundingClientRect(); return { w: r.width, h: r.height, top: r.top, left: r.left, right: r.right, shown: e.getClientRects().length > 0, text: e.textContent.trim(), focused: document.activeElement === e }; });
+    let out = '';
+    const b0 = await box(); if (!b0) { await c.close(); return 'no #skipToDrawing'; }
+    if (b0.w > 1 || b0.h > 1) out += `seen before any key: ${b0.w}x${b0.h}. `;
+    const hash0 = await p.evaluate(() => location.hash);
+    await p.keyboard.press('Tab'); await p.waitForTimeout(80);
+    const b1 = await box();
+    if (!b1.focused) out += `the first Tab focused ${await p.evaluate(() => document.activeElement.id || document.activeElement.tagName)}. `;
+    if (!(b1.w > 60 && b1.h > 20 && b1.top >= 0 && b1.left >= 0 && b1.top + b1.h <= 900)) out += `on focus: ${JSON.stringify(b1)}. `;
+    if (b1.text !== 'Skip to the drawing') out += `words "${b1.text}". `;
+    for (const skin of ['cream', 'white', 'dark']) {
+      await p.evaluate(s => { document.documentElement.dataset.skin = s; }, skin); await p.waitForTimeout(50);
+      const [[, cr]] = await contrastOf(p, ['skipToDrawing']); if (!(cr >= 4.5)) out += `${skin}: contrast ${cr.toFixed(2)} to 1. `;
+    }
+    await p.evaluate(() => { delete document.documentElement.dataset.skin; });
+    /* a second Tab moves on and hides it again */
+    await p.keyboard.press('Tab'); await p.waitForTimeout(80);
+    const bt = await box(); if (bt.focused || bt.w > 1 || bt.h > 1) out += `after a second Tab: ${JSON.stringify(bt)}. `;
+    await p.keyboard.press('Shift+Tab'); await p.waitForTimeout(80);
+    if (!(await box()).focused) out += 'Shift+Tab did not come back to it. ';
+    /* with a dialog open (Help), the focused button stays under the dialog's overlay */
+    await p.evaluate(() => document.getElementById('helpBtn').click()); await p.waitForTimeout(150);
+    await p.evaluate(() => document.getElementById('skipToDrawing').focus()); await p.waitForTimeout(50);
+    const over = await p.evaluate(() => { const e = document.getElementById('skipToDrawing'), r = e.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return { modal: !document.getElementById('modal').hidden, onTop: top === e || e.contains(top) }; });
+    if (!over.modal) out += 'Help did not open. '; else if (over.onTop) out += 'with Help open, the skip button shows on top of the dialog. ';
+    await p.keyboard.press('Escape'); await p.waitForTimeout(150);
+    if (await p.evaluate(() => !document.getElementById('modal').hidden)) await p.evaluate(() => { const m = document.getElementById('modal'); const x = m.querySelector('button'); if (x) x.click(); });
+    await p.evaluate(() => document.getElementById('skipToDrawing').focus()); await p.waitForTimeout(50);
+    await p.keyboard.press('Enter'); await p.waitForTimeout(100);
+    const to = await p.evaluate(() => { const a = document.activeElement; return { first: a === document.querySelector('#world [data-node]'), node: a.dataset ? a.dataset.node || '' : '', hash: location.hash }; });
+    if (!to.first) out += `Enter focused ${JSON.stringify(to.node)}, not the first hypothesis. `;
+    if (!hash0.startsWith('#g1') || to.hash !== hash0) out += `share address ${hash0.slice(0, 8)}... became ${to.hash.slice(0, 8)}... `;
+    const b2 = await box(); if (b2.w > 1 || b2.h > 1) out += `still seen after Enter: ${b2.w}x${b2.h}. `;
+    /* an empty drawing: the first card of the start panel */
+    await p.evaluate(() => document.getElementById('clearYes').click()); await p.waitForTimeout(150);
+    await p.evaluate(() => document.getElementById('skipToDrawing').focus()); await p.keyboard.press('Enter'); await p.waitForTimeout(100);
+    if (!(await p.evaluate(() => document.activeElement === document.querySelector('#starterGrid .start-card')))) out += `empty drawing: Enter focused ${await p.evaluate(() => document.activeElement.className || document.activeElement.tagName)}, not the first start card. `;
+    /* presentation mode hides it; the clinician view keeps its words */
+    await p.selectOption('#templateSelect', 'holm'); await p.waitForTimeout(200);
+    await p.evaluate(() => enterPresent()); await p.waitForTimeout(300);
+    if ((await box()).shown) out += 'shown in presentation mode. ';
+    await p.keyboard.press('Escape'); await p.waitForTimeout(200);
+    await p.evaluate(() => setPlain(true)); await p.waitForTimeout(100);
+    const b3 = await box(); if (b3.text !== 'Skip to the drawing' || !b3.shown) out += `clinician view: ${JSON.stringify(b3)}. `;
+    await c.close();
+    /* 390 px (1.4.12 top bar with its Download button): the focused button fits the screen and moves nothing */
+    const c2 = await b.newContext({ viewport: { width: 390, height: 844 } }); const q = await c2.newPage();
+    q.on('pageerror', e => errs.push(e.message));
+    await q.goto(FILE); await q.waitForTimeout(500);
+    const bar = () => q.evaluate(() => { const t = document.querySelector('.topbar').getBoundingClientRect(), d = document.getElementById('downloadTopBtn').getBoundingClientRect(); return { h: Math.round(t.height), dl: [Math.round(d.left), Math.round(d.top)], dlShown: document.getElementById('downloadTopBtn').getClientRects().length > 0 }; });
+    const before = await bar();
+    await q.keyboard.press('Tab'); await q.waitForTimeout(80);
+    const n1 = await box(q), after = await bar();
+    if (!n1.focused || !(n1.w > 60 && n1.left >= 0 && n1.right <= 390 && n1.top >= 0)) out += `390 px, on focus: ${JSON.stringify(n1)}. `;
+    if (!before.dlShown || JSON.stringify(before) !== JSON.stringify(after)) out += `390 px: the top bar moved, ${JSON.stringify(before)} to ${JSON.stringify(after)}. `;
+    await q.keyboard.press('Space'); await q.waitForTimeout(100);
+    if (!(await q.evaluate(() => document.activeElement === document.querySelector('#world [data-node]')))) out += '390 px: Space did not focus the first hypothesis. ';
+    if (await q.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)) out += '390 px: the page scrolls sideways. ';
+    await c2.close();
+    if (errs.length) out += `page errors: ${errs.join('; ')}. `;
+    if (out) return out;
+  });
+
   for (const r of results) console.log((r.ok ? 'PASS ' : 'FAIL ') + r.name + ` (${r.ms} ms)` + (r.ok ? '' : '\n      ' + r.detail));
   console.log(`\n${results.length - fails}/${results.length} browser checks passed`);
   console.log('page errors:', errors.length ? errors : 'none');
