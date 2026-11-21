@@ -1038,6 +1038,7 @@ check('Optimised graph: the SAP text describes the choice of the graph, gives th
   if (!G.opt || G.opt.gain !== o.optimisation.gain || G.opt.share || G.opt.graphKey !== C.graphKey(G)) return 'G.opt not read: ' + JSON.stringify(G.opt);
   let sap = C.sapText(G), para = sap.paragraphs.find(x => x.startsWith('Choice of the graph.'));
   if (!para || !/chosen by gain-function optimisation \(Spiers et al\., 2026\) with the R package multigrain 1\.0\.0/.test(para) || !/80% power for H1/.test(para) || !/correlation of 0\.5 between every pair/.test(para) || !/1,000,000 simulated trials/.test(para) || !/expected gain of the chosen graph was 0\.693/.test(para)) return 'paragraph: ' + para;
+  if (!/local powers \(the probability that each hypothesis is rejected with this graph\) of 75% for H1/.test(para)) return 'local powers (1.4.15): ' + para.slice(0, 300);
   if (/ψ\(r\) =/.test(para) || !/not reproduced here/.test(para)) return 'gain shown with sharing off';
   if (!sap.refs.some(r => /Spiers ADV, Grayling/.test(r)) || !sap.refs.some(r => /multigrain: Optimise Graphical.*version 1\.0\.0/.test(r))) return 'references';
   if (sap.tables.some(t => /Table \[X\.4\]/.test(t.title))) return 'X.4 shown for a single correlation';
@@ -1129,6 +1130,65 @@ check('Entangled graphicalMCP export runs in R and graph_generate_weights() matc
     if (!(Number(a) <= 1e-10) || b !== 'TRUE') return `${c.name}: max difference ${a}, same rows ${b}`;
   }
   return true;
+});
+
+/* ---------- The literature review of 20 November 2026 (1.4.15): simulations, 100,000 runs, seed 2009 ---------- */
+/* One simulation of the Power tab path: equal correlation rho, means from power alone at alpha (or given), the chosen test */
+function litSim(G, o) {
+  const m = G.nodes.length, alpha = o.alpha, fg = C.floatGraph(G);
+  const R = new Float64Array(m * m); for (let i = 0; i < m; i++) for (let j = 0; j < m; j++) R[i * m + j] = i === j ? 1 : (o.rho || 0);
+  const L = C.cholesky(R, m, true);
+  const mean = o.means || o.pw.map(x => C.qnorm(1 - alpha) + C.qnorm(x));
+  let tester = null;
+  if (o.test && o.test !== 'bonferroni') {
+    const cx = { upscale: false, corrAt: () => null, groups: [], rand: C.mulberry32(2011), cache: new Map() };
+    const cr = C.closedTestCritical(fg, alpha, o.test, cx);
+    tester = (p, out) => C.closedTestFast(m, cr.crit, p, alpha, o.test, cx, out);
+  }
+  const tally = { n: 0, rej: Array(m).fill(0), any: 0, all: 0, total: 0, custom: 0, gain: 0, gain2: 0 };
+  const succ = o.gain ? { gain: C.parseGain(o.gain, m).fn } : null;
+  C.simulateChunk(fg, mean, L, alpha, 100000, C.normalGen(C.mulberry32(2009)), tally, succ, tester);
+  return { rej: tally.rej.map(x => x / tally.n), any: tally.any / tally.n, gain: succ ? tally.gain / tally.n : null };
+}
+check('Proschan and Follmann (2023), p. 1115: fixed sequence on two hypotheses, both means 0, correlation 0.8, alpha 0.025: H2 is rejected with probability 0.010971 (exact; within 0.001), and with probability 0.4388 once H1 is rejected (within 0.03)', () => {
+  const r = litSim(toG(C.generatedTemplate('fixed', 2)), { alpha: 0.025, means: [0, 0], rho: 0.8 });
+  if (!near(r.rej[1], 0.010971, 0.001)) return `P(H2 rejected) ${r.rej[1].toFixed(5)}`;
+  const cond = r.rej[1] / r.rej[0];
+  return near(cond, 0.4388, 0.03) || `conditional ${cond.toFixed(4)}`;
+});
+check('Huque (2016), Table I, p. 10: Holm (2) with the closed Simes test, both means 0, correlation 0.950519, alpha 0.025: familywise error rate 0.020481 (within 0.00135)', () => {
+  const r = litSim(toG(C.generatedTemplate('holm', 2)), { alpha: 0.025, means: [0, 0], rho: 0.950519, test: 'simes' });
+  return near(r.any, 0.020481, 0.00135) || `FWER ${r.any.toFixed(5)}`;
+});
+check('Heller, Krieger and Rosset (2023), Table 3, N 600, r 1/2: Holm (2) with the closed Simes test, alpha 0.025, power alone 15.505% each, independent: gain (r1 + r2)/2 is 0.1064 and r1 || r2 is 0.1887 (within 0.003)', () => {
+  const G = toG(C.generatedTemplate('holm', 2));
+  const a = litSim(G, { alpha: 0.025, pw: [0.15505, 0.15505], test: 'simes', gain: '(r1 + r2)/2' });
+  if (!near(a.gain, 0.1064, 0.003)) return `average power ${a.gain.toFixed(4)}`;
+  return near(a.any, 0.1887, 0.003) || `r1 || r2 ${a.any.toFixed(4)}`;
+});
+check('Dubey and Huo (2026), SPOT, Table 1, K 3: Holm (3), alpha 0.05, power alone 63.876% each (mean 2), independent, gain (r1 + r2 + r3)/3: 0.5278 with the Bonferroni step-through and 0.5538 with the closed Simes test (within 0.003)', () => {
+  const G = toG(C.generatedTemplate('holm', 3)), pw = 1 - C.pnormUpper(2 - C.qnorm(0.95)), gain = '(r1 + r2 + r3)/3';
+  const b = litSim(G, { alpha: 0.05, pw: [pw, pw, pw], gain }), s = litSim(G, { alpha: 0.05, pw: [pw, pw, pw], gain, test: 'simes' });
+  if (!near(b.gain, 0.5278, 0.003)) return `Bonferroni ${b.gain.toFixed(4)}`;
+  return near(s.gain, 0.5538, 0.003) || `Simes ${s.gain.toFixed(4)}`;
+});
+check('Dobriban et al. (2015), eq. 2: two hypotheses with no transitions, power alone 90% and 50%, alpha 0.025, gain (r1 + r2)/2: expected gain 0.6184 with weights (0.3896, 0.6104) and 0.6153 with (0.5, 0.5) (within 0.003); with the same seed the first is the larger', () => {
+  const g = C.parseGain('(r1 + r2)/2', 2).fn, R = [1, 0, 0, 1], fg = w => ({ m: 2, w: Float64Array.from(w), g: new Float64Array(4) });
+  const opt = C.expectedGain(fg([0.3896, 0.6104]), [0.9, 0.5], R, 0.025, g, 100000, 2009), eqw = C.expectedGain(fg([0.5, 0.5]), [0.9, 0.5], R, 0.025, g, 100000, 2009);
+  if (!near(opt.mean, 0.6184, 0.003)) return `Spjotvoll weights ${opt.mean.toFixed(4)}`;
+  if (!near(eqw.mean, 0.6153, 0.003)) return `equal weights ${eqw.mean.toFixed(4)}`;
+  return opt.mean > eqw.mean || `${opt.mean.toFixed(4)} is not above ${eqw.mean.toFixed(4)}`;
+});
+check('Wang and Ting (2016), Table 4 setting: Holm (3), correlation 0.5, power alone 67.31%, 89.98% and 98.38%, alpha 0.025, gain (r1 && r2) || (r1 && r3) || (r2 && r3): 0.8771 with the closed Simes test and 0.8678 with the Bonferroni step-through (within 0.003)', () => {
+  const G = toG(C.generatedTemplate('holm', 3)), o = { alpha: 0.025, rho: 0.5, pw: [0.6731, 0.8998, 0.9838], gain: '(r1 && r2) || (r1 && r3) || (r2 && r3)' };
+  const s = litSim(G, Object.assign({ test: 'simes' }, o)), b = litSim(G, o);
+  if (!near(s.gain, 0.8771, 0.003)) return `Simes ${s.gain.toFixed(4)}`;
+  return near(b.gain, 0.8678, 0.003) || `Bonferroni ${b.gain.toFixed(4)}`;
+});
+check('Senn and Bretz (2007), Fig. 2: two hypotheses with weight 1/2 and no transitions, power alone 80% each, correlation 0.7972, alpha 0.025: at least one is rejected with probability 0.8000 (within 0.004)', () => {
+  const G = toG({ format: 'multiplicity-graph', alpha: 0.025, nodes: [{ id: '0', label: 'H1', weight: '1/2', x: 0, y: 0, p: '' }, { id: '1', label: 'H2', weight: '1/2', x: 120, y: 0, p: '' }], edges: [] });
+  const r = litSim(G, { alpha: 0.025, pw: [0.8, 0.8], rho: 0.7972 });
+  return near(r.any, 0.8, 0.004) || `at least one ${r.any.toFixed(4)}`;
 });
 
 /* ---------- report ---------- */

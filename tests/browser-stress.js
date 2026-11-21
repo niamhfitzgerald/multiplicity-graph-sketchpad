@@ -2886,6 +2886,70 @@ async function step(name, fn) {
     if (out) return out;
   });
 
+  /* 1.4.15, fault 2 of the literature review of 20 November: with two-sided p-values the Bonferroni step-through rejects a
+     small p-value whichever way the effect goes and passes its level on. Up to 1.4.14 the two-sided warning showed for closed
+     tests only, and the plain-language opening spoke of "claiming at least one success" (W19). */
+  await step('Two-sided p-values with the Bonferroni step-through (1.4.15): a warning line in the Test tab only for Bonferroni with two-sided p-values, in both views and in Test mode, not in What-if mode or for a closed test; the plain opening speaks of an effect in either direction only when two-sided', async () => {
+    const c = await b.newContext({ viewport: { width: 1400, height: 900 } }); const p = await c.newPage();
+    let out = '';
+    p.on('pageerror', e => { out += `page error: ${e.message}. `; });
+    await p.goto(FILE); await p.waitForTimeout(500);
+    const warn = async () => { await p.click('#tabbtn-test'); await p.waitForTimeout(120); return (await p.locator('#tab-test [data-warn="two-sided"]').allInnerTexts()).join(' | '); };
+    const opening = async () => (await p.locator('#tab-test .plain p').allInnerTexts()).find(t => t.startsWith('The trial asks')) || '';
+    await p.evaluate(() => { setPlain(false, true); loadGraph(templateJSON('holm')); G.nodes.forEach((n, i) => { n.p = ['0.01', '0.04', '0.03'][i] || '0.5'; }); renderAll(); });
+    if (await warn()) out += 'one-sided Bonferroni shows the warning. ';
+    await p.selectOption('#sidedSelect', 'two'); await p.waitForTimeout(150);
+    let w = await warn();
+    if (!/cannot see the direction of an effect/.test(w) || !/enter 1 for a hypothesis whose estimate does not favour treatment/.test(w)) out += `statistician view: "${w}". `;
+    await p.click('#tab-test [data-action="enter-test"]'); await p.waitForTimeout(200);
+    if (!/cannot see the direction/.test(await warn())) out += 'not shown in Test mode. ';
+    await p.evaluate(() => { manual = true; renderAll(); }); await p.waitForTimeout(100);
+    if (await warn()) out += 'shown in What-if mode. ';
+    await p.evaluate(() => { manual = false; renderAll(); });
+    await p.click('[data-action="exit-test"]'); await p.waitForTimeout(150);
+    await p.evaluate(() => { G.test.type = 'simes'; renderAll(); });
+    if (await warn()) out += 'shown for the closed Simes test. ';
+    if (!(await p.locator('#tab-test [data-warn="closed"]').count())) out += 'the closed-test two-sided line is gone. ';
+    await p.evaluate(() => { G.test.type = 'bonferroni'; setPlain(true, true); renderAll(); });
+    w = await warn();
+    if (!/either direction/.test(w) || !/"one direction"/.test(w) || /hypothes|reject|\blevel\b|α|alpha|two-sided p|one-sided p/i.test(w)) out += `clinician view: "${w}". `;
+    const o2 = await opening();
+    if (!/wrongly finding at least one effect, in either direction/.test(o2) || !/counts as a success only if its effect favours the treatment/.test(o2)) out += `two-sided opening: "${o2}". `;
+    await p.selectOption('#sidedSelect', 'one'); await p.waitForTimeout(150);
+    if (await warn()) out += 'clinician view, one-sided: still shown. ';
+    const o1 = await opening();
+    if (!/wrongly claiming at least one success across all of them/.test(o1) || /either direction/.test(o1)) out += `one-sided opening: "${o1}". `;
+    await c.close();
+    if (out) return out;
+  });
+
+  /* 1.4.15, fault 4 of the literature review of 20 November: with two-sided p-values the two-sided Simes test of two
+     hypotheses controls the error rate at any correlation (Huque, 2016, section 5.2; Lawrence, 2019, p. 1335). Up to 1.4.14
+     the negative-correlation warning showed for two-sided p-values too, with the one-sided words. */
+  await step('Simes negative-correlation warning with two-sided p-values (1.4.15): none for two hypotheses or groups of two; a softer line for three or more; the one-sided warning unchanged', async () => {
+    const c = await b.newContext({ viewport: { width: 1400, height: 900 } }); const p = await c.newPage();
+    let out = '';
+    p.on('pageerror', e => { out += `page error: ${e.message}. `; });
+    await p.goto(FILE); await p.waitForTimeout(500);
+    const warns = async () => { await p.click('#tabbtn-test'); await p.waitForTimeout(120); return (await p.locator('#tab-test [data-warn="closed"]').allInnerTexts()).join(' | '); };
+    /* two hypotheses: Holm (2), weighted Simes, Power tab correlation -0.5 */
+    await p.evaluate(() => { setPlain(false, true); loadGraph(generatedTemplate('holm', 2)); G.sided = 'two'; G.test.type = 'simes'; SIM.useMatrix = false; SIM.rho = '-0.5'; renderAll(); });
+    let w = await warns(); if (/Negative correlation|correlation is/.test(w)) out += `two hypotheses, two-sided: "${w}". `;
+    await p.evaluate(() => { G.sided = 'one'; renderAll(); });
+    w = await warns(); if (!/Samuel-Cahn/.test(w) || !/needs non-negative correlations/.test(w)) out += `two hypotheses, one-sided: "${w}". `;
+    /* three hypotheses */
+    await p.evaluate(() => { loadGraph(generatedTemplate('holm', 3)); G.sided = 'two'; G.test.type = 'simes'; renderAll(); });
+    w = await warns();
+    if (!/−0\.5 for every pair/.test(w) || !/With two-sided p-values and three or more hypotheses, control under negative correlation is not proved in general\. No excess has been found for normal statistics\./.test(w) || /Samuel-Cahn|can exceed/.test(w)) out += `three hypotheses, two-sided: "${w}". `;
+    /* Simes within groups: groups of two, then a group of three */
+    await p.evaluate(() => { loadGraph(templateJSON('parallel')); G.sided = 'two'; G.test.type = 'simes-groups'; G.nodes.forEach((n, i) => { n.group = i < 2 ? 'primary' : 'secondary'; }); renderAll(); });
+    w = await warns(); if (/Negative correlation|correlation is/.test(w)) out += `groups of two, two-sided: "${w}". `;
+    await p.evaluate(() => { G.nodes.forEach((n, i) => { n.group = i < 3 ? 'primary' : 'secondary'; }); renderAll(); });
+    w = await warns(); if (!/three or more hypotheses in a group, control under negative correlation is not proved/.test(w)) out += `group of three, two-sided: "${w}". `;
+    await c.close();
+    if (out) return out;
+  });
+
   for (const r of results) console.log((r.ok ? 'PASS ' : 'FAIL ') + r.name + ` (${r.ms} ms)` + (r.ok ? '' : '\n      ' + r.detail));
   console.log(`\n${results.length - fails}/${results.length} browser checks passed`);
   console.log('page errors:', errors.length ? errors : 'none');
