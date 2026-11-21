@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.4.15 (2026-11-21)
+
+Fixes and new wording from a literature review of 133 papers and 5 books. No result the app shows has changed.
+
+- gMCP export: for the weighted Simes test with Upscale ticked, the code now calls `gMCP.extended()` with `simes.test`. `gMCP(test = "Simes")` ignores `upscale = TRUE`, so the old code could reject fewer hypotheses than the app (Chen, Luo and Capizzi, 2005, Table I). Every `gMCP.extended()` call now has a comment: read the adjusted p-values, since its rejected flags can miss a rejection when the graph is not alpha-exhaustive and Upscale is off.
+- Two-sided p-values with the Bonferroni step-through: a warning line in the Test tab says the step-through cannot see the direction of an effect. It suggests entering 1 for a hypothesis whose estimate does not favour treatment, or using one-sided p-values. With Plain language on, the line is in everyday words. The opening sentence then speaks of finding an effect in either direction, and says a claimed question counts as a success only if its effect favours the treatment.
+- Simes test: the Test tab and Help now say it is guaranteed to control the error rate with positively dependent statistics, and About says it controls the error rate with them. Before, all three said it needs them. About adds the two-sided case. With two-sided p-values, the negative-correlation warning no longer shows for two hypotheses, or for Simes within groups of two. For three or more hypotheses a softer line shows. The note on Brannath et al. (2009) is rewritten.
+- SAP text: the hypotheses placeholder asks for the estimand. P-values outside the family are labelled nominal. The group sequential bracket covers the information fraction, recomputed boundaries, sequential or repeated p-values and estimates after early stopping. Unadjusted and adjusted p-values are reported side by side. The choice of the graph speaks of local powers. No reference was added.
+- Help and About: the FDA guidance on weights that sum to 1, and a source for the advice on two-sided p-values. About lists more that is not covered, and says where graphicalMCP and gMCP cover it.
+- Notes: the note on Glimm et al. (2010) is clearer. The correlation help adds a caveat on subgroup effects that differ in sign. The Power tab's note has four new sentences. The parallel gatekeeping template's note covers Upscale.
+- References: nine new ones, among them Chen, Luo and Capizzi (2005) and Lawrence (2019).
+- User guide: the sentences on Upscale, the warning lines and the Simes warning. README: the "Not covered" line.
+- Tests: 32 new self-tests from published examples (163 in all), 7 new stress checks (55) and 2 new browser checks (76). The SAP self-test also reads the new SAP sentences. Every check that reads the app's text fails on the 1.4.14 page.
+
 ## 1.4.14 (2026-11-20)
 
 The tab icon in Safari.
