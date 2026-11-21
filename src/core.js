@@ -1,7 +1,7 @@
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.4.14';
-const APP_DATE = '2026-11-20';
+const APP_VERSION = '1.4.15';
+const APP_DATE = '2026-11-21';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
 /* The author's LinkedIn profile; the header byline and About link to it. */
@@ -1159,6 +1159,7 @@ function corrRowsR(G) {
     return v == null ? 'NA' : String(v);
   }));
 }
+const GMCP_EXTENDED_NOTE = `# Read the adjusted p-values: a hypothesis is rejected when its adjusted p-value is at most alpha.\n# When the graph is not alpha-exhaustive and upscale = FALSE, the rejected flags of gMCP.extended()\n# can miss a rejection.\n`;
 function exportGMCP(G) {
   if (isEntangled(G)) return exportGMCPEntangled(G);
   const m = G.nodes.length;
@@ -1168,10 +1169,11 @@ function exportGMCP(G) {
   const t = G.test || defaultTest();
   if (pv) {
     if (t.type === 'bonferroni') s += `\ngMCP(graph, pvalues = ${pv}, alpha = ${fmtNum(G.alpha, 12)}${t.upscale ? ', upscale = TRUE' : ''})\n`;
-    else if (t.type === 'simes') s += `\ngMCP(graph, pvalues = ${pv}, alpha = ${fmtNum(G.alpha, 12)}, test = "Simes"${t.upscale ? ', upscale = TRUE' : ''})\n`;
+    else if (t.type === 'simes' && !t.upscale) s += `\ngMCP(graph, pvalues = ${pv}, alpha = ${fmtNum(G.alpha, 12)}, test = "Simes")\n`;
+    else if (t.type === 'simes') s += `\n# gMCP(test = "Simes") ignores upscale = TRUE, so the weighted Simes test with upscale uses gMCP.extended().\n${GMCP_EXTENDED_NOTE}gMCP.extended(graph, pvalues = ${pv}, alpha = ${fmtNum(G.alpha, 12)}, test = simes.test, upscale = TRUE)\n`;
     else if (t.type === 'simes-groups') {
       const groups = [...new Set(G.nodes.map(n => n.group).filter(Boolean))];
-      s += `\ngMCP.extended(graph, pvalues = ${pv}, alpha = ${fmtNum(G.alpha, 12)}, test = simes.on.subsets.test,\n  subsets = list(${groups.map(g => `c(${G.nodes.map((n, i) => (n.group === g ? i + 1 : null)).filter(Boolean).join(', ')})`).join(', ')})${t.upscale ? ', upscale = TRUE' : ''})\n`;
+      s += `\n${GMCP_EXTENDED_NOTE}gMCP.extended(graph, pvalues = ${pv}, alpha = ${fmtNum(G.alpha, 12)}, test = simes.on.subsets.test,\n  subsets = list(${groups.map(g => `c(${G.nodes.map((n, i) => (n.group === g ? i + 1 : null)).filter(Boolean).join(', ')})`).join(', ')})${t.upscale ? ', upscale = TRUE' : ''})\n`;
     } else {
       s += `\n# Parametric test. NA marks an unknown correlation.\n# NOTE: gMCP finds one constant for all blocks of known correlation in an intersection (Bretz et al. 2011,\n# eq. 3; w.dunnet in gMCP). The Sketchpad, like graphicalMCP, finds a separate constant for each block\n# (Xi et al. 2017, eq. 6). Results can differ slightly when an intersection has two or more blocks with weight.\ncorrelation <- matrix(c(\n${corrRowsR(G).map(r => '  ' + r.join(', ')).join(',\n')}\n), nrow = ${m}, byrow = TRUE)\ngMCP(graph, pvalues = ${pv}, alpha = ${fmtNum(G.alpha, 12)}, test = "parametric", correlation = correlation, upscale = ${t.upscale ? 'TRUE' : 'FALSE'})\n`;
     }
@@ -1673,7 +1675,7 @@ const TEMPLATES = {
   },
   parallel: {
     name: 'Two primary + two secondary (parallel gatekeeping)',
-    note: 'Parallel gatekeeping (Dmitrienko, Offen and Westfall, 2003, Table I; drawn as in Bretz et al., 2009, Fig. 2; gMCP: parallelGatekeeping): H1 and H2 are the primary family, H3 and H4 the secondary family. The secondary hypotheses get weight only once a primary hypothesis is rejected. This graph is not alpha-exhaustive. See the improved version with ε edges. Published power comparisons labelled "Bonferroni gatekeeping" often use that ε-improved version (Bretz et al., 2009, Fig. 12), which is the improved parallel gatekeeping template here, so their numbers can differ from this graph\'s.',
+    note: 'Parallel gatekeeping (Dmitrienko, Offen and Westfall, 2003, Table I; drawn as in Bretz et al., 2009, Fig. 2; gMCP: parallelGatekeeping): H1 and H2 are the primary family, H3 and H4 the secondary family. The secondary hypotheses get weight only once a primary hypothesis is rejected. This graph is not alpha-exhaustive. See the improved version with ε edges. Published power comparisons labelled "Bonferroni gatekeeping" often use that ε-improved version (Bretz et al., 2009, Fig. 12), which is the improved parallel gatekeeping template here, so their numbers can differ from this graph\'s. With the weighted Simes test, the Simes columns of Dmitrienko, Offen and Westfall (2003, Table III) and Chen et al. (2005, Tables I and IV) need Upscale on, or the improved parallel template with a small ε. The Bonferroni columns need neither.',
     nodes: [['H1', '1/2', 0, 0], ['H2', '1/2', 280, 0], ['H3', '0', 0, 210], ['H4', '0', 280, 210]],
     edges: [[0, 2, '1/2'], [0, 3, '1/2'], [1, 2, '1/2'], [1, 3, '1/2'], [2, 3, '1'], [3, 2, '1']]
   },
@@ -2581,8 +2583,10 @@ function runAllSelfTests() {
   check('SAP text (two doses, two endpoints): numeric initial levels, initial-graph wording, gatekeeping sentence, no wrong citations', () => {
     const G = bretz(); G.nodes.forEach((n, i) => { n.desc = ['Dose 1, primary', 'Dose 2, primary', 'Dose 1, secondary', 'Dose 2, secondary'][i]; });
     const sap = sapText(G), t = sap.paragraphs.join(' ');
-    const want = ['H1 and H2 will each initially be tested at one-sided level 0.0125 (weight 1/2)', 'In the initial graph, H1 passes 1/2 of its level to H2 and 1/2 to H3', 'H3 and H4 receive no initial significance level (weight 0)', 'Algorithm 1 of Bretz et al. (2009)', 'Figure [X]', 'No confirmatory conclusion will be drawn'];
+    const want = ['H1 and H2 will each initially be tested at one-sided level 0.0125 (weight 1/2)', 'In the initial graph, H1 passes 1/2 of its level to H2 and 1/2 to H3', 'H3 and H4 receive no initial significance level (weight 0)', 'Algorithm 1 of Bretz et al. (2009)', 'Figure [X]', 'No confirmatory conclusion will be drawn', 'labelled nominal, meaning not adjusted for multiplicity', 'Unadjusted p-values will be reported for every hypothesis', 'with the single-analysis critical value at α at the look where its primary hypothesis is rejected', 'definition of the information fraction'];
     for (const w of want) if (!t.includes(w)) return 'missing: ' + w;
+    /* without descriptions the hypotheses placeholder names the estimand attributes (1.4.15) */
+    if (!sapText(bretz()).paragraphs.join(' ').includes('handling of intercurrent events, summary measure and direction (the estimand, ICH E9(R1))')) return 'missing: the estimand in the hypotheses placeholder';
     if (/Sarkar|equation 3|section 3\.2/.test(t)) return 'a corrected citation came back';
     /* Bretz et al. (2009) plus the three references cited inside the interim analyses placeholder (1.1.6) */
     if (!/Glimm, Maurer and Bretz, 2010; Maurer, Glimm and Bretz, 2011, section 3\.1/.test(t) || !/Maurer and Bretz, 2013, section 4/.test(t)) return 'interim analyses placeholder';
@@ -2719,11 +2723,15 @@ function plainGraphText(G, nameOf) {
   if (!m) return out;
   const tt = (G.test || defaultTest()).type;
   const closed = tt !== 'bonferroni';
+  /* With two-sided p-values a rejection can be an effect in either direction (FDA, 2022, p. 4; Asikanius et al., 2026, p. 11) */
+  const allowed = G.sided === 'two'
+    ? `It is allowed a ${pctWords(G.alpha)} chance of wrongly finding at least one effect, in either direction, across all of them, whichever of the questions truly have no effect. A claimed question counts as a success only if its effect favours the treatment.`
+    : `It is allowed a ${pctWords(G.alpha)} chance of wrongly claiming at least one success across all of them, whichever of the questions truly have no effect.`;
   if (isEntangled(G)) {
     /* Entangled graph (Maurer and Bretz, 2013): the allowance is split across linked graphs; a question's share is
        the sum of its shares in all of them, and each graph hands its part on in its own way */
     const n = G.ent.comps.length;
-    out.push(`The trial asks ${m} question${m > 1 ? 's' : ''} (${joinWords(G.nodes.map(nd => nameOf(nd.id, true)))}). It is allowed a ${pctWords(G.alpha)} chance of wrongly claiming at least one success across all of them, whichever of the questions truly have no effect. That allowance is split between ${n} linked graphs (${joinWords(G.ent.comps.map((_, k) => `graph ${k + 1} holds ${pctWords(Q.toNum(G.ent.c[k]) * G.alpha)}`))}). A question's share at any time is the sum of its shares in all the graphs${closed ? '.' : ', and it can only be claimed as a success if its p-value is no bigger than that sum.'} When a question succeeds, each graph hands its part of the share on in its own way, so a share remembers which graph it came from.`);
+    out.push(`The trial asks ${m} question${m > 1 ? 's' : ''} (${joinWords(G.nodes.map(nd => nameOf(nd.id, true)))}). ${allowed} That allowance is split between ${n} linked graphs (${joinWords(G.ent.comps.map((_, k) => `graph ${k + 1} holds ${pctWords(Q.toNum(G.ent.c[k]) * G.alpha)}`))}). A question's share at any time is the sum of its shares in all the graphs${closed ? '.' : ', and it can only be claimed as a success if its p-value is no bigger than that sum.'} When a question succeeds, each graph hands its part of the share on in its own way, so a share remembers which graph it came from.`);
     G.ent.comps.forEach((cs, k) => {
       const v = entViewGraph(G, k), ck = Q.toNum(G.ent.c[k]) * G.alpha;
       const withW = v.nodes.filter(nd => !Q.isZero(nd.w));
@@ -2741,7 +2749,7 @@ function plainGraphText(G, nameOf) {
     else out.push('These shares are not compared with the p-values one question at a time. Instead every combination of questions is checked together with a Simes test, which can confirm a combination when all of its p-values are fairly small even if none is below its own share, and a question is claimed only when every combination that includes it passes the check. This relies on the test results not being negatively related to one another.');
     return out;
   }
-  out.push(`The trial asks ${m} question${m > 1 ? 's' : ''} (${joinWords(G.nodes.map(n => nameOf(n.id, true)))}). It is allowed a ${pctWords(G.alpha)} chance of wrongly claiming at least one success across all of them, whichever of the questions truly have no effect. That allowance is shared out${closed ? ' as described below.' : ', and a question can only be claimed as a success if its p-value is no bigger than its share at the time.'}`);
+  out.push(`The trial asks ${m} question${m > 1 ? 's' : ''} (${joinWords(G.nodes.map(n => nameOf(n.id, true)))}). ${allowed} That allowance is shared out${closed ? ' as described below.' : ', and a question can only be claimed as a success if its p-value is no bigger than its share at the time.'}`);
   const withW = G.nodes.filter(n => !Q.isZero(n.w)), noW = G.nodes.filter(n => Q.isZero(n.w));
   const starts = withW.map(n => `${nameOf(n.id)} starts with ${pctWords(Q.toNum(n.w) * G.alpha)}`);
   let s = `At the start, ${joinWords(starts) || 'no question has a share'}.`;
@@ -2830,9 +2838,9 @@ function sapText(G, opts = {}) {
   /* 1. Hypotheses */
   const anyDesc = G.nodes.some(n => n.desc);
   let hyp = `The confirmatory family consists of the ${count(m)} null hypotheses in Table [X.1]: ${joinWords(G.nodes.map(nm))}.`;
-  if (!G.nodes.every(n => n.desc)) hyp += ` [State each null hypothesis${anyDesc ? ' that has no description' : ''}: endpoint, comparison, population and direction.]`;
+  if (!G.nodes.every(n => n.desc)) hyp += ` [State each null hypothesis${anyDesc ? ' that has no description' : ''}: endpoint, comparison, population, handling of intercurrent events, summary measure and direction (the estimand, ICH E9(R1)).]`;
   if (groups.length) hyp += ' ' + groups.map(g => { const h = G.nodes.filter(n => n.group === g).map(n => n.label); return `The ${g} hypotheses ${h.length > 1 ? 'are' : 'is'} ${joinWords(h)}.`; }).join(' ');
-  hyp += ' No multiplicity adjustment will be made for endpoints outside this family; [their p-values will be presented as nominal and descriptive].';
+  hyp += ' No multiplicity adjustment will be made for endpoints outside this family. [Their p-values will be labelled nominal, meaning not adjusted for multiplicity, and no confirmatory conclusion will be drawn from them.]';
   add('Hypotheses', hyp);
 
   /* 2. Error rate and procedure */
@@ -2939,7 +2947,7 @@ function sapText(G, opts = {}) {
     const inp = O.inputs || {};
     const assume = inp.powerNominal ? ` under the planning assumptions of ${joinWords(G.nodes.map((n, i) => `${fmtNum(100 * inp.powerNominal[i], 4)}% power for ${n.label}`))}${inp.corrMatrix ? (() => { const off = []; for (let i = 0; i < m; i++) for (let j = i + 1; j < m; j++) off.push(inp.corrMatrix[i][j]); return off.length && off.every(v => Math.abs(v - off[0]) < 1e-12) ? ` and a correlation of ${fmtNum(off[0], 4)} between every pair of test statistics` : ' and the correlations between the test statistics given in Table [X.4]'; })() : ''}` : '';
     let txt = same
-      ? `The initial weights and transition weights were chosen by gain-function optimisation (Spiers et al., 2026)${O.package ? ` with the R package ${O.package}` : ''}: among the graphs allowed by the prespecified constraints, the one maximising the expected gain${assume}${inp.nsim ? `, estimated over ${inp.nsim.toLocaleString('en-GB')} simulated trials` : ''}.${O.expectedGain != null ? ` The expected gain of the chosen graph was ${fmtNum(O.expectedGain, 4)} on the simulated sample used for the optimisation${O.localPower ? `, with marginal powers of ${joinWords(G.nodes.map((n, i) => `${fmtNum(100 * O.localPower[i], 4)}% for ${n.label}`))}` : ''}.` : ''}`
+      ? `The initial weights and transition weights were chosen by gain-function optimisation (Spiers et al., 2026)${O.package ? ` with the R package ${O.package}` : ''}: among the graphs allowed by the prespecified constraints, the one maximising the expected gain${assume}${inp.nsim ? `, estimated over ${inp.nsim.toLocaleString('en-GB')} simulated trials` : ''}.${O.expectedGain != null ? ` The expected gain of the chosen graph was ${fmtNum(O.expectedGain, 4)} on the simulated sample used for the optimisation${O.localPower ? `, with local powers (the probability that each hypothesis is rejected with this graph) of ${joinWords(G.nodes.map((n, i) => `${fmtNum(100 * O.localPower[i], 4)}% for ${n.label}`))}` : ''}.` : ''}`
       : `The graph was derived from one chosen by gain-function optimisation (Spiers et al., 2026)${O.package ? ` with the R package ${O.package}` : ''}${assume} and then edited by hand. [State what was changed and why.]`;
     txt += O.share && O.gain ? ` The gain function was ψ(r) = ${O.gain}, where r1, r2, ... indicate rejection of ${joinWords(G.nodes.map(n => n.label))}.` : ' [The gain function is not reproduced here. Spiers et al. (2026) note that it may encode commercially sensitive judgements and need not be disclosed; only the resulting graph is prespecified.]';
     txt += ' The optimisation chose the weights only; the error rate control stated above does not depend on how they were chosen.';
@@ -2949,9 +2957,9 @@ function sapText(G, opts = {}) {
 
   /* 5. Conclusions, interim analyses, reporting */
   add('Conclusions', 'A hypothesis rejected by this procedure will be declared statistically significant. No confirmatory conclusion will be drawn for a hypothesis that is not rejected. [The study will be considered positive if ...]');
-  add('Interim analyses', 'Each hypothesis will be tested once, at the final analysis. [Or, for a group sequential design: state the spending function for each hypothesis. The boundary for a hypothesis at each look will be computed from its spending function at its current local level, not by scaling a boundary computed at the full α (Maurer and Bretz, 2013, section 4). A secondary hypothesis will not be tested at the full α once its primary hypothesis is rejected at an interim analysis; that strategy can raise the family-wise error rate above α (Glimm, Maurer and Bretz, 2010; Maurer, Glimm and Bretz, 2011, section 3.1).]');
+  add('Interim analyses', 'Each hypothesis will be tested once, at the final analysis. [Or, for a group sequential design: state the spending function and the definition of the information fraction for each hypothesis. The boundary for a hypothesis at each look will be computed from its spending function at its current local level, not by scaling a boundary computed at the full α (Maurer and Bretz, 2013, section 4). When a hypothesis gains level after a rejection, its boundaries will be computed again at the new level. A hypothesis rejected at one look stays rejected at later looks. State whether a hypothesis may be rejected on the evidence of an earlier look (sequential p-values) or only on the current look (repeated p-values). A secondary hypothesis will not be tested with the single-analysis critical value at α at the look where its primary hypothesis is rejected; that strategy can raise the family-wise error rate above α (Glimm, Maurer and Bretz, 2010; Maurer, Glimm and Bretz, 2011, section 3.1). Its boundary will come from its own spending function, as if it were tested at every look. State how treatment effects will be estimated if the trial stops early, since unadjusted estimates tend to run high after early stopping.]');
   cite('maurerbretz2013b', 'glimm2010', 'maurer2011');
-  add('Reporting', `Multiplicity-adjusted p-values (${closed ? 'for each hypothesis, the largest p-value of the intersection hypotheses containing it, where the p-value of an intersection hypothesis is the smallest level at which it can be rejected; Bretz et al., 2011, section 3.2' : 'Bretz et al., 2009, section 3.1'}) [will / will not] be reported. Confidence intervals will be presented at the nominal [95%] level and are not adjusted for multiplicity. Analyses will use [software and version].`);
+  add('Reporting', `Unadjusted p-values will be reported for every hypothesis, [together with multiplicity-adjusted p-values (${closed ? 'for each hypothesis, the largest p-value of the intersection hypotheses containing it, where the p-value of an intersection hypothesis is the smallest level at which it can be rejected; Bretz et al., 2011, section 3.2' : 'Bretz et al., 2009, section 3.1'})], each labelled as unadjusted or adjusted. Confidence intervals will be presented at the nominal [95%] level and are not adjusted for multiplicity[; Bonferroni-adjusted confidence intervals will also be presented]. Conclusions about the hypotheses will be based on the testing procedure above. Analyses will use [software and version].`);
 
   /* 6. Technical details (closed tests only) */
   const tables = [];
@@ -4366,6 +4374,252 @@ function runLiteratureSelfTests() {
     if (wOf(G, s, 'H1') !== '2/3' || gOf(G, s, 'H1', 'H3') !== '0' || gOf(G, s, 'H3', 'H1') !== '1') return `after H2: ${wOf(G, s, 'H1')}, g13 ${gOf(G, s, 'H1', 'H3')}, g31 ${gOf(G, s, 'H3', 'H1')}`;
     const a = after(G, ['H1', 'H2']), b = after(G, ['H2', 'H1']);
     return (wOf(G, a, 'H3') === '1/3' && wOf(G, b, 'H3') === '1/3') || `H3 ${wOf(G, a, 'H3')} and ${wOf(G, b, 'H3')}`;
+  });
+
+  /* Batch 6: the literature review of 20 November 2026 (1.4.15) */
+  check('Chen, Luo and Capizzi (2005), Table I, p. 1389: parallel gatekeeping with w = (9/10, 1/10, 0, 0), closed weighted Simes with Upscale, alpha 0.05. p = (0.048, 0.003, 0.026, 0.002) gives adjusted p = (0.048, 0.03, 0.048, 0.04); (0.048, 0.003, 0.060, 0.002) gives (0.053333, 0.03, 0.06, 0.04); (0.048, 0.030, 0.060, 0.002) gives (0.053333, 0.06, 0.06, 0.048), where the paper prints 0.056 for H12. The gMCP export writes gMCP.extended() with simes.test, since gMCP(test = "Simes") ignores upscale = TRUE', () => {
+    const G = mk(['9/10', '1/10', '0', '0'], [['0', '0', '1/2', '1/2'], ['0', '0', '1/2', '1/2'], ['0', '0', '0', '1'], ['0', '0', '1', '0']], ['H11', 'H12', 'H21', 'H22'], 0.05);
+    const ps = [[0.048, 0.003, 0.026, 0.002], [0.048, 0.003, 0.060, 0.002], [0.048, 0.030, 0.060, 0.002]];
+    const want = [[0.048, 0.03, 0.048, 0.04], [0.16 / 3, 0.03, 0.06, 0.04], [0.16 / 3, 0.06, 0.06, 0.048]];
+    for (let k = 0; k < 3; k++) { const r = closedAdj(G, ps[k], 0.05, 'simes', { upscale: true }); if (!near(r.adj, want[k], 1e-9)) return `scenario ${k + 1}: ` + f5(r.adj); }
+    G.test = { type: 'simes', upscale: true, corr: {} };
+    G.nodes.forEach((n, i) => { n.p = String(ps[0][i]); });
+    const code = exportGMCP(G);
+    if (!code.includes('gMCP.extended(graph, pvalues = c(0.048, 0.003, 0.026, 0.002), alpha = 0.05, test = simes.test, upscale = TRUE)')) return 'export: ' + code.slice(-200);
+    if (!code.includes('the rejected flags of gMCP.extended()\n# can miss a rejection')) return 'export: no comment on the rejected flags';
+    if (!/the Simes columns of Dmitrienko, Offen and Westfall \(2003, Table III\) and Chen et al\. \(2005, Tables I and IV\) need Upscale on/.test(templateJSON('parallel').note)) return 'the parallel gatekeeping note does not say Upscale';
+    return !/^gMCP\(graph.*test = "Simes"/m.test(code) || 'export still calls gMCP(test = "Simes")';
+  });
+  /* Dmitrienko, Tamhane and Bretz (2009), Table 2.2, p. 69: the printed adjusted p-values (D1 to D4) of four rows, three scenarios */
+  const TABLE22_DTB2009 = [
+    { Holm: [0.0304, 0.0304, 0.0213, 0.0172], fixed: [0.0228, 0.0152, 0.0071, 0.0043], fallback: [0.0228, 0.0203, 0.0172, 0.0172], Hommel: [0.0228, 0.0228, 0.0213, 0.0142] },
+    { Holm: [0.0594, 0.0594, 0.028, 0.028], fixed: [0.0364, 0.0297, 0.0088, 0.007], fallback: [0.0396, 0.0396, 0.028, 0.028], Hommel: [0.0364, 0.0364, 0.0264, 0.021] },
+    { Holm: [0.0324, 0.0315, 0.022, 0.0329], fixed: [0.0329, 0.0329, 0.0329, 0.0329], fallback: [0.022, 0.022, 0.022, 0.1316], Hommel: [0.0324, 0.0243, 0.021, 0.0329] }
+  ];
+  /* Helpers for batch 6 */
+  const PAR = [['0', '0', '1/2', '1/2'], ['0', '0', '1/2', '1/2'], ['0', '0', '0', '1'], ['0', '0', '1', '0']];
+  const adjOf = (G, p) => { const a = adjustedPValues(stateFromGraph(G), pOfG(G, p)); return G.nodes.map(n => a.get(n.id)); };
+  const rejSet = (G, p, alpha) => order(G, p, alpha).split(',').filter(Boolean).sort().join(',');
+  const zeroM = m => Array.from({ length: m }, () => Array(m).fill('0'));
+  const link = (Gm, from, to, g) => { for (const i of from) for (const j of to) if (i !== j) Gm[i][j] = g; return Gm; };
+  const range = (a, b) => Array.from({ length: b - a }, (_, i) => a + i);
+  const rejLabels = (G, r) => G.nodes.filter((_, i) => r.rejected[i]).map(n => n.label).join(',');
+  const eq = (m, rho) => Array.from({ length: m }, (_, i) => Array.from({ length: m }, (_, j) => (i === j ? 1 : rho)));
+  check('Dmitrienko and Tamhane (2007), Table II, p. 175: parallel gatekeeping with w = (9/10, 1/10, 0, 0), alpha 0.05, p = (0.048, 0.003, 0.026, 0.002): adjusted p = (0.053333, 0.03, 0.053333, 0.04), rejecting H2 and H4. The paper prints 0.260 for H1, a "modified" adjusted p-value valid only at the stated alpha', () => {
+    const G = mk(['9/10', '1/10', '0', '0'], PAR, null, 0.05), p = [0.048, 0.003, 0.026, 0.002];
+    const a = adjOf(G, p); if (!near(a, [0.16 / 3, 0.03, 0.16 / 3, 0.04], 1e-12)) return 'adjusted ' + f5(a);
+    return rejSet(G, p, 0.05) === 'H2,H4' || 'rejected ' + rejSet(G, p, 0.05);
+  });
+  check('Dmitrienko and Tamhane (2007), Table III, p. 176: truncated Holm transitions (H1 to H2 gamma, to H3 and H4 (1 - gamma)/2; the same from H2) with w = (9/10, 1/10, 0, 0), alpha 0.05, p = (0.048, 0.003, 0.026, 0.002): gamma 0 rejects H2 and H4; gamma 1/2 rejects H2; gamma 9/10 rejects all four, adjusted p = (0.0485, 0.03, 0.0485, 0.0485)', () => {
+    const TH = [['0', 'γ', '(1-γ)/2', '(1-γ)/2'], ['γ', '0', '(1-γ)/2', '(1-γ)/2'], ['0', '0', '0', '1'], ['0', '0', '1', '0']], p = [0.048, 0.003, 0.026, 0.002];
+    const want = { '0': 'H2,H4', '1/2': 'H2', '9/10': 'H1,H2,H3,H4' };
+    for (const g of Object.keys(want)) { const G = mk(['9/10', '1/10', '0', '0'], TH, null, 0.05, { 'γ': g }); if (rejSet(G, p, 0.05) !== want[g]) return `gamma ${g}: rejected ` + rejSet(G, p, 0.05); }
+    const a = adjOf(mk(['9/10', '1/10', '0', '0'], TH, null, 0.05, { 'γ': '9/10' }), p);
+    return near(a, [0.0485, 0.03, 0.0485, 0.0485], 1e-4) || 'gamma 9/10 adjusted ' + f5(a);
+  });
+  check('Dmitrienko and Tamhane (2011), p. 1481: parallel gatekeeping template, alpha 0.025, p = (0.021, 0.007, 0.013, 0.004): adjusted p = (0.042, 0.014, 0.026, 0.016). The paper\'s 0.027 for H3 comes from unrounded p-values', () => {
+    const G = load(templateJSON('parallel')), a = adjOf(G, [0.021, 0.007, 0.013, 0.004]);
+    return near(a, [0.042, 0.014, 0.026, 0.016], 1e-12) || 'adjusted ' + f5(a);
+  });
+  check('Kordzakhia et al. (2018), p. 122: two doses, two endpoints, p = (0.02, 0.002, 0.001, 0.005): adjusted p = (0.02, 0.004, 0.02, 0.02) with the closed Bonferroni test, the weighted Simes test and Simes within groups {H1, H2}, {H3, H4}', () => {
+    const G = load(templateJSON('bretz')), p = [0.02, 0.002, 0.001, 0.005];
+    for (const [t, o] of [['bonferroni', {}], ['simes', {}], ['simes-groups', { groups: [[0, 1], [2, 3]] }]]) { const r = closedAdj(G, p, 0.025, t, o); if (!near(r.adj, [0.02, 0.004, 0.02, 0.02], 1e-12)) return `${t}: ` + f5(r.adj); }
+    return true;
+  });
+  check('A case that separates the tests of the Kordzakhia et al. (2018) graph: two doses, two endpoints, p = (0.02, 0.02, 0.001, 0.005): the weighted Simes test gives adjusted p = 0.02 for all four; Simes within groups {H1, H2}, {H3, H4} and the closed Bonferroni test give 0.04 for all four', () => {
+    const G = load(templateJSON('bretz')), p = [0.02, 0.02, 0.001, 0.005];
+    const s = closedAdj(G, p, 0.025, 'simes'), g = closedAdj(G, p, 0.025, 'simes-groups', { groups: [[0, 1], [2, 3]] }), b = closedAdj(G, p, 0.025, 'bonferroni');
+    if (!near(s.adj, [0.02, 0.02, 0.02, 0.02], 1e-12)) return 'Simes ' + f5(s.adj);
+    if (!near(g.adj, [0.04, 0.04, 0.04, 0.04], 1e-12)) return 'Simes within groups ' + f5(g.adj);
+    return near(b.adj, [0.04, 0.04, 0.04, 0.04], 1e-12) || 'Bonferroni ' + f5(b.adj);
+  });
+  check('Ouyang et al. (2020), pp. 600-601: simple successive I, alpha 0.025, p = (0.0463, 0.0164, 0.0046, 0.0237): weighted Simes adjusted p = (0.0463, 0.0328, 0.0463, 0.0463) and closed Bonferroni (0.0474, 0.0328, 0.0474, 0.0474); neither test rejects', () => {
+    const G = load(templateJSON('successiveI')), p = [0.0463, 0.0164, 0.0046, 0.0237];
+    const s = closedAdj(G, p, 0.025, 'simes'), b = closedAdj(G, p, 0.025, 'bonferroni');
+    if (!near(s.adj, [0.0463, 0.0328, 0.0463, 0.0463], 1e-12)) return 'Simes ' + f5(s.adj);
+    if (!near(b.adj, [0.0474, 0.0328, 0.0474, 0.0474], 1e-12)) return 'Bonferroni ' + f5(b.adj);
+    return (!s.rejected.some(Boolean) && !b.rejected.some(Boolean)) || 'something was rejected';
+  });
+  check('Chen, Luo and Capizzi (2005), Table IV, p. 1395, ordinary column: ten hypotheses, weight 1/5 on H11 to H15, each H1j passing 1/5 to each H2i and each H2j 1/4 to each other H2i; closed weighted Simes with Upscale, alpha 0.05, p = (0.0194, 0.0306, 0.0002, 0.0004, 0.0268, 0.0100, 0.06, 0.0002, 0.0004, 0.0268): adjusted p = (0.06, 0.06, 0.001, 0.002, 0.06, 0.0382, 0.06, 0.0025, 0.004, 0.0536)', () => {
+    const Gm = link(link(zeroM(10), range(0, 5), range(5, 10), '1/5'), range(5, 10), range(5, 10), '1/4');
+    const G = mk([...Array(5).fill('1/5'), ...Array(5).fill('0')], Gm, ['H11', 'H12', 'H13', 'H14', 'H15', 'H21', 'H22', 'H23', 'H24', 'H25'], 0.05);
+    const r = closedAdj(G, [0.0194, 0.0306, 0.0002, 0.0004, 0.0268, 0.0100, 0.06, 0.0002, 0.0004, 0.0268], 0.05, 'simes', { upscale: true });
+    return near(r.adj, [0.06, 0.06, 0.001, 0.002, 0.06, 0.0382, 0.06, 0.0025, 0.004, 0.0536], 1e-4) || 'adjusted ' + f5(r.adj);
+  });
+  check('Dmitrienko et al. (2007), Table IV, p. 2475: three families of three; weight 1/3 on each of F1; each F1 hypothesis passes 1/3 to each of F2, each F2 hypothesis 1/3 to each of F3; F3 is Holm (1/2); alpha 0.05, p = (0.005, 0.011, 0.018, 0.009, 0.026, 0.013, 0.010, 0.006, 0.051): adjusted p = (0.015, 0.033, 0.054, 0.0405, 0.078, 0.054, 0.054, 0.054, 0.0765)', () => {
+    const Gm = link(link(link(zeroM(9), range(0, 3), range(3, 6), '1/3'), range(3, 6), range(6, 9), '1/3'), range(6, 9), range(6, 9), '1/2');
+    const a = adjOf(mk([...Array(3).fill('1/3'), ...Array(6).fill('0')], Gm, null, 0.05), [0.005, 0.011, 0.018, 0.009, 0.026, 0.013, 0.010, 0.006, 0.051]);
+    return near(a, [0.015, 0.033, 0.054, 0.0405, 0.078, 0.054, 0.054, 0.054, 0.0765], 1e-12) || 'adjusted ' + f5(a);
+  });
+  check('Qiu, Yu and Guo (2026), Procedure 1, Table 1: nine hypotheses, w = 4/5 on H11 and 1/10 on H21 and H31; H11 to H12 to H13 (1 each), H13 to H21 and H31 (1/2 each), H21 to H22 to H23 and H31 to H32 to H33 (1 each); alpha 0.05, p = (0.005, 0.011, 0.018, 0.009, 0.026, 0.013, 0.010, 0.006, 0.051): adjusted p = (0.00625, 0.01375, 0.0225, 0.0225, 0.052, 0.052, 0.0225, 0.0225, 0.102)', () => {
+    const Gm = zeroM(9); [[0, 1, '1'], [1, 2, '1'], [2, 3, '1/2'], [2, 6, '1/2'], [3, 4, '1'], [4, 5, '1'], [6, 7, '1'], [7, 8, '1']].forEach(([i, j, g]) => { Gm[i][j] = g; });
+    const G = mk(['4/5', '0', '0', '1/10', '0', '0', '1/10', '0', '0'], Gm, ['H11', 'H12', 'H13', 'H21', 'H22', 'H23', 'H31', 'H32', 'H33'], 0.05);
+    const a = adjOf(G, [0.005, 0.011, 0.018, 0.009, 0.026, 0.013, 0.010, 0.006, 0.051]);
+    return near(a, [0.00625, 0.01375, 0.0225, 0.0225, 0.052, 0.052, 0.0225, 0.0225, 0.102], 1e-12) || 'adjusted ' + f5(a);
+  });
+  check('Dmitrienko et al. (2006), Table 1, p. 988: three families; weight 1/2 on each of F1 (two hypotheses); each F1 hypothesis passes 1/2 to each of F2 (two), each F2 hypothesis 1/4 to each of F3 (four); F3 is Holm (1/3); alpha 0.05, p = (0.0008, 0.0135, 0.0197, 0.7237, 0.0003, 0.2779, 0.0054, 0.8473): adjusted p = (0.0016, 0.027, 0.0394, 1, 0.0394, 1, 0.0394, 1); the five rejections happen at levels 0.025, 0.025, 0.025, 0.00625 and 0.008333', () => {
+    const Gm = link(link(link(zeroM(8), range(0, 2), range(2, 4), '1/2'), range(2, 4), range(4, 8), '1/4'), range(4, 8), range(4, 8), '1/3');
+    const G = mk(['1/2', '1/2', '0', '0', '0', '0', '0', '0'], Gm, null, 0.05), p = [0.0008, 0.0135, 0.0197, 0.7237, 0.0003, 0.2779, 0.0054, 0.8473];
+    const a = adjOf(G, p).map(x => Math.min(x, 1)); if (!near(a, [0.0016, 0.027, 0.0394, 1, 0.0394, 1, 0.0394, 1], 1e-12)) return 'adjusted ' + f5(a);
+    const ord = runProcedure(stateFromGraph(G), pOfG(G, p), 0.05).order; let st = stateFromGraph(G); const lv = [];
+    for (const id of ord) { lv.push(Q.toNum(st.w.get(id)) * 0.05); st = rejectNode(st, id); }
+    return near(lv, [0.025, 0.025, 0.025, 0.00625, 0.05 / 6], 1e-12) || 'levels ' + lv.map(x => x.toFixed(6)).join(' ');
+  });
+  check('Li (2011), Table 1, p. 803, WB column: weight 1/3 on each of three primaries, each primary passing 1/3 to each of three secondaries, the secondaries Holm (1/2); alpha 0.05, p = (0.132, 0.001, 0.016, 0.057, 0.001, 0.008): adjusted p = (0.396, 0.003, 0.048, 0.0855, 0.009, 0.048)', () => {
+    const Gm = link(link(zeroM(6), range(0, 3), range(3, 6), '1/3'), range(3, 6), range(3, 6), '1/2');
+    const a = adjOf(mk(['1/3', '1/3', '1/3', '0', '0', '0'], Gm, null, 0.05), [0.132, 0.001, 0.016, 0.057, 0.001, 0.008]);
+    return near(a, [0.396, 0.003, 0.048, 0.0855, 0.009, 0.048], 1e-12) || 'adjusted ' + f5(a);
+  });
+  check('Li (2011), Table 1, THGP column, as an entangled graph with c = (1/4, 3/4) and epsilon 1e-9: graph 1 is Holm on the three primaries with (1 - epsilon)/2 to each other primary and epsilon/3 to each secondary; graph 2 passes 1/3 from each primary to each secondary; the secondaries are Holm (1/2) in both; alpha 0.05, p = (0.132, 0.001, 0.016, 0.057, 0.001, 0.008): adjusted p = (0.264, 0.003, 0.042667, 0.114, 0.012, 0.042667)', () => {
+    const e1 = [], e2 = [];
+    for (let i = 0; i < 3; i++) { for (let j = 0; j < 3; j++) if (i !== j) e1.push([i, j, '999999999/2000000000']); for (let j = 3; j < 6; j++) { e1.push([i, j, '1/3000000000']); e2.push([i, j, '1/3']); } }
+    for (let i = 3; i < 6; i++) for (let j = 3; j < 6; j++) if (i !== j) { e1.push([i, j, '1/2']); e2.push([i, j, '1/2']); }
+    const w = ['1/3', '1/3', '1/3', '0', '0', '0'];
+    const G = load(entangledJSON({ alpha: 0.05, nodes: range(0, 6).map(i => ['H' + (i + 1), i * 120, 0]), c: ['1/4', '3/4'], comps: [{ w, edges: e1 }, { w, edges: e2 }] }));
+    const a = adjOf(G, [0.132, 0.001, 0.016, 0.057, 0.001, 0.008]);
+    return near(a, [0.264, 0.003, 0.128 / 3, 0.114, 0.012, 0.128 / 3], 1e-6) || 'adjusted ' + f5(a);
+  });
+  check('Quan, Luo and Capizzi (2005), Table II, p. 2158: four chains, weight 1/4 on each H1j and H1j passing 1 to H2j; alpha 0.05, p (H11 to H14) = (0.005, 0.014, 0.011, 0.060) and (H21 to H24) = (0.006, 0.018, 0.009, 0.130): rejects H11, H13, H21 and H23', () => {
+    const Gm = zeroM(8); for (let j = 0; j < 4; j++) Gm[j][j + 4] = '1';
+    const G = mk(['1/4', '1/4', '1/4', '1/4', '0', '0', '0', '0'], Gm, ['H11', 'H12', 'H13', 'H14', 'H21', 'H22', 'H23', 'H24'], 0.05);
+    const r = rejSet(G, [0.005, 0.014, 0.011, 0.060, 0.006, 0.018, 0.009, 0.130], 0.05);
+    return r === 'H11,H13,H21,H23' || 'rejected ' + r;
+  });
+  check('Ristl et al. (2016), section 4.1, p. 2677: p = (0.01, 0.02, 0.03), alpha 0.025: Holm (3) rejects none, adjusted p = (0.03, 0.04, 0.04); the closed Simes test on Holm (3) rejects none; the fixed sequence rejects H1 and H2', () => {
+    const H = load(generatedTemplate('holm', 3)), p = [0.01, 0.02, 0.03];
+    const a = adjOf(H, p); if (!near(a, [0.03, 0.04, 0.04], 1e-12) || rejSet(H, p, 0.025)) return 'Holm ' + f5(a) + ' rejected ' + rejSet(H, p, 0.025);
+    if (closedAdj(H, p, 0.025, 'simes').rejected.some(Boolean)) return 'Simes rejected something';
+    const F = load(generatedTemplate('fixed', 3));
+    return rejSet(F, p, 0.025) === 'H1,H2' || 'fixed sequence ' + rejSet(F, p, 0.025);
+  });
+  check('Luo et al. (2013), Table 2, p. 315: the Bretz, Maurer and Hommel (2011) template, alpha 0.025, p in app order (0.003, 0.001, 0.001, 0.032, 0.001, 0.001): rejects every hypothesis but H12, adjusted p = (0.00375, 0.003, 0.003, 0.032, 0.00375, 0.00375); H12 ends at level 0.025, where the paper prints 2.49%', () => {
+    const G = load(templateJSON('bretz2011')), p = [0.003, 0.001, 0.001, 0.032, 0.001, 0.001];
+    if (G.nodes[3].label !== 'H12') return 'node order ' + G.nodes.map(n => n.label).join(' ');
+    const r = rejSet(G, p, 0.025); if (r !== 'H11,H21,H22,H31,H32') return 'rejected ' + r;
+    const a = adjOf(G, p); if (!near(a, [0.00375, 0.003, 0.003, 0.032, 0.00375, 0.00375], 1e-12)) return 'adjusted ' + f5(a);
+    const st = after(G, ['H11', 'H21', 'H31', 'H22', 'H32']);
+    return Math.abs(Q.toNum(st.w.get(G.nodes[3].id)) * 0.025 - 0.025) < 1e-12 || 'H12 level ' + Q.toNum(st.w.get(G.nodes[3].id)) * 0.025;
+  });
+  check('Huque et al. (2018), Fig. 6.9 and p. 113, general successive template: (a) w = (4/5, 1/5), gamma 1/4, delta 3/4: after H1, H2 holds 2/5 and H3 3/5, with H2 to H3 9/13 and H2 to H4 4/13; after H1 and H2, H3 holds 57/65 and H4 8/65. (b) w = (3/4, 1/4), gamma 3/4, delta 1/2: after H1 and H2, H3 holds 7/20 and H4 13/20, where the book prints 1/4 and 3/4', () => {
+    const make = (w1, w2, g, d) => { const o = templateJSON('successive'); o.nodes[0].weight = w1; o.nodes[1].weight = w2; o.vars = { 'γ': g, 'δ': d }; return load(o); };
+    const A = make('4/5', '1/5', '1/4', '3/4');
+    let s = after(A, ['H1']);
+    const a1 = [wOf(A, s, 'H2'), wOf(A, s, 'H3'), gOf(A, s, 'H2', 'H3'), gOf(A, s, 'H2', 'H4')].join(' ');
+    if (a1 !== '2/5 3/5 9/13 4/13') return '(a) after H1: ' + a1;
+    s = after(A, ['H1', 'H2']); if (wOf(A, s, 'H3') !== '57/65' || wOf(A, s, 'H4') !== '8/65') return `(a) after H1, H2: ${wOf(A, s, 'H3')} ${wOf(A, s, 'H4')}`;
+    const B = make('3/4', '1/4', '3/4', '1/2'); s = after(B, ['H1', 'H2']);
+    return (wOf(B, s, 'H3') === '7/20' && wOf(B, s, 'H4') === '13/20') || `(b) after H1, H2: ${wOf(B, s, 'H3')} ${wOf(B, s, 'H4')}`;
+  });
+  check('Qiu, Guo and Sarkar, p. 13: w = (2/5, 2/5, 1/10, 1/10) on P1, P2, S1, S2; each P passes 1/2 to each S and each S 1/2 to each P; alpha 0.05, p = (0.010, 0.029, 0.001, 0.019): rejects all four; after P1, S1 is at level 0.015 and passes 2/3 to P2; after P1 and S1, P2 is at 0.03 and S2 at 0.02; adjusted p = (1/45, 0.0475, 0.01, 0.0475)', () => {
+    const Gm = [['0', '0', '1/2', '1/2'], ['0', '0', '1/2', '1/2'], ['1/2', '1/2', '0', '0'], ['1/2', '1/2', '0', '0']];
+    const G = mk(['2/5', '2/5', '1/10', '1/10'], Gm, ['P1', 'P2', 'S1', 'S2'], 0.05), p = [0.010, 0.029, 0.001, 0.019];
+    if (rejSet(G, p, 0.05) !== 'P1,P2,S1,S2') return 'rejected ' + rejSet(G, p, 0.05);
+    const lvl = (st, l) => Q.toNum(st.w.get(byLabel(G, l))) * 0.05;
+    let s = after(G, ['P1']); if (Math.abs(lvl(s, 'S1') - 0.015) > 1e-12 || gOf(G, s, 'S1', 'P2') !== '2/3') return `after P1: S1 ${lvl(s, 'S1')}, S1 to P2 ${gOf(G, s, 'S1', 'P2')}`;
+    s = after(G, ['P1', 'S1']); if (Math.abs(lvl(s, 'P2') - 0.03) > 1e-12 || Math.abs(lvl(s, 'S2') - 0.02) > 1e-12) return `after P1, S1: P2 ${lvl(s, 'P2')}, S2 ${lvl(s, 'S2')}`;
+    const a = adjOf(G, p); return near(a, [1 / 45, 0.0475, 0.01, 0.0475], 1e-12) || 'adjusted ' + f5(a);
+  });
+  check('Huque et al. (2018), Example 1, pp. 103-104, parametric test with correlation 0.5, alpha 0.025: (a) two hypotheses with equal weights, p = (0.013479, 0.9): the pair has adjusted p 0.025; (b) weighted Holm (0.6, 0.2, 0.2), p = (0.010, 0.013, 0.034): rejects H1 and H2, adjusted p = (0.01532, 0.02414, 0.034)', () => {
+    const A = load(generatedTemplate('holm', 2)), ra = closedAdj(A, [0.013479, 0.9], 0.025, 'parametric', { corr: eq(2, 0.5) });
+    const pair = ra.subsets.find(s => s.mask === 3).adjP; if (Math.abs(pair - 0.025) > 1e-4) return '(a) pair ' + pair.toFixed(6);
+    const w = ['3/5', '1/5', '1/5'], B = mk(w, wHolm(w), null, 0.025), rb = closedAdj(B, [0.010, 0.013, 0.034], 0.025, 'parametric', { corr: eq(3, 0.5) });
+    if (rejLabels(B, rb) !== 'H1,H2') return '(b) rejected ' + rejLabels(B, rb);
+    return near(rb.adj, [0.01532, 0.02414, 0.034], 1e-4) || '(b) adjusted ' + f5(rb.adj);
+  });
+  check('Gou (2021), p. 643: Holm (3), alpha 0.05, p = (0.060, 0.031, 0.018): the closed Simes test gives adjusted p = (0.06, 0.06, 0.0465) and rejects H3 only; closed Bonferroni gives (0.062, 0.062, 0.054) and rejects none', () => {
+    const G = load(generatedTemplate('holm', 3)), p = [0.060, 0.031, 0.018];
+    const s = closedAdj(G, p, 0.05, 'simes'), b = closedAdj(G, p, 0.05, 'bonferroni');
+    if (!near(s.adj, [0.06, 0.06, 0.0465], 1e-12) || rejLabels(G, s) !== 'H3') return 'Simes ' + f5(s.adj) + ' rejected ' + rejLabels(G, s);
+    return (near(b.adj, [0.062, 0.062, 0.054], 1e-12) && !b.rejected.some(Boolean)) || 'Bonferroni ' + f5(b.adj);
+  });
+  check('Goeman and Solari (2010), p. 3800: parallel gatekeeping template, after removing any set R of hypotheses, a primary that is left holds alpha/|G1| and a secondary that is left holds alpha |R and G1| / (|G2 not in R| |G1|), with G1 = {H1, H2} and G2 = {H3, H4}', () => {
+    const G = load(templateJSON('parallel')), labs = ['H1', 'H2', 'H3', 'H4'];
+    for (let mask = 0; mask < 15; mask++) {
+      const R = labs.filter((_, i) => mask & (1 << i)), s = after(G, R), rG1 = R.filter(l => l === 'H1' || l === 'H2').length, leftG2 = 2 - R.filter(l => l === 'H3' || l === 'H4').length;
+      for (const l of labs) {
+        if (R.includes(l)) continue;
+        const want = l === 'H1' || l === 'H2' ? '1/2' : Q.exact(Q.parse(`${rG1}/${2 * leftG2}`));
+        if (wOf(G, s, l) !== want) return `R = {${R.join(', ')}}: ${l} holds ${wOf(G, s, l)}, want ${want}`;
+      }
+    }
+    return true;
+  });
+  check('Guilbaud (2026), eqs. (19) and (20), p. 432: the "at least k of m" template with k = 1 and k = m - 1, m = 2 to 6, epsilon 1e-9, rejecting the primaries in index order: after every rejection the next primary\'s level and the secondary\'s level equal the equations (with gamma 0 for k = 1 and 1 - 2/m for k = m - 1)', () => {
+    const prim = (m, k, g, s) => (s <= k ? 1 / (m - s + 1) : g / (m - s + 1) + (1 - g) / (m - k + 1));
+    const sec = (m, k, g, r) => (r === m ? 1 : r >= k ? (1 - g) * (r - k + 1) / (m - k + 1) : 0);
+    for (let m = 2; m <= 6; m++) for (const k of [...new Set([1, m - 1])]) {
+      const G = load(entangledKOfM(m, k, 1)); G.vars = Object.assign({}, G.vars || {}, { 'ε': Q.parse('1/1000000000') }); evaluateGraph(G);
+      const g = k === 1 ? 0 : 1 - 2 / m;
+      let st = stateFromGraph(G);
+      for (let r = 0; r <= m; r++) {
+        const lv = i => Q.toNum(st.w.get(G.nodes[i].id) || Q.ZERO);
+        if (r < m && Math.abs(lv(r) - prim(m, k, g, r + 1)) > 1e-9) return `m ${m}, k ${k}, after ${r}: next primary ${lv(r)}, want ${prim(m, k, g, r + 1)}`;
+        if (Math.abs(lv(m) - sec(m, k, g, r)) > 1e-9) return `m ${m}, k ${k}, after ${r}: secondary ${lv(m)}, want ${sec(m, k, g, r)}`;
+        if (r < m) st = rejectNode(st, G.nodes[r].id);
+      }
+    }
+    return true;
+  });
+  check('Mielke et al. (2020), section 3.3: at least 3 of 6 primaries, alpha 0.05, p = (0.2, 0.001, 0.014, 0.002, 0.009, 0.15) and 1 for the secondary: the graph rejects H2, H4, H5 and H3 in that order, and the secondary is then at level 0.01; Holm (6) on the six primaries rejects the same four, with adjusted p = (0.3, 0.006, 0.042, 0.01, 0.036, 0.3)', () => {
+    const G = load(entangledKOfM(6, 3, 0.05)), p = [0.2, 0.001, 0.014, 0.002, 0.009, 0.15, 1];
+    const o = order(G, p, 0.05); if (o !== 'H2,H4,H5,H3') return 'order ' + o;
+    const s = after(G, ['H2', 'H4', 'H5', 'H3']), sl = Q.toNum(s.w.get(G.nodes[6].id)) * 0.05;
+    if (Math.abs(sl - 0.01) > 1e-4) return 'secondary level ' + sl;
+    const Hm = load(generatedTemplate('holm', 6)), ph = p.slice(0, 6); if (rejSet(Hm, ph, 0.05) !== 'H2,H3,H4,H5') return 'Holm rejected ' + rejSet(Hm, ph, 0.05);
+    const a = adjOf(Hm, ph); return near(a, [0.3, 0.006, 0.042, 0.01, 0.036, 0.3], 1e-4) || 'Holm adjusted ' + f5(a);
+  });
+  check('Dmitrienko, Tamhane and Bretz (2009), Table 2.2, p. 69, alpha 0.025, the raw p-values of Table 2.1 (D1 to D4): the 48 printed cells of the Holm, fixed sequence, fallback (both testing D4, D3, D2, D1) and Hommel rows; Hommel is the closed Simes test on Holm (4). Scenario 1 Hommel: (0.0228, 0.0228, 0.0213, 0.0142)', () => {
+    const sc = [[0.0228, 0.0152, 0.0071, 0.0043], [0.0364, 0.0297, 0.0088, 0.0070], [0.0162, 0.0105, 0.0055, 0.0329]];
+    const want = TABLE22_DTB2009, rev = a => [a[3], a[2], a[1], a[0]];
+    const H = load(generatedTemplate('holm', 4)), F = load(generatedTemplate('fixed', 4)), B = load(generatedTemplate('fallback', 4));
+    for (let s = 0; s < 3; s++) {
+      const p = sc[s], rows = { Holm: adjOf(H, p), fixed: rev(adjOf(F, rev(p))), fallback: rev(adjOf(B, rev(p))), Hommel: closedAdj(H, p, 0.025, 'simes').adj };
+      for (const k of Object.keys(rows)) if (!near(rows[k], want[s][k], 5e-5)) return `scenario ${s + 1}, ${k}: ` + rows[k].map(x => x.toFixed(4)).join(' ');
+    }
+    return true;
+  });
+  check('Dmitrienko, Tamhane and Bretz (2009), Table 2.4, scenario 1: Holm (4), parametric test with correlation 0.5, p = (0.0228, 0.0152, 0.0071, 0.0043), alpha 0.025: adjusted p = (0.028087, 0.028087, 0.019095, 0.015127); H3 and H4 rejected', () => {
+    const G = load(generatedTemplate('holm', 4)), r = closedAdj(G, [0.0228, 0.0152, 0.0071, 0.0043], 0.025, 'parametric', { corr: eq(4, 0.5) });
+    if (rejLabels(G, r) !== 'H3,H4') return 'rejected ' + rejLabels(G, r);
+    return near(r.adj, [0.028087, 0.028087, 0.019095, 0.015127], 2e-6) || 'adjusted ' + r.adj.map(x => x.toFixed(6)).join(' ');
+  });
+  check('Bretz, Hothorn and Westfall (2010), Example 2.4: Holm (4), alpha 0.05, p = (0.022, 0.02, 0.01, 0.09): the closed Simes test gives adjusted p = (0.044, 0.040, 0.030, 0.090)', () => {
+    const r = closedAdj(load(generatedTemplate('holm', 4)), [0.022, 0.02, 0.01, 0.09], 0.05, 'simes');
+    return near(r.adj, [0.044, 0.040, 0.030, 0.090], 1e-12) || 'adjusted ' + f5(r.adj);
+  });
+  check('Bretz, Hothorn and Westfall (2010), p. 38: Holm (3), alpha 0.05, p = (0.024, 0.032, 0.5): the closed Simes test gives adjusted p = (0.048, 0.064, 0.5) and rejects H1', () => {
+    const G = load(generatedTemplate('holm', 3)), r = closedAdj(G, [0.024, 0.032, 0.5], 0.05, 'simes');
+    return (near(r.adj, [0.048, 0.064, 0.5], 1e-12) && rejLabels(G, r) === 'H1') || 'adjusted ' + f5(r.adj) + ' rejected ' + rejLabels(G, r);
+  });
+  check('Bretz, Hothorn and Westfall (2010), recovery data, pp. 80-82: Holm (3), parametric test with correlations 0.130435 (H1, H2) and 0.236433 (the other two pairs), p = Phi(-1.33), Phi(-4.656), Phi(-1.884), alpha 0.05: adjusted p = (0.091759, 0.000005, 0.057075), rejecting H2 only (z statistics here; the book uses t)', () => {
+    const corr = [[1, 0.130435, 0.236433], [0.130435, 1, 0.236433], [0.236433, 0.236433, 1]], G = load(generatedTemplate('holm', 3));
+    const r = closedAdj(G, [pnormUpper(1.33), pnormUpper(4.656), pnormUpper(1.884)], 0.05, 'parametric', { corr });
+    if (rejLabels(G, r) !== 'H2') return 'rejected ' + rejLabels(G, r);
+    return near(r.adj, [0.091759, 0.000005, 0.057075], 2e-6) || 'adjusted ' + r.adj.map(x => x.toFixed(6)).join(' ');
+  });
+  check('Dunnett (1955), Tables 1a and 1b, pp. 1117-1118: the parametric constant c for k = 3 and 4 equally weighted hypotheses with correlation 0.5 gives the one-sided critical values d = z(1 - c alpha / k): 2.062084 and 2.160333 at alpha 0.05, 2.684853 and 2.771565 at alpha 0.01', () => {
+    const want = { '3,0.05': 2.062084, '4,0.05': 2.160333, '3,0.01': 2.684853, '4,0.01': 2.771565 };
+    for (const key of Object.keys(want)) {
+      const [k, a] = key.split(',').map(Number), R = eq(k, 0.5);
+      const cr = closedTestCritical(floatGraph(load(generatedTemplate('holm', k))), a, 'parametric', { upscale: false, corrAt: (i, j) => R[i][j], rand: mulberry32(2011), cache: new Map() });
+      const d = qnorm(1 - cr.crit[(1 << k) - 1].blocks[0].c * a / k);
+      if (Math.abs(d - want[key]) > 1e-5) return `k ${k}, alpha ${a}: d ${d.toFixed(6)}`;
+    }
+    return true;
+  });
+  check('Xie (2012), section 4, one-sided analogue: weighted Holm (1/2, 2/5, 1/10), p = (0.015, 0.013, 0.0005), alpha 0.025, parametric test: with correlation 0.7, adjusted p = (0.023178, 0.023178, 0.004341); with correlation 0.99, (0.015796, 0.015796, 0.002694)', () => {
+    const w = ['1/2', '2/5', '1/10'], G = mk(w, wHolm(w), null, 0.025), p = [0.015, 0.013, 0.0005];
+    const r7 = closedAdj(G, p, 0.025, 'parametric', { corr: eq(3, 0.7) }); if (!near(r7.adj, [0.023178, 0.023178, 0.004341], 2e-6)) return 'rho 0.7: ' + r7.adj.map(x => x.toFixed(6)).join(' ');
+    const r9 = closedAdj(G, p, 0.025, 'parametric', { corr: eq(3, 0.99) });
+    return near(r9.adj, [0.015796, 0.015796, 0.002694], 2e-6) || 'rho 0.99: ' + r9.adj.map(x => x.toFixed(6)).join(' ');
+  });
+  check('Lawrence (2019), p. 1341: Holm (2) with two-sided p-values, alpha 0.05, closed Simes test (Hommel): p = (0.04, 0.04) rejects both; p = (0.04, 0.06) rejects neither', () => {
+    const G = load(generatedTemplate('holm', 2)), a = closedAdj(G, [0.04, 0.04], 0.05, 'simes'), b = closedAdj(G, [0.04, 0.06], 0.05, 'simes');
+    return (a.rejected.every(Boolean) && !b.rejected.some(Boolean)) || `rejected ${a.rejected.join()} and ${b.rejected.join()}`;
+  });
+  check('Maurer, Bretz and Xun (2023), p. 2791: parametric test on two hypotheses with equal weights and correlation 0, p = (0.012579, 0.9), alpha 0.025: the intersection has adjusted p 0.025000', () => {
+    const r = closedAdj(load(generatedTemplate('holm', 2)), [0.012579, 0.9], 0.025, 'parametric', { corr: eq(2, 0) });
+    const v = r.subsets.find(s => s.mask === 3).adjP; return Math.abs(v - 0.025) <= 1e-5 || 'intersection ' + v.toFixed(6);
   });
   return res;
 }
