@@ -2953,7 +2953,9 @@ async function step(name, fn) {
   /* 1.4.16, optional wording fixes W7, W10, W12 and W13 of the literature review of 20 November: the About line on
      two-sided p-values (Asikanius et al., 2026, pp. 9-10), the correlation for two partly overlapping populations
      (Luschei and Brannath, 2026b, p. 3), the parametric line of the Help dialog (Xi et al., 2017, p. 920), and Hommel
-     and Hochberg in the Simes help (Bretz et al., 2011, p. 906; Dmitrienko, Tamhane and Bretz, 2009, p. 67) */
+     and Hochberg in the Simes help (Bretz et al., 2011, p. 906; Dmitrienko, Tamhane and Bretz, 2009, p. 67).
+     1.4.17, review points 8 and 10: "centred at zero when the effects are zero" (Xi et al., 2017, p. 920), and the
+     same ratio of treated to control patients in every part (Luschei and Brannath, 2026a, eq. 4, p. 3) */
   await step('Help lines from the literature review (1.4.16): About runs the graph twice for two-sided statements; the correlation note gives the overlap formula; Help says centred at zero; the Simes help names Hommel and Hochberg; the new references', async () => {
     const c = await b.newContext({ viewport: { width: 1400, height: 900 } }); const p = await c.newPage();
     let out = '';
@@ -2966,16 +2968,16 @@ async function step(name, fn) {
     if (!/On an equal-weight Holm graph the closed Simes test is Hommel's procedure \(Hommel, 1988; Bretz et al\., 2011, p\. 906\)\. Hochberg's step-up procedure is not built in\. It equals Hommel's for two hypotheses and never rejects more \(Hochberg, 1988; Dmitrienko, Tamhane and Bretz, 2009, p\. 67\)\./.test(t)) out += 'Simes help: Hommel and Hochberg sentences missing. ';
     await p.click('#tabbtn-power'); await p.waitForTimeout(150);
     const pw = await p.locator('#tab-power').innerText();
-    if (!/For the same test in two populations that partly overlap, with shares π₁ of the sample only in the first, π₂ only in the second and π₁₂ in both, it is π₁₂ \/ √\(\(π₁ \+ π₁₂\)\(π₂ \+ π₁₂\)\)\. This also assumes a common variance \(Luschei and Brannath, 2026b, p\. 3\)\./.test(pw)) out += 'correlation note: overlap sentence missing. ';
+    if (!/For the same test in two populations that partly overlap, with shares π₁ of the sample only in the first, π₂ only in the second and π₁₂ in both, it is π₁₂ \/ √\(\(π₁ \+ π₁₂\)\(π₂ \+ π₁₂\)\)\. This also assumes a common variance and the same ratio of treated to control patients in every part \(Luschei and Brannath, 2026a, eq\. 4, p\. 3; 2026b, p\. 3\)\./.test(pw)) out += 'correlation note: overlap sentence missing. ';
     if (!/before any adjustment \(Luschei and Brannath, 2026a\)/.test(pw)) out += 'correlation note: 2026a missing. ';
     await p.evaluate(() => document.getElementById('helpBtn').click()); await p.waitForTimeout(150);
     const h = await p.locator('#modalBody').innerText();
-    if (!/needs one-sided p-values whose statistics are multivariate normal, centred at zero when the null hypotheses hold, with the correlations you enter/.test(h)) out += 'Help: parametric line. ';
+    if (!/needs one-sided p-values whose statistics are multivariate normal, centred at zero when the effects are zero, with the correlations you enter \(Xi et al\., 2017, p\. 920; gMCP manual\)/.test(h)) out += 'Help: parametric line. ';
     await p.keyboard.press('Escape'); await p.waitForTimeout(150);
     await p.evaluate(() => document.getElementById('aboutBtn').click()); await p.waitForTimeout(150);
     const a = await p.locator('#modalBody').innerText();
     if (!/For two-sided statements, run the graph twice on one-sided p-values, once for benefit and once for harm, each at α\/2 \(Asikanius et al\., 2026, pp\. 9–10\)\./.test(a)) out += 'About: two-sided sentence. ';
-    for (const r of ['Hommel G (1988). A stagewise rejective', 'Hochberg Y (1988). A sharper Bonferroni', 'Dmitrienko A, Tamhane AC, Bretz F, eds (2009)', 'Luschei R, Brannath W (2026a). Family-wise', 'Luschei R, Brannath W (2026b). Multiple type I error concepts']) if (!a.includes(r)) out += `About: reference "${r}" missing. `;
+    for (const r of ['Hommel G (1988). A stagewise rejective', 'Hochberg Y (1988). A sharper Bonferroni', 'Dmitrienko A, Tamhane AC, Bretz F, eds (2009)', 'Luschei R, Brannath W (2026a). Family-wise', 'Eq. 4 (p. 3) gives the correlation of the tests from the number of patients in each part and arm.', 'Luschei R, Brannath W (2026b). Multiple type I error concepts', 'Algorithm 1* (Fig. 1, p. 423), the sharper Rüger-based procedure (Remark 6, p. 424)']) if (!a.includes(r)) out += `About: reference "${r}" missing. `;
     await c.close();
     if (out) return out;
   });

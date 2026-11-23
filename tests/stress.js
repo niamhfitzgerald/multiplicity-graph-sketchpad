@@ -8,8 +8,10 @@ vm.runInContext(src + '\nthis.__X = { Q, gKey, NODE_R, TEMPLATES, TEMPLATE_GEN, 
 const C = Object.assign({}, ctx, ctx.__X);
 const { Q } = C;
 
-let seed = 20261014;
-const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+/* The random cases come from the app's own mulberry32, seeded with 20261014 (1.4.17). Up to 1.4.16 this was a linear
+   congruential generator worked out in floating point. Its product passed 2^53 and lost digits, so it entered a loop of
+   10,466 numbers after 4,989 draws and began repeating itself after 15,455, and most random checks reused that loop. */
+const rnd = C.mulberry32(20261014);
 const ri = (a, b) => a + Math.floor(rnd() * (b - a + 1));
 const results = [];
 let fails = 0;
@@ -1069,8 +1071,7 @@ check('Optimised graph: the SAP text describes the choice of the graph, gives th
 /* The export combines graphicalMCP's graph_generate_weights() tables with c and compares them with the Sketchpad's
    intersection weights. The cases use their own seeded generator, so the suite's random stream is unchanged. */
 function entangledExportCases() {
-  let s = 20261104;
-  const r = () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648, rr = (a, b) => a + Math.floor(r() * (b - a + 1));
+  const r = C.mulberry32(20261104), rr = (a, b) => a + Math.floor(r() * (b - a + 1));
   const withP = o => { o.nodes.forEach(n => { n.p = String((rr(1, 600) / 10000).toFixed(4)); }); return o; };
   const cases = Object.keys(C.ENTANGLED_TEMPLATES).map(k => ({ name: k, o: withP(C.entangledTemplateJSON(k)) }));
   cases.push({ name: 'maurerFig2, no p-values', o: C.entangledTemplateJSON('maurerFig2') });
@@ -1249,6 +1250,23 @@ check('Chen et al. (2005) and Ouyang et al. (2020) on the successive templates (
     const app = C.closedTest(fg, p, 0.025, 'simes', { upscale: false }).adj, want = rules(p);
     if (app.some((x, i) => !near(x, want[i], 1e-12))) return `p ${p}: app ${app}, rules ${want}`;
   }
+  return true;
+});
+
+/* 1.4.17, review point 4: the "at least k of m" note gives the other side of the Rüger-based test. That test is
+   Algorithm 1* of Guilbaud (2026, Fig. 1, p. 423): it rejects nothing unless p(k) <= 2 alpha / (m - k + 2), so with
+   fewer than k effects the template is usually more likely to reject a primary (Maurer and Bretz, 2013, p. 1751), but
+   not always at very high correlation with small or no effects (Guilbaud, 2026, p. 424; Table 1, p. 435). No random
+   draws, so the suite's random stream is unchanged. */
+check('"At least k of m" note (1.4.17, review point 4): the Rüger-based test rejects nothing unless at least k p-values are at most 2α/(m − k + 2), so with fewer than k effects the template is usually more likely to reject a primary, but not always at very high correlation; the fraction follows k and m; none for k = 1', () => {
+  const tail = 'So when fewer than K primaries have an effect, this template is usually more likely to reject at least one primary (Maurer and Bretz, 2013, p. 1751). With very high correlation and small or no effects, the Rüger-based test can reject at least one more often (Guilbaud, 2026, p. 424; Table 1, p. 435).';
+  const want = [[4, 3, '2α/3'], [4, 2, 'α/2'], [3, 2, '2α/3'], [6, 3, '2α/5'], [5, 4, '2α/3'], [6, 2, 'α/3']];
+  for (const [m, k, f] of want) {
+    const n = C.entangledKOfM(m, k, 0.025).note;
+    const s1 = `(Guilbaud, 2026, Table 1, p. 435). That test rejects nothing unless at least ${k} p-values are at most ${f} (Guilbaud, 2026, Fig. 1, p. 423). `;
+    if (!n.includes(s1 + tail.replace('K', String(k)))) return `${k} of ${m}: the new sentences are missing or changed`;
+  }
+  for (const m of [2, 3, 4, 6]) if (/That test rejects nothing|more likely to reject at least one primary/.test(C.entangledKOfM(m, 1, 0.025).note)) return `1 of ${m}: the new sentences appear for k = 1`;
   return true;
 });
 
