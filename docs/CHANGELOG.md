@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.4.16 (2026-11-23)
+
+The optional wording fixes from the literature review of 20 November. No result the app shows has changed.
+
+- Plain language: the opening sentence gives the chance as "1 in 40" next to the percentage when 1/α is a whole number, as the FDA guidance does (for example "a 2.5% (1 in 40) chance").
+- About: for two-sided statements, run the graph twice on one-sided p-values, once for benefit and once for harm, each at α/2 (Asikanius et al., 2026).
+- Correlation help (Power tab and parametric test): the correlation for the same test in two populations that partly overlap. It cites a second 2026 paper by Luschei and Brannath, so the two are now 2026a (Statistics in Medicine) and 2026b (arXiv).
+- Help: the parametric test needs statistics that are centred at zero when the null hypotheses hold.
+- Simes help (Test tab): on an equal-weight Holm graph the closed Simes test is Hommel's procedure. Hochberg's procedure is not built in; it equals Hommel's for two hypotheses and never rejects more.
+- Template notes: simple successive I names the procedures of Chen, Luo and Capizzi (2005), Ouyang et al. (2020) and Quan, Luo and Capizzi (2005) it matches or resembles. General successive names Chen's matched scheme (γ = δ = 1/3) and the enhanced mixture procedure of Kordzakhia et al. (2018), which needs a Simes test the app does not offer. "At least k of m" names the Rüger-based closed test, which is not a graph, for k of 2 or more.
+- Adjusted p-values (Bonferroni): some gatekeeping papers print a "modified" adjusted p-value that is valid only at the stated α.
+- A self-test label on Maurer and Bretz (2013) says its p-values are the repeated p-values at the second interim analysis.
+- References: eleven new ones, among them Hommel (1988), Hochberg (1988) and Kordzakhia et al. (2018).
+- User guide: the correlation note's list of cases.
+- Tests: 3 new stress checks (58) and 2 new browser checks (78). Every check that reads the app's text fails on the 1.4.15 page. Self-tests: 163.
+
 ## 1.4.15 (2026-11-21)
 
 Fixes and new wording from a literature review of 133 papers and 5 books. No result the app shows has changed.
