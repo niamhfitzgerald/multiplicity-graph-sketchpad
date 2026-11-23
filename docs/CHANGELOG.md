@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.17 (2026-11-23)
+
+Four points from the review of 1.4.16. No result the app shows has changed.
+
+- "At least k of m" note (k of 2 or more): the Rüger-based test rejects nothing unless at least k p-values are at most 2α/(m − k + 2) (Guilbaud, 2026, Fig. 1). So when fewer than k primaries have an effect, the template is usually more likely to reject at least one primary (Maurer and Bretz, 2013, p. 1751). With very high correlation and small or no effects, the Rüger-based test can reject at least one more often (Guilbaud, 2026).
+- Help: the parametric test needs statistics that are centred at zero when the effects are zero (Xi et al., 2017, p. 920). It said "when the null hypotheses hold", but a one-sided null also allows an effect below zero.
+- Correlation help (Power tab and parametric test): the formula for two populations that partly overlap also assumes the same ratio of treated to control patients in every part (Luschei and Brannath, 2026a, eq. 4).
+- References: the notes on Luschei and Brannath (2026a) and Guilbaud (2026) name the parts now cited.
+- Tests: the stress suite's random cases now come from the app's own mulberry32 generator. The old generator lost digits and fell into a loop of 10,466 numbers, so most random checks reused the same numbers. 1 new stress check (59); browser check 77 reads the new text (78). Self-tests: 163.
+
 ## 1.4.16 (2026-11-23)
 
 The optional wording fixes from the literature review of 20 November. No result the app shows has changed.
