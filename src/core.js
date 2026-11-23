@@ -1,7 +1,7 @@
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.4.15';
-const APP_DATE = '2026-11-21';
+const APP_VERSION = '1.4.16';
+const APP_DATE = '2026-11-23';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
 /* The author's LinkedIn profile; the header byline and About link to it. */
@@ -540,9 +540,13 @@ function entangledKOfM(m, k, alpha) {
   const xt = k === 1 ? ' With k = 1 this is the k-out-of-n gatekeeping procedure of Xi and Tamhane (2014) with γ = 0.'
     : k === m - 1 ? ` With k = m − 1 this is the k-out-of-n gatekeeping procedure of Xi and Tamhane (2014) with γ = 1 − 2/m = ${pFrac(m - 2, m)}.`
     : ' It is not the k-out-of-n gatekeeping procedure of Xi and Tamhane (2014), whose secondary level rises in equal steps. Both control the familywise error rate.';
+  /* for k > 1: the Rueger-based closed test of Maurer and Bretz (2013, p. 1750) is the procedure of Mielke et al. (2021) and
+     Guilbaud (2022); the sharper Algorithm 1* (Guilbaud, 2026, p. 420 and Remark 6, p. 424) has the same chance of k
+     rejections (p. 435), and Table 1 (p. 435) gives the gap to Holm (1.4.16) */
+  const rg = k > 1 ? ' Maurer and Bretz (2013, p. 1750) also describe a Rüger-based closed test (Mielke et al., 2021; Guilbaud, 2022, 2026). It is not a graph. It reaches ' + k + ' rejections at least as often as this template, and for 3 of 4 up to about 4 percentage points more often at correlation 0.99 (Guilbaud, 2026, Table 1, p. 435).' : '';
   return entangledJSON({
     alpha, nodes, groups: Array.from({ length: m }, () => 'primary').concat(['secondary']),
-    note: `At least ${k} of ${m} primary hypotheses (H1 to H${m}) must be rejected before the secondary hypothesis H${m + 1} is tested (Maurer and Bretz, 2013, section 5.3.2, pp. 1750-1751, and Fig. 6; Guilbaud, 2018, Example 11 and Fig. 5(b), for 2 of 3). One component graph per set of ${k} primaries (${nC} in all, c = 1/${nC} each): Holm within the set, and only the last of the set to be rejected hands its level to H${m + 1} (the ε edge). The other primaries are isolated with weight 0. Taken together, ignoring terms in ε, this is Holm on the primaries until ${k === 1 ? 'one is' : `${k} are`} rejected. Then H${m + 1} is at α/C(${m}, ${k}) = ${aFrac(1, nC)} and each remaining primary at (1 − 1/C(${m}, ${k}))α/(${m} − ${k}) = ${aFrac(nC - 1, nC * (m - k))}. Each further primary rejection raises the level of H${m + 1}. After r rejections it is C(r, ${k})/C(${m}, ${k}) of α, so α once all ${m} are rejected.${xt}`,
+    note: `At least ${k} of ${m} primary hypotheses (H1 to H${m}) must be rejected before the secondary hypothesis H${m + 1} is tested (Maurer and Bretz, 2013, section 5.3.2, pp. 1750-1751, and Fig. 6; Guilbaud, 2018, Example 11 and Fig. 5(b), for 2 of 3). One component graph per set of ${k} primaries (${nC} in all, c = 1/${nC} each): Holm within the set, and only the last of the set to be rejected hands its level to H${m + 1} (the ε edge). The other primaries are isolated with weight 0. Taken together, ignoring terms in ε, this is Holm on the primaries until ${k === 1 ? 'one is' : `${k} are`} rejected. Then H${m + 1} is at α/C(${m}, ${k}) = ${aFrac(1, nC)} and each remaining primary at (1 − 1/C(${m}, ${k}))α/(${m} − ${k}) = ${aFrac(nC - 1, nC * (m - k))}. Each further primary rejection raises the level of H${m + 1}. After r rejections it is C(r, ${k})/C(${m}, ${k}) of α, so α once all ${m} are rejected.${xt}${rg}`,
     c: subsets.map(() => `1/${subsets.length}`),
     comps
   });
@@ -1713,13 +1717,13 @@ Object.assign(TEMPLATES, {
   },
   successive: {
     name: 'General successive (Maurer et al., 2011)',
-    note: 'Two doses and two hierarchical endpoints with free parameters γ and δ (written γ₁ and γ₂ in Maurer, Glimm and Bretz, 2011, Fig. 5, and in Bretz, Maurer and Hommel, 2011, Fig. 6; gMCP uses gamma and delta). H1 passes γ to H2 and 1−γ to its own secondary H3. H2 passes δ to H1 and 1−δ to H4. γ = δ = 1/2 gives the two doses, two endpoints template (simple successive II), and γ = δ = 0 gives simple successive I (gMCP: generalSuccessive).',
+    note: 'Two doses and two hierarchical endpoints with free parameters γ and δ (written γ₁ and γ₂ in Maurer, Glimm and Bretz, 2011, Fig. 5, and in Bretz, Maurer and Hommel, 2011, Fig. 6; gMCP uses gamma and delta). H1 passes γ to H2 and 1−γ to its own secondary H3. H2 passes δ to H1 and 1−δ to H4. γ = δ = 1/2 gives the two doses, two endpoints template (simple successive II), and γ = δ = 0 gives simple successive I (gMCP: generalSuccessive). γ = δ = 1/3 gives the matched scheme of Chen et al. (2005, p. 1392) with minimum primary weight 2/3. With γ = δ, this graph is the Hochberg-based gatekeeping procedure that Kordzakhia et al. (2018, Table 1, p. 122) build with the enhanced mixture method, under the Bretz et al. (2011, eq. 8, p. 907) Simes test. That test uses Simes within H1, H2 and within H3, H4, and Bonferroni between them. Their truncation parameter γ is the graph\'s γ = δ. The Sketchpad does not offer that test: its Simes within groups option follows gMCP\'s rule.',
     nodes: [['H1', '1/2', 0, 0], ['H2', '1/2', 280, 0], ['H3', '0', 0, 210], ['H4', '0', 280, 210]],
     edges: [[0, 1, 'γ'], [0, 2, '1-γ'], [1, 0, 'δ'], [1, 3, '1-δ'], [2, 1, '1'], [3, 0, '1']], groups: ['primary', 'primary', 'secondary', 'secondary']
   },
   successiveI: {
     name: 'Simple successive I (Maurer et al., 2011)',
-    note: 'Each primary hypothesis passes everything to its own secondary. A rejected secondary passes everything to the other primary (Maurer, Glimm and Bretz, 2011, Fig. 2(a); the same graph is Example 1 of Bretz et al., 2011; gMCP: simpleSuccessiveI).',
+    note: 'Each primary hypothesis passes everything to its own secondary. A rejected secondary passes everything to the other primary (Maurer, Glimm and Bretz, 2011, Fig. 2(a); the same graph is Example 1 of Bretz et al., 2011; gMCP: simpleSuccessiveI). With the weighted Simes test it is the matched parallel gatekeeping of Chen et al. (2005, Table II, p. 1391), which Ouyang et al. (2020, Rules 1.1 and 2.1, pp. 594–595) state as rules. Without its two return edges (H3 → H2 and H4 → H1) it has the shape of procedure (1) of Quan et al. (2005, p. 2153), whose chains run from the higher to the lower dose on each endpoint.',
     nodes: [['H1', '1/2', 0, 0], ['H2', '1/2', 280, 0], ['H3', '0', 0, 210], ['H4', '0', 280, 210]],
     edges: [[0, 2, '1'], [1, 3, '1'], [2, 1, '1'], [3, 0, '1']], groups: ['primary', 'primary', 'secondary', 'secondary']
   },
@@ -2715,6 +2719,9 @@ function shareWords(q) {
   return words[Q.exact(q)] || pctWords(Q.toNum(q));
 }
 function joinWords(arr) { return arr.length <= 1 ? arr.join('') : arr.slice(0, -1).join(', ') + ' and ' + arr[arr.length - 1]; }
+/* " (1 in 40)" after a percentage when 1/x is a whole number, as the FDA guidance writes it (FDA, 2022, p. 4:
+   "2.5%, or 1 chance in 40"); empty otherwise (1.4.16) */
+function oneInWords(x) { const k = 1 / x, r = Math.round(k); return r >= 2 && Math.abs(k - r) < 1e-9 ? ` (1 in ${r})` : ''; }
 /* Sentences describing the graph as a whole. nameOf(id, full) gives "H1" or "H1 (dose 1, primary endpoint)".
    For the closed tests (Simes, parametric) the claim rule and the order sentence do not apply, so the text says so. */
 function plainGraphText(G, nameOf) {
@@ -2725,8 +2732,8 @@ function plainGraphText(G, nameOf) {
   const closed = tt !== 'bonferroni';
   /* With two-sided p-values a rejection can be an effect in either direction (FDA, 2022, p. 4; Asikanius et al., 2026, p. 11) */
   const allowed = G.sided === 'two'
-    ? `It is allowed a ${pctWords(G.alpha)} chance of wrongly finding at least one effect, in either direction, across all of them, whichever of the questions truly have no effect. A claimed question counts as a success only if its effect favours the treatment.`
-    : `It is allowed a ${pctWords(G.alpha)} chance of wrongly claiming at least one success across all of them, whichever of the questions truly have no effect.`;
+    ? `It is allowed a ${pctWords(G.alpha)}${oneInWords(G.alpha)} chance of wrongly finding at least one effect, in either direction, across all of them, whichever of the questions truly have no effect. A claimed question counts as a success only if its effect favours the treatment.`
+    : `It is allowed a ${pctWords(G.alpha)}${oneInWords(G.alpha)} chance of wrongly claiming at least one success across all of them, whichever of the questions truly have no effect.`;
   if (isEntangled(G)) {
     /* Entangled graph (Maurer and Bretz, 2013): the allowance is split across linked graphs; a question's share is
        the sum of its shares in all of them, and each graph hands its part on in its own way */
@@ -3976,7 +3983,7 @@ function runLiteratureSelfTests() {
     const oc = labels(chains, runProcedure(stateFromGraph(chains), pOfG(chains, p), 0.05).order);
     return oc === 'H1,H3' || 'chains rejected ' + oc;
   });
-  check('Maurer and Bretz (2013, Statistics in Biopharmaceutical Research 5:311-320) Fig. 1, p. 317, and Table 2, p. 318: two doses, two endpoints template, alpha 0.025, p = (0.0024, 0.0172, 0.0117, 0.1285): rejects H1, H2, H3 at levels 1/80, 3/160, 1/80, with H4 retained at 1/40. After H1 the weights are (3/4, 1/4, 0) with H2 to H3 1/3, H2 to H4 2/3, H3 to H2 1, H4 to H2 1/2, H4 to H3 1/2; after H1 and H2 they are (1/2, 1/2) with H3 and H4 linked by 1', () => {
+  check('Maurer and Bretz (2013, Statistics in Biopharmaceutical Research 5:311-320) Fig. 1, p. 317, and Table 2, p. 318: two doses, two endpoints template, alpha 0.025, the repeated p-values at the second interim analysis (Table 2), p = (0.0024, 0.0172, 0.0117, 0.1285): rejects H1, H2, H3 at levels 1/80, 3/160, 1/80, with H4 retained at 1/40, the decisions the paper also reaches from the nominal p-values and levels of Table 1 (p. 317; text, p. 318). After H1 the weights are (3/4, 1/4, 0) with H2 to H3 1/3, H2 to H4 2/3, H3 to H2 1, H4 to H2 1/2, H4 to H3 1/2; after H1 and H2 they are (1/2, 1/2) with H3 and H4 linked by 1', () => {
     const G = load(templateJSON('bretz')), p = [0.0024, 0.0172, 0.0117, 0.1285], a = Q.parse('1/40');
     const o = order(G, p, 0.025); if (o !== 'H1,H2,H3') return 'order ' + o;
     const lvl = (st, l) => Q.exact(Q.mul(st.w.get(byLabel(G, l)), a));
