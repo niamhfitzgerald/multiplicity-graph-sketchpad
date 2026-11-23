@@ -1,6 +1,6 @@
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.4.16';
+const APP_VERSION = '1.4.17';
 const APP_DATE = '2026-11-23';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
@@ -540,10 +540,16 @@ function entangledKOfM(m, k, alpha) {
   const xt = k === 1 ? ' With k = 1 this is the k-out-of-n gatekeeping procedure of Xi and Tamhane (2014) with γ = 0.'
     : k === m - 1 ? ` With k = m − 1 this is the k-out-of-n gatekeeping procedure of Xi and Tamhane (2014) with γ = 1 − 2/m = ${pFrac(m - 2, m)}.`
     : ' It is not the k-out-of-n gatekeeping procedure of Xi and Tamhane (2014), whose secondary level rises in equal steps. Both control the familywise error rate.';
-  /* for k > 1: the Rueger-based closed test of Maurer and Bretz (2013, p. 1750) is the procedure of Mielke et al. (2021) and
-     Guilbaud (2022); the sharper Algorithm 1* (Guilbaud, 2026, p. 420 and Remark 6, p. 424) has the same chance of k
-     rejections (p. 435), and Table 1 (p. 435) gives the gap to Holm (1.4.16) */
-  const rg = k > 1 ? ' Maurer and Bretz (2013, p. 1750) also describe a Rüger-based closed test (Mielke et al., 2021; Guilbaud, 2022, 2026). It is not a graph. It reaches ' + k + ' rejections at least as often as this template, and for 3 of 4 up to about 4 percentage points more often at correlation 0.99 (Guilbaud, 2026, Table 1, p. 435).' : '';
+  /* for k > 1: the Rueger-based closed test of Maurer and Bretz (2013, p. 1750), with (k' of m') Rueger tests and
+     k' = m' - (m - k), rejects the same hypotheses as Algorithm 1* of Guilbaud (2026, Fig. 1, p. 423), the sharper test of
+     Hommel (1986, p. 331) (Remark 6, p. 424). Checked on 200,000 p-value sets, m 3 to 6, 2 <= k < m: no difference
+     (23 November 2026). It rejects nothing unless p(k) <= 2 alpha / (m - k + 2) (step 0 of Fig. 1), and that bound is
+     sharp. Algorithm 1 (Guilbaud, 2022; Mielke et al., 2021) is the other Rueger-based procedure: it rejects k hypotheses
+     or none at first (p. 420). Both have the same chance of k rejections (p. 435), and Table 1 (p. 435) gives the gap to
+     Holm (1.4.16). With fewer than k effects the template is usually more likely to reject a primary (p. 1751), but
+     not always: for at least one rejection neither test dominates (Guilbaud, 2026, p. 424), and with no effects at
+     correlation 0.99 the Rueger-based test rejects more often (Table 1, p. 435) (1.4.17) */
+  const rg = k > 1 ? ' Maurer and Bretz (2013, p. 1750) also describe a Rüger-based closed test (Mielke et al., 2021; Guilbaud, 2022, 2026). It is not a graph. It reaches ' + k + ' rejections at least as often as this template, and for 3 of 4 up to about 4 percentage points more often at correlation 0.99 (Guilbaud, 2026, Table 1, p. 435). That test rejects nothing unless at least ' + k + ' p-values are at most ' + aFrac(2, m - k + 2) + ' (Guilbaud, 2026, Fig. 1, p. 423). So when fewer than ' + k + ' primaries have an effect, this template is usually more likely to reject at least one primary (Maurer and Bretz, 2013, p. 1751). With very high correlation and small or no effects, the Rüger-based test can reject at least one more often (Guilbaud, 2026, p. 424; Table 1, p. 435).' : '';
   return entangledJSON({
     alpha, nodes, groups: Array.from({ length: m }, () => 'primary').concat(['secondary']),
     note: `At least ${k} of ${m} primary hypotheses (H1 to H${m}) must be rejected before the secondary hypothesis H${m + 1} is tested (Maurer and Bretz, 2013, section 5.3.2, pp. 1750-1751, and Fig. 6; Guilbaud, 2018, Example 11 and Fig. 5(b), for 2 of 3). One component graph per set of ${k} primaries (${nC} in all, c = 1/${nC} each): Holm within the set, and only the last of the set to be rejected hands its level to H${m + 1} (the ε edge). The other primaries are isolated with weight 0. Taken together, ignoring terms in ε, this is Holm on the primaries until ${k === 1 ? 'one is' : `${k} are`} rejected. Then H${m + 1} is at α/C(${m}, ${k}) = ${aFrac(1, nC)} and each remaining primary at (1 − 1/C(${m}, ${k}))α/(${m} − ${k}) = ${aFrac(nC - 1, nC * (m - k))}. Each further primary rejection raises the level of H${m + 1}. After r rejections it is C(r, ${k})/C(${m}, ${k}) of α, so α once all ${m} are rejected.${xt}${rg}`,
