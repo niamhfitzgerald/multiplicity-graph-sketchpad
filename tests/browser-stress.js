@@ -2950,6 +2950,60 @@ async function step(name, fn) {
     if (out) return out;
   });
 
+  /* 1.4.16, optional wording fixes W7, W10, W12 and W13 of the literature review of 20 November: the About line on
+     two-sided p-values (Asikanius et al., 2026, pp. 9-10), the correlation for two partly overlapping populations
+     (Luschei and Brannath, 2026b, p. 3), the parametric line of the Help dialog (Xi et al., 2017, p. 920), and Hommel
+     and Hochberg in the Simes help (Bretz et al., 2011, p. 906; Dmitrienko, Tamhane and Bretz, 2009, p. 67) */
+  await step('Help lines from the literature review (1.4.16): About runs the graph twice for two-sided statements; the correlation note gives the overlap formula; Help says centred at zero; the Simes help names Hommel and Hochberg; the new references', async () => {
+    const c = await b.newContext({ viewport: { width: 1400, height: 900 } }); const p = await c.newPage();
+    let out = '';
+    p.on('pageerror', e => { out += `page error: ${e.message}. `; });
+    await p.goto(FILE); await p.waitForTimeout(500);
+    await p.evaluate(() => { setPlain(false, true); loadGraph(generatedTemplate('holm', 3)); G.test.type = 'simes'; renderAll(); });
+    await p.click('#tabbtn-test'); await p.waitForTimeout(150);
+    await p.evaluate(() => { const d = document.getElementById('det-testtype'); if (d) d.open = true; }); await p.waitForTimeout(100);
+    const t = await p.locator('#tab-test').innerText();
+    if (!/On an equal-weight Holm graph the closed Simes test is Hommel's procedure \(Hommel, 1988; Bretz et al\., 2011, p\. 906\)\. Hochberg's step-up procedure is not built in\. It equals Hommel's for two hypotheses and never rejects more \(Hochberg, 1988; Dmitrienko, Tamhane and Bretz, 2009, p\. 67\)\./.test(t)) out += 'Simes help: Hommel and Hochberg sentences missing. ';
+    await p.click('#tabbtn-power'); await p.waitForTimeout(150);
+    const pw = await p.locator('#tab-power').innerText();
+    if (!/For the same test in two populations that partly overlap, with shares π₁ of the sample only in the first, π₂ only in the second and π₁₂ in both, it is π₁₂ \/ √\(\(π₁ \+ π₁₂\)\(π₂ \+ π₁₂\)\)\. This also assumes a common variance \(Luschei and Brannath, 2026b, p\. 3\)\./.test(pw)) out += 'correlation note: overlap sentence missing. ';
+    if (!/before any adjustment \(Luschei and Brannath, 2026a\)/.test(pw)) out += 'correlation note: 2026a missing. ';
+    await p.evaluate(() => document.getElementById('helpBtn').click()); await p.waitForTimeout(150);
+    const h = await p.locator('#modalBody').innerText();
+    if (!/needs one-sided p-values whose statistics are multivariate normal, centred at zero when the null hypotheses hold, with the correlations you enter/.test(h)) out += 'Help: parametric line. ';
+    await p.keyboard.press('Escape'); await p.waitForTimeout(150);
+    await p.evaluate(() => document.getElementById('aboutBtn').click()); await p.waitForTimeout(150);
+    const a = await p.locator('#modalBody').innerText();
+    if (!/For two-sided statements, run the graph twice on one-sided p-values, once for benefit and once for harm, each at α\/2 \(Asikanius et al\., 2026, pp\. 9–10\)\./.test(a)) out += 'About: two-sided sentence. ';
+    for (const r of ['Hommel G (1988). A stagewise rejective', 'Hochberg Y (1988). A sharper Bonferroni', 'Dmitrienko A, Tamhane AC, Bretz F, eds (2009)', 'Luschei R, Brannath W (2026a). Family-wise', 'Luschei R, Brannath W (2026b). Multiple type I error concepts']) if (!a.includes(r)) out += `About: reference "${r}" missing. `;
+    await c.close();
+    if (out) return out;
+  });
+
+  /* 1.4.16, optional wording fix W24 of the literature review of 20 November (Dmitrienko and Tamhane, 2007, p. 175), and
+     the references that W22 to W24 cite */
+  await step('Adjusted p-values help and references from the literature review (1.4.16): the Bonferroni adjusted p-values section warns about "modified" adjusted p-values; About lists the seven papers the template notes cite', async () => {
+    const c = await b.newContext({ viewport: { width: 1400, height: 900 } }); const p = await c.newPage();
+    let out = '';
+    p.on('pageerror', e => { out += `page error: ${e.message}. `; });
+    await p.goto(FILE); await p.waitForTimeout(500);
+    await p.evaluate(() => { setPlain(false, true); loadGraph(templateJSON('parallel')); G.alpha = 0.05; G.nodes.forEach((n, i) => { n.w = Q.parse(['9/10', '1/10', '0', '0'][i]); n.p = ['0.048', '0.003', '0.026', '0.002'][i]; }); renderAll(); });
+    await p.click('#tabbtn-test'); await p.waitForTimeout(150);
+    if (!(await p.locator('#det-adj').count())) out += 'adjusted p-values section missing. ';
+    else {
+      await p.evaluate(() => { document.getElementById('det-adj').open = true; }); await p.waitForTimeout(100);
+      const t = await p.locator('#det-adj').innerText();
+      if (!/exactly when its adjusted p-value is at most α \(Bretz et al\., 2009\)\. Some gatekeeping papers print a “modified” adjusted p-value that is valid only at the stated α \(Dmitrienko and Tamhane, 2007, p\. 175\)\./.test(t)) out += `help: "${t.slice(0, 260)}". `;
+      const h3 = await p.locator('#det-adj tbody tr').nth(2).innerText();
+      if (!/^H3\s+0\.026\s+0\.05333\b/.test(h3.trim())) out += `S1 (H3) row: "${h3}". `;
+    }
+    await p.evaluate(() => document.getElementById('aboutBtn').click()); await p.waitForTimeout(150);
+    const a = await p.locator('#modalBody').innerText();
+    for (const r of ['Dmitrienko A, Tamhane AC (2007). Gatekeeping procedures with clinical trial applications', 'Ouyang J, Zhang P, Carroll KJ, Lee J, Koch G (2020)', 'Quan H, Luo X, Capizzi T (2005)', 'Kordzakhia G, Brechenmacher T, Ishida E, Dmitrienko A, Zheng WW, Li DF (2018)', 'Mielke J, Jones B, Posch M, König F (2021)', 'Guilbaud O (2022). Note on a stepwise procedure', 'Guilbaud O (2026). On a Holm-related MTP']) if (!a.includes(r)) out += `About: reference "${r}" missing. `;
+    await c.close();
+    if (out) return out;
+  });
+
   for (const r of results) console.log((r.ok ? 'PASS ' : 'FAIL ') + r.name + ` (${r.ms} ms)` + (r.ok ? '' : '\n      ' + r.detail));
   console.log(`\n${results.length - fails}/${results.length} browser checks passed`);
   console.log('page errors:', errors.length ? errors : 'none');

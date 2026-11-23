@@ -1191,6 +1191,67 @@ check('Senn and Bretz (2007), Fig. 2: two hypotheses with weight 1/2 and no tran
   return near(r.any, 0.8, 0.004) || `at least one ${r.any.toFixed(4)}`;
 });
 
+/* ---------- wording from the literature review, optional fixes (1.4.16) ---------- */
+/* W20: the plain opening gives the chance as "1 in 40" when 1/alpha is a whole number (FDA, 2022, p. 4) */
+check('Plain opening (1.4.16, W20): "a 2.5% (1 in 40) chance" at one-sided alpha 0.025, "a 5% (1 in 20) chance" at two-sided 0.05, "(1 in 100)" at 0.01, no bracket at 0.03, and the same in an entangled graph', () => {
+  const opening = (o, alpha, sided) => { const G = toG(o); G.alpha = alpha; G.sided = sided; return C.plainGraphText(G, id => id)[0]; };
+  const holm = C.templateJSON('holm'), ent = C.entangledTemplateJSON('maurerFig2');
+  const cases = [
+    [holm, 0.025, 'one', 'It is allowed a 2.5% (1 in 40) chance of wrongly claiming at least one success'],
+    [holm, 0.05, 'two', 'It is allowed a 5% (1 in 20) chance of wrongly finding at least one effect, in either direction'],
+    [holm, 0.01, 'one', 'It is allowed a 1% (1 in 100) chance of wrongly claiming'],
+    [holm, 0.03, 'one', 'It is allowed a 3% chance of wrongly claiming'],
+    [ent, 0.025, 'one', 'It is allowed a 2.5% (1 in 40) chance of wrongly claiming at least one success']
+  ];
+  for (const [o, a, s, want] of cases) { const t = opening(o, a, s); if (!t.includes(want)) return `alpha ${a}, ${s}-sided: "${t}"`; }
+  return true;
+});
+
+/* W22, W23 and W25: template notes and a self-test label */
+check('Template notes from the literature review (1.4.16, W22, W23, W25): simple successive I names Chen, Ouyang and Quan; general successive names Chen\'s matched scheme and Kordzakhia\'s enhanced mixture; "at least k of m" names the Rüger-based closed test for k > 1 only; the Maurer and Bretz (2013, SBR) self-test says its p-values are repeated p-values', () => {
+  const sI = C.templateJSON('successiveI').note, gs = C.templateJSON('successive').note;
+  const want = [[sI, 'With the weighted Simes test it is the matched parallel gatekeeping of Chen et al. (2005, Table II, p. 1391), which Ouyang et al. (2020, Rules 1.1 and 2.1, pp. 594–595) state as rules.'],
+    [sI, 'Without its two return edges (H3 → H2 and H4 → H1) it has the shape of procedure (1) of Quan et al. (2005, p. 2153), whose chains run from the higher to the lower dose on each endpoint.'],
+    [gs, 'γ = δ = 1/3 gives the matched scheme of Chen et al. (2005, p. 1392) with minimum primary weight 2/3.'],
+    [gs, 'With γ = δ, this graph is the Hochberg-based gatekeeping procedure that Kordzakhia et al. (2018, Table 1, p. 122) build with the enhanced mixture method, under the Bretz et al. (2011, eq. 8, p. 907) Simes test. That test uses Simes within H1, H2 and within H3, H4, and Bonferroni between them. Their truncation parameter γ is the graph\'s γ = δ. The Sketchpad does not offer that test: its Simes within groups option follows gMCP\'s rule.'],
+    [C.entangledKOfM(4, 3, 0.025).note, 'Maurer and Bretz (2013, p. 1750) also describe a Rüger-based closed test (Mielke et al., 2021; Guilbaud, 2022, 2026). It is not a graph. It reaches 3 rejections at least as often as this template, and for 3 of 4 up to about 4 percentage points more often at correlation 0.99 (Guilbaud, 2026, Table 1, p. 435).'],
+    [C.entangledKOfM(6, 3, 0.025).note, 'It reaches 3 rejections at least as often'],
+    [src, 'the repeated p-values at the second interim analysis (Table 2), p = (0.0024, 0.0172, 0.0117, 0.1285)'],
+    [src, 'the decisions the paper also reaches from the nominal p-values and levels of Table 1 (p. 317; text, p. 318)']];
+  for (const [t, w] of want) if (!t.includes(w)) return `missing: "${w.slice(0, 80)}..."`;
+  if (/Rüger/.test(C.entangledKOfM(3, 1, 0.025).note)) return 'k = 1 note names the Rüger-based test';
+  return true;
+});
+
+/* W22: the equivalences the notes state. Simple successive I has the weights of Chen et al. (2005), Table II, p. 1391
+   (matched), general successive with gamma = delta = 1/3 those of their matched scheme with minimum primary weight 2/3
+   (eq. 3 with matching, p. 1392), and the weighted Simes test on simple successive I equals Rules 1.1 and 2.1 of
+   Ouyang et al. (2020), pp. 594-595, with Simes on the two-way intersections */
+check('Chen et al. (2005) and Ouyang et al. (2020) on the successive templates (1.4.16, W22): Table II matched weights in all 15 intersections, the matched scheme with minimum primary weight 2/3 equals gamma = delta = 1/3, and weighted Simes on simple successive I equals Rules 1.1 and 2.1 on 400 p-value sets', () => {
+  const chen = (mask, gamma) => {                       /* H11, H12, H21, H22 = H1 to H4, w = 1/2; H2j only when H1j is not in H */
+    const inH = i => !!(mask & (1 << i)), v = [0, 0, 0, 0], prim = [0, 1].filter(inH), sec = [2, 3].filter(inH), elig = sec.filter(s => !inH(s - 2));
+    if (!prim.length) { sec.forEach(s => { v[s] = 1 / sec.length; }); return v; }
+    if (prim.length === 2) return [0.5, 0.5, 0, 0];
+    if (!elig.length) { v[prim[0]] = 1; return v; }
+    const top = Math.max(gamma, 0.5); v[prim[0]] = top; elig.forEach(s => { v[s] = (1 - top) / elig.length; }); return v;
+  };
+  const W = (key, vars) => { const o = C.templateJSON(key); if (vars) o.vars = vars; const w = C.closureWeights(C.floatGraph(toG(o))); return mask => Array.from(w.subarray(mask * 4, mask * 4 + 4)); };
+  const sI = W('successiveI'), s13 = W('successive', { 'γ': '1/3', 'δ': '1/3' });
+  const table2 = [null, [1, 0, 0, 0], [0, 1, 0, 0], [0.5, 0.5, 0, 0], [0, 0, 1, 0], [1, 0, 0, 0], [0, 0.5, 0.5, 0], [0.5, 0.5, 0, 0], [0, 0, 0, 1], [0.5, 0, 0, 0.5], [0, 1, 0, 0], [0.5, 0.5, 0, 0], [0, 0, 0.5, 0.5], [0.5, 0, 0, 0.5], [0, 0.5, 0.5, 0], [0.5, 0.5, 0, 0]];
+  for (let mask = 1; mask < 16; mask++) {
+    if (sI(mask).some((x, i) => !near(x, table2[mask][i], 1e-12)) || chen(mask, 0).some((x, i) => !near(x, table2[mask][i], 1e-12))) return `Table II, intersection ${mask}: app ${sI(mask)}`;
+    if (s13(mask).some((x, i) => !near(x, chen(mask, 2 / 3)[i], 1e-12))) return `gamma = delta = 1/3, intersection ${mask}: app ${s13(mask)}, Chen ${chen(mask, 2 / 3)}`;
+  }
+  const S = (a, b) => Math.min(1, 2 * Math.min(a, b), Math.max(a, b)), fg = C.floatGraph(toG(C.templateJSON('successiveI')));
+  const rules = ([a, b, c, d]) => { const a1 = Math.max(a, S(a, b), S(a, d)), a2 = Math.max(b, S(a, b), S(b, c)); return [a1, a2, Math.max(a1, c, S(c, d), S(c, b)), Math.max(a2, d, S(c, d), S(a, d))]; };
+  for (let k = 0; k < 400; k++) {
+    const p = k ? [0, 1, 2, 3].map(() => +(0.06 * rnd()).toFixed(4)) : [0.0463, 0.0164, 0.0046, 0.0237];
+    const app = C.closedTest(fg, p, 0.025, 'simes', { upscale: false }).adj, want = rules(p);
+    if (app.some((x, i) => !near(x, want[i], 1e-12))) return `p ${p}: app ${app}, rules ${want}`;
+  }
+  return true;
+});
+
 /* ---------- report ---------- */
 Promise.all(results.map(r => r)).then(async () => {
   // resolve promise-returning checks
