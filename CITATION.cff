@@ -8,8 +8,8 @@ authors:
     given-names: Niamh
     affiliation: "Newcastle University and GSK"
     orcid: "https://orcid.org/0009-0006-2866-2892"
-version: 1.4.17
-date-released: 2026-11-23
+version: 1.4.18
+date-released: 2026-11-24
 license: MIT
 repository-code: "https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad"
 url: "https://niamhfitzgerald.github.io/multiplicity-graph-sketchpad/"
