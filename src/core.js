@@ -1,7 +1,7 @@
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.4.17';
-const APP_DATE = '2026-11-23';
+const APP_VERSION = '1.4.18';
+const APP_DATE = '2026-11-24';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
 /* The author's LinkedIn profile; the header byline and About link to it. */
@@ -1300,6 +1300,8 @@ function exportTikZ(vm, layout, opts = {}) {
   if (!opts.inner) L.push(`% Needs: \\usepackage{tikz} and \\usetikzlibrary{arrows.meta, shapes.geometric${boxes.length ? ', backgrounds' : ''}}`);
   L.push(...tikzStyles(!!vm.all));
   L.push(...tikzBody(vm, layout, opts, cx, cy));
+  /* opts.title (1.4.18): a node above the picture, wrapped as in the SVG picture */
+  if (opts.title) { const b = svgBounds(vm, layout), lines = titleLines(opts.title, b.maxX - b.minX); if (lines.length) L.push(tikzTitle(lines)); }
   L.push('\\end{tikzpicture}');
   return L.join('\n') + '\n';
 }
@@ -1325,6 +1327,7 @@ function exportTikZPanels(panels, opts = {}) {
     L.push(`\\node[font=\\small\\bfseries, anchor=north] at (${(bw / 2).toFixed(2)}, ${(-bh - 0.2).toFixed(2)}) {Graph ${k + 1}${p.c ? ` ($c = ${texNum(p.c).slice(1, -1)}$)` : ''}};`);
     L.push('\\end{scope}');
   });
+  if (opts.title) { const lines = titleLines(opts.title, P.W - 2 * P.pad); if (lines.length) L.push(tikzTitle(lines)); }
   L.push('\\end{tikzpicture}');
   const rows = Math.ceil(panels.length / cols);
   return { text: L.join('\n') + '\n', widthCm: cols * bw + (cols - 1) * gap, heightCm: rows * (bh + labelCm + 0.45) + (rows - 1) * gap, box };
@@ -1336,7 +1339,7 @@ function exportBeamer(frames, title) {
   const L = [];
   L.push('% Needs in the preamble: \\usepackage{tikz} \\usetikzlibrary{arrows.meta, shapes.geometric, positioning, backgrounds}');
   L.push('% One overlay per step: use the arrow keys in the PDF viewer to step through the rejections.');
-  L.push(`\\begin{frame}{${texEscape(title)}}`);
+  L.push(`\\begin{frame}{${titleTeX(title)}}`);
   L.push('\\centering');
   if (frames.some(f => f.panels)) {
     const box = panelPlaces(frames.flatMap(f => f.panels), 0, 0).box;
@@ -1369,6 +1372,60 @@ function svgLabelText(label, x, y, size, attrs) {
   const lp = labelParts(label);
   if (lp) return `<text x="${x}" y="${y}" font-size="${size}" ${attrs}>${xmlEsc(lp.base)}<tspan font-size="${(size * 0.7).toFixed(1)}" dy="${(size * 0.28).toFixed(1)}">${xmlEsc(lp.sub)}</tspan></text>`;
   return `<text x="${x}" y="${y}" font-size="${size - 2}" ${attrs}>${xmlEsc(label)}</text>`;
+}
+/* The title above a picture and above the drawing (1.4.18): bold, 18 px, centred, wrapped to the graph's width or 480 px,
+   whichever is wider. core.js has no page to measure text on, so each character's width is estimated from Helvetica
+   Bold's widths (in ems, rounded up a little); a picture narrower than its longest title line is widened to fit it. */
+const TITLE_SIZE = 18, TITLE_LINE = 23, TITLE_ASCENT = 14, TITLE_GAP = 16, TITLE_WRAP = 480;
+function titleCharEm(c) {
+  if (c === ' ') return 0.28;
+  if ("ijlI.,:;'!|".includes(c)) return 0.3;
+  if ('ftr()[]-/'.includes(c)) return 0.4;
+  if (c === 'm' || c === 'M') return 0.89;
+  if (c === 'w') return 0.78;
+  if (c === 'W') return 0.95;
+  if (/[A-Z]/.test(c)) return 0.73;
+  if (/[0-9]/.test(c)) return 0.56;
+  return 0.62;
+}
+function titleTextWidth(line) { let w = 0; for (const c of line) w += titleCharEm(c); return w * TITLE_SIZE; }
+function titleLines(title, widthPx) {
+  const t = readTitle(title);
+  if (!t) return [];
+  const max = Math.max(widthPx || 0, TITLE_WRAP);
+  const lines = [];
+  let cur = '';
+  for (const w of t.split(' ')) {
+    if (cur && titleTextWidth(cur + ' ' + w) > max) { lines.push(cur); cur = w; }
+    else cur = cur ? cur + ' ' + w : w;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+function titleWidth(lines) { return lines.reduce((m, l) => Math.max(m, titleTextWidth(l)), 0); }
+/* From the top of the title to the top of the graph below it */
+function titleHeight(lines) { return lines.length ? TITLE_ASCENT + (lines.length - 1) * TITLE_LINE + TITLE_GAP : 0; }
+/* The title lines as SVG text, centred on cx, the first line's top at top */
+function svgTitle(lines, cx, top) {
+  return lines.map((l, i) => `<text x="${cx.toFixed(1)}" y="${(top + TITLE_ASCENT + i * TITLE_LINE).toFixed(1)}" font-size="${TITLE_SIZE}" font-weight="700" text-anchor="middle" fill="${SVG_INK}">${xmlEsc(l)}</text>`).join('\n');
+}
+/* The title as LaTeX text (1.4.18), in one pass so nothing is escaped twice. Greek letters become LaTeX maths, as in the
+   weight labels (exprTeX), since pdflatex stops on a Greek character in the text; an accented Greek letter (ά) is written
+   as its base letter, and Greek capitals that look like Latin ones as those letters. < > | and the backslash get their
+   text commands, since pdflatex's default fonts print the characters as other symbols. Used for the TikZ title and the
+   beamer frame title. */
+const TITLE_GREEK = { 'α': 'alpha', 'β': 'beta', 'γ': 'gamma', 'δ': 'delta', 'ε': 'epsilon', 'ζ': 'zeta', 'η': 'eta', 'θ': 'theta', 'ι': 'iota', 'κ': 'kappa', 'λ': 'lambda', 'μ': 'mu', 'ν': 'nu', 'ξ': 'xi', 'π': 'pi', 'ρ': 'rho', 'ς': 'varsigma', 'σ': 'sigma', 'τ': 'tau', 'υ': 'upsilon', 'φ': 'phi', 'χ': 'chi', 'ψ': 'psi', 'ω': 'omega', 'ϵ': 'epsilon', 'ϑ': 'vartheta', 'ϕ': 'phi', 'Γ': 'Gamma', 'Δ': 'Delta', 'Θ': 'Theta', 'Λ': 'Lambda', 'Ξ': 'Xi', 'Π': 'Pi', 'Σ': 'Sigma', 'Υ': 'Upsilon', 'Φ': 'Phi', 'Ψ': 'Psi', 'Ω': 'Omega' };
+const TITLE_GREEK_LATIN = { 'Α': 'A', 'Β': 'B', 'Ε': 'E', 'Ζ': 'Z', 'Η': 'H', 'Ι': 'I', 'Κ': 'K', 'Μ': 'M', 'Ν': 'N', 'Ο': 'O', 'Ρ': 'P', 'Τ': 'T', 'Χ': 'X', 'ο': 'o' };
+const TITLE_TEX = { '\\': '\\textbackslash{}', '{': '\\{', '}': '\\}', '#': '\\#', '$': '\\$', '%': '\\%', '&': '\\&', '_': '\\_', '~': '\\textasciitilde{}', '^': '\\textasciicircum{}', '<': '\\textless{}', '>': '\\textgreater{}', '|': '\\textbar{}', '≤': '$\\le$', '≥': '$\\ge$', '≠': '$\\neq$', '−': '$-$', '×': '$\\times$', '→': '$\\to$', '–': '--', '—': '---', '✓': '$\\checkmark$', '✕': '$\\times$', 'ᵢ': '$_i$' };
+function titleTeX(line) {
+  return String(line).replace(/[\\{}#$%&_~^<>|≤≥≠−×→–—✓✕ᵢ\u0370-\u03ff]/g, ch => {
+    if (TITLE_TEX[ch]) return TITLE_TEX[ch];
+    const c = ch.normalize('NFD')[0];
+    return TITLE_GREEK[c] ? `$\\${TITLE_GREEK[c]}$` : TITLE_GREEK_LATIN[c] || '';
+  });
+}
+function tikzTitle(lines) {
+  return `\\node[anchor=south, font=\\large\\bfseries, align=center] at ([yshift=6pt]current bounding box.north) {${lines.map(titleTeX).join(' \\\\ ')}};`;
 }
 /* Unpadded bounds of a picture: nodes, group bands, every curve and its label, and the All view's key */
 function svgBounds(vm, layout) {
@@ -1422,16 +1479,22 @@ function svgBody(vm, layout, fmt, key) {
   return o;
 }
 const svgArrowDef = () => `<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="${SVG_INK}"/></marker></defs>`;
-function exportSVG(vm, layout, fmt) {
+/* opts.title (1.4.18): drawn above the graph, the picture widened if the title is wider than the graph */
+function exportSVG(vm, layout, fmt, opts = {}) {
   const b = svgBounds(vm, layout);
   const pad = 24;
-  const minX = b.minX - pad, minY = b.minY - pad;
-  const W = b.maxX + pad - minX, H = b.maxY + pad - minY;
+  const lines = titleLines(opts.title, b.maxX - b.minX);
+  let minX = b.minX - pad, W = b.maxX + pad - minX;
+  const tw = titleWidth(lines) + 2 * pad;
+  if (tw > W) { minX -= (tw - W) / 2; W = tw; }
+  const minY = b.minY - pad - titleHeight(lines);
+  const H = b.maxY + pad - minY;
   const o = [];
   o.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(W)}" height="${Math.ceil(H)}" viewBox="${minX.toFixed(1)} ${minY.toFixed(1)} ${W.toFixed(1)} ${H.toFixed(1)}" font-family="${SVG_FONT}">`);
   o.push(svgArrowDef());
   o.push(`<rect x="${minX.toFixed(1)}" y="${minY.toFixed(1)}" width="${W.toFixed(1)}" height="${H.toFixed(1)}" fill="#ffffff"/>`);
   o.push(...svgBody(vm, layout, fmt, b.key));
+  if (lines.length) o.push(svgTitle(lines, minX + W / 2, minY + pad));
   o.push('</svg>');
   return o.join('\n');
 }
@@ -1475,13 +1538,18 @@ function panelPlaces(panels, gap, labelH) {
   return { box, pad, pw, ph, cols, rows, at, W: cols * pw + (cols - 1) * gap, H: rows * (ph + labelH) + (rows - 1) * gap };
 }
 /* One SVG with every panel: the picture of each component translated into place and its title underneath */
-function exportSVGPanels(panels, fmt) {
+function exportSVGPanels(panels, fmt, opts = {}) {
   const gap = 48, labelH = 28;
   const P = panelPlaces(panels, gap, labelH);
+  /* opts.title (1.4.18): above the panels, which move down (and right, if the title is wider than the panels) */
+  const lines = titleLines(opts.title, P.W - 2 * P.pad);
+  const top = lines.length ? 8 + titleHeight(lines) : 0, ox = Math.max(0, (titleWidth(lines) + 48 - P.W) / 2);
+  const W = P.W + 2 * ox, H = P.H + top;
   const o = [];
-  o.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(P.W)}" height="${Math.ceil(P.H)}" viewBox="0 0 ${P.W.toFixed(1)} ${P.H.toFixed(1)}" font-family="${SVG_FONT}">`);
+  o.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(W)}" height="${Math.ceil(H)}" viewBox="0 0 ${W.toFixed(1)} ${H.toFixed(1)}" font-family="${SVG_FONT}">`);
   o.push(svgArrowDef());
-  o.push(`<rect x="0" y="0" width="${P.W.toFixed(1)}" height="${P.H.toFixed(1)}" fill="#ffffff"/>`);
+  o.push(`<rect x="0" y="0" width="${W.toFixed(1)}" height="${H.toFixed(1)}" fill="#ffffff"/>`);
+  if (lines.length) { o.push(svgTitle(lines, W / 2, 8)); o.push(`<g transform="translate(${ox.toFixed(1)}, ${top.toFixed(1)})">`); }
   panels.forEach((p, k) => {
     const { dx, dy } = P.at[k];
     o.push(`<g transform="translate(${(dx + P.pad - P.box.minX).toFixed(1)}, ${(dy + P.pad - P.box.minY).toFixed(1)})">`);
@@ -1489,11 +1557,15 @@ function exportSVGPanels(panels, fmt) {
     o.push('</g>');
     o.push(`<text x="${(dx + P.pw / 2).toFixed(1)}" y="${(dy + P.ph + 18).toFixed(1)}" font-size="14" font-weight="700" text-anchor="middle" fill="${SVG_INK}">${xmlEsc(p.title)}</text>`);
   });
+  if (lines.length) o.push('</g>');
   o.push('</svg>');
   return o.join('\n');
 }
 
 /* ---------- Serialisation and share links ---------- */
+/* The graph's title (1.4.18): one line of plain text, spaces collapsed, at most TITLE_MAX characters */
+const TITLE_MAX = 120;
+function readTitle(t) { return typeof t === 'string' ? t.replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX) : ''; }
 function serializeGraph(G) {
   const ent = isEntangled(G);
   if (ent) entSync(G);
@@ -1502,7 +1574,7 @@ function serializeGraph(G) {
   const v0 = ent ? entViewGraph(G, 0) : G;
   const edgeOut = e => ({ from: e.from, to: e.to, weight: Q.exact(e.g), bend: e.bend == null ? null : Math.round(e.bend * 10) / 10, expr: e.expr || undefined });
   return {
-    format: 'multiplicity-graph', version: ent ? 2 : 1, generator: 'Multiplicity Graph Sketchpad ' + APP_VERSION, alpha: G.alpha, sided: G.sided === 'two' ? 'two' : 'one', note: G.note || '',
+    format: 'multiplicity-graph', version: ent ? 2 : 1, generator: 'Multiplicity Graph Sketchpad ' + APP_VERSION, alpha: G.alpha, sided: G.sided === 'two' ? 'two' : 'one', note: G.note || '', title: G.title || undefined,
     nodes: v0.nodes.map(n => ({ id: n.id, label: n.label, weight: Q.exact(n.w), x: Math.round(n.x), y: Math.round(n.y), p: n.p || '', color: n.color || '', desc: n.desc || '', group: n.group || '', wexpr: n.wexpr || undefined })),
     edges: v0.edges.map(edgeOut),
     vars: Object.keys(G.vars || {}).length ? Object.fromEntries(Object.entries(G.vars).map(([k, v]) => [k, Q.exact(v)])) : undefined,
@@ -1564,7 +1636,7 @@ function deserializeGraph(o, keepIds, startId) {
   const alpha = Number(o.alpha);
   const vars = {};
   for (const [k, v] of Object.entries(o.vars || {})) { const q = typeof v === 'number' ? Q.fromNumber(v) : Q.parse(v); if (q) vars[normaliseExpr(k)] = q; }
-  const Gout = { nodes, edges, diag, alpha: alpha > 0 && alpha < 1 ? alpha : 0.025, sided: o.sided === 'two' ? 'two' : 'one', note: String(o.note || ''), test: deserializeTest(o.test, map), vars };
+  const Gout = { nodes, edges, diag, alpha: alpha > 0 && alpha < 1 ? alpha : 0.025, sided: o.sided === 'two' ? 'two' : 'one', note: String(o.note || ''), title: readTitle(o.title), test: deserializeTest(o.test, map), vars };
   /* Version 2: entangled components. A file with a damaged "ent" block falls back to the top-level graph. */
   if (o.ent && typeof o.ent === 'object' && Array.isArray(o.ent.comps) && o.ent.comps.length) {
     const comps = o.ent.comps.map(cs => {
@@ -1621,6 +1693,7 @@ function encodeShare(G) {
   const t = serializeTest(G.test);
   if (t) c.t = { type: t.type, upscale: t.upscale, corr: Object.fromEntries(Object.entries(t.corr).map(([k, v]) => [k.split('|').map(id => idx.get(id)).join('|'), v])) };
   if (G.sided === 'two') c.s = 2;
+  if (G.title) c.T = G.title;
   if (G.opt && G.opt.share && !isEntangled(G)) c.o = writeOptimisationBlock(G.opt);
   if (isEntangled(G)) {
     /* Entangled components: c (component weights), a (active), k (per component: w, e and optional expressions) */
@@ -1644,7 +1717,7 @@ function decodeShare(token) {
   try { c = JSON.parse(b64urlDecode(token.slice(2))); } catch (e) { throw new Error('This link or share code is damaged: it does not decode to a graph.'); }
   if (!c || typeof c !== 'object' || !Array.isArray(c.n) || !Array.isArray(c.e) || c.n.some(r => !Array.isArray(r)) || c.e.some(r => !Array.isArray(r))) throw new Error('This link or share code is damaged: it does not decode to a graph.');
   const out = {
-    format: 'multiplicity-graph', alpha: c.a, test: c.t, sided: c.s === 2 ? 'two' : 'one',
+    format: 'multiplicity-graph', alpha: c.a, test: c.t, sided: c.s === 2 ? 'two' : 'one', title: typeof c.T === 'string' ? c.T : undefined,
     nodes: c.n.map((r, i) => ({ id: String(i), label: r[0], weight: r[1], x: r[2], y: r[3], p: r[4], color: r[5] ? '#' + r[5] : '', desc: r[6] || '', group: r[7] || '', wexpr: c.x && c.x.n[i] ? c.x.n[i] : undefined })),
     edges: c.e.map((r, k) => ({ from: String(r[0]), to: String(r[1]), weight: r[2], bend: r[3], expr: c.x && c.x.e[k] ? c.x.e[k] : undefined })),
     vars: c.x ? c.x.v : undefined,
@@ -1792,7 +1865,7 @@ function joinGraphs(A, B) {
   const idMap = new Map();
   b.nodes.forEach((n, i) => { const id = 'b' + i; idMap.set(n.id, id); n.id = id; n.y = n.y - by + ay + 230; n.x = n.x - bx + ax; while (labels.has(n.label)) n.label += "'"; labels.add(n.label); });
   b.edges.forEach(e => { e.from = idMap.get(e.from); e.to = idMap.get(e.to); });
-  const out = { format: 'multiplicity-graph', alpha: a.alpha, note: [a.note, b.note].filter(Boolean).join(' Joined with: '), nodes: a.nodes.concat(b.nodes), edges: a.edges.concat(b.edges), diag: [], vars: Object.assign({}, b.vars || {}, a.vars || {}) };
+  const out = { format: 'multiplicity-graph', alpha: a.alpha, note: [a.note, b.note].filter(Boolean).join(' Joined with: '), title: a.title, nodes: a.nodes.concat(b.nodes), edges: a.edges.concat(b.edges), diag: [], vars: Object.assign({}, b.vars || {}, a.vars || {}) };
   const tot = out.nodes.reduce((s, n) => Q.add(s, Q.parse(n.weight) || Q.ZERO), Q.ZERO);
   if (Q.cmp(tot, Q.ONE) > 0) out.nodes.forEach(n => { if (!n.wexpr) n.weight = Q.exact(Q.div(Q.parse(n.weight), tot)); });
   return out;

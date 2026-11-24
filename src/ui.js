@@ -6,7 +6,7 @@ const svg = $('canvas'), world = $('world'), overlay = $('overlay'), gridRect = 
 const inl = $('inlineEdit');
 const TABS = ['graph', 'matrix', 'test', 'power', 'optimise', 'compare', 'export'];
 
-let G = { nodes: [], edges: [], diag: {}, alpha: 0.025, sided: 'one', note: '', test: defaultTest() };
+let G = { nodes: [], edges: [], diag: {}, alpha: 0.025, sided: 'one', note: '', title: '', test: defaultTest() };
 let CT = null;        // last closed-test result: {sig, adj, subsets, rejected, type, ms}
 let ctRunning = null; // {done, total} while a closed test is being computed
 let nextId = 1;
@@ -91,6 +91,8 @@ let plain = false;    // the clinician view: everyday words (plainWords), and th
 let presenting = false;
 let allView = false;  // entangled graphs: show every component overlaid (read-only) instead of the active one
 let sideBySide = false; // entangled graphs: the SVG, TikZ and beamer exports draw the component graphs side by side (Fig. 2 style)
+let titleOnPics = true; // the graph's title (1.4.18) above the PNG, SVG and TikZ pictures; the Export tab's tick turns it off
+let fileNameTyped = null; // the Export tab's File name box (1.4.18): what the user typed, or null to follow the title
 const hist = { past: [], future: [] };
 const SIM = { power: {}, rho: '0.5', useMatrix: false, corr: {}, n: 10000, success: { ids: [], rule: 'any' }, running: null, result: null, runs: [], error: '' };
 /* Optimise tab (multigrain stage): the gain function and its expected gain for the current graph. Session state only;
@@ -178,10 +180,12 @@ function scheduleHash() {
     try { history.replaceState(null, '', G.nodes.length ? '#' + encodeShare(G) : location.pathname + location.search); } catch (e) { /* ignore */ }
   }, 500);
 }
+/* opts.same (1.4.18): the graph is the current one rebuilt (join, keep only ticked, the entangled conversions), so a
+   file name typed in the Export tab is kept; any other graph starts again from its title */
 function loadGraph(o, opts = {}) {
   const r = deserializeGraph(o, false, nextId);
   if (opts.checkpoint !== false) checkpoint();
-  tplW = null; starterWOpen = false;
+  tplW = null; starterWOpen = false; if (!opts.same) fileNameTyped = null;
   if (mode === 'test') setMode('design', true);
   G = r.G; nextId = r.maxId + 1; sel = null; linking = null;
   if (o.alpha == null) G.alpha = 0.025;
@@ -314,7 +318,12 @@ function fitView() {
   const { W, H } = canvasSize();
   const xs = G.nodes.map(n => [n.x - nodeRx(n.label), n.x + nodeRx(n.label)]).flat();
   const ys = G.nodes.map(n => [n.y - NODE_R, n.y + NODE_R]).flat();
-  const minX = Math.min(...xs) - 80, maxX = Math.max(...xs) + 80, minY = Math.min(...ys) - 95, maxY = Math.max(...ys) + 90;
+  let minX = Math.min(...xs) - 80, maxX = Math.max(...xs) + 80, minY = Math.min(...ys) - 95;
+  const maxY = Math.max(...ys) + 90;
+  const tb = canvasTitle(buildVM());
+  /* the title above the graph (1.4.18): fit it in too. The space for the hint box and buttons is kept below (top), so
+     the margin above the title is small */
+  if (tb) { minY = tb.top - 12; minX = Math.min(minX, tb.cx - tb.w / 2 - 24); maxX = Math.max(maxX, tb.cx + tb.w / 2 + 24); }
   /* On a phone, and on a drawing narrower than 660 px (1.4.12), the hint box spans the top of the canvas under the
      toolbar: fit the graph into the space below it */
   let top = 0;
@@ -324,6 +333,11 @@ function fitView() {
   let bottom = 0;
   const bar = $('presentBar');
   if (presenting && narrowLayout() && bar && !bar.hidden) bottom = Math.max(0, Math.min(H * 0.6, svg.getBoundingClientRect().bottom - bar.getBoundingClientRect().top + 6));
+  /* With a title (1.4.18): fit the graph below the hint box and the buttons on the drawing, so neither covers the title */
+  if (tb) {
+    const st = svg.getBoundingClientRect().top;
+    for (const el of [chip, $('zoomFit')]) { if (el && !el.hidden && el.offsetParent) top = Math.max(top, Math.min(H * 0.5, el.getBoundingClientRect().bottom - st + 6)); }
+  }
   view.k = Math.max(0.3, Math.min(W / (maxX - minX), (H - top - bottom) / (maxY - minY), 1.35));
   view.cx = (minX + maxX) / 2; view.cy = (minY + maxY) / 2 - top / (2 * view.k) + bottom / (2 * view.k);
   autoFit = true;
@@ -399,6 +413,13 @@ function designAllVM(Gx) {
   return { nodes, edges, all: true, n: views.length, c: Gx.ent.c };
 }
 /* ---------- canvas rendering ---------- */
+/* Where the title goes on the drawing (1.4.18): as in the pictures, centred above the graph and wrapped to its width */
+function canvasTitle(vm, layout) {
+  if (!G.title || !vm.nodes.length) return null;
+  const b = svgBounds(vm, layout || layoutEdges(vm)), lines = titleLines(G.title, b.maxX - b.minX);
+  if (!lines.length) return null;
+  return { lines, cx: (b.minX + b.maxX) / 2, top: b.minY - titleHeight(lines), w: titleWidth(lines) };
+}
 function renderCanvas() {
   if (holdRender) { heldRender = true; return; } /* see pointerdown (1.4.11) */
   const ae = document.activeElement;
@@ -419,7 +440,10 @@ function renderCanvas() {
   for (const b of groupBoxes(vm)) {
     P.push(`<g class="band"><rect x="${b.x.toFixed(1)}" y="${b.y.toFixed(1)}" width="${b.w.toFixed(1)}" height="${b.h.toFixed(1)}" rx="10"${b.color ? ` style="fill:${b.color};stroke:${b.color};opacity:.35"` : ''}/><text x="${(b.x + 10).toFixed(1)}" y="${(b.y + 16).toFixed(1)}">${esc(b.group)}</text></g>`);
   }
-  P.push('</g><g class="edges">');
+  P.push('</g>');
+  const tb = canvasTitle(vm, layout);
+  if (tb) P.push(`<g class="gtitle" aria-hidden="true">${tb.lines.map((l, i) => `<text x="${tb.cx.toFixed(1)}" y="${(tb.top + TITLE_ASCENT + i * TITLE_LINE).toFixed(1)}">${esc(l)}</text>`).join('')}</g>`);
+  P.push('<g class="edges">');
   for (const e of layout) {
     const isSel = mode === 'design' && sel && sel.type === 'edge' && sel.key === e.key;
     const isErr = errRows.has(e.from) || errEdges.has(e.key);
@@ -656,7 +680,7 @@ function extractComponent(k) {
   if (!isEntangled(G)) return;
   const v = entViewGraph(G, k), o = serializeGraph(Object.assign({}, G, { ent: undefined, nodes: v.nodes, edges: v.edges, diag: {} }));
   o.note = (G.note ? G.note + ' ' : '') + `${compName(k)} of an entangled graph, kept as an ordinary graph.`;
-  loadGraph(o);
+  loadGraph(o, { same: true });
 }
 function entangledSection() {
   if (mode !== 'design' || !G.nodes.length) return '';
@@ -730,6 +754,7 @@ function overviewPanel() {
     return `<tr><td><button class="btn small" data-action="select-node" data-id="${n.id}">${n.color ? `<span class="dot" style="background:${n.color}"></span>` : ''}${esc(n.label)}</button></td>${plain ? '' : `<td>${esc(fmt(n.w))}</td>`}<td>${plain ? pctWords(lvl) : fmtNum(lvl)}</td><td class="sum ${st.cls}">${plain ? `${handsOnWords(r)} ${st.text.split(' ')[0]}` : `${esc(fmt(r))} ${st.text}`}</td></tr>`;
   }).join('');
   return `<h2>Graph</h2>
+  <div class="form"><label for="graph-title">Title <span class="hint">Optional. Shown above the drawing and in the pictures.</span><input class="txt" id="graph-title" value="${esc(G.title || '')}" maxlength="${TITLE_MAX}" autocomplete="off" spellcheck="true"></label></div>
   ${tplW && mode === 'design' ? `<div class="tpl-w"><p class="small"><b>${WEIGHT_GEN[tplW.key].title}${WEIGHT_GEN[tplW.key].kind === 'kofm' ? '' : ' for any m'}.</b> ${WEIGHT_GEN[tplW.key].prompt || 'Type the initial weights of H1, H2, &hellip; separated by commas.'} ${WEIGHT_GEN[tplW.key].blurb} This replaces the current graph (Undo brings it back).</p>
     <div class="row-actions"><input class="txt" id="tplW" value="${esc(tplW.text)}" aria-label="Initial weights" spellcheck="false"><button class="btn small primary" data-action="tpl-w-create">Create</button><button class="btn small" data-action="tpl-w-cancel">Cancel</button></div>
     <p class="err-text" id="tplWMsg"${tplW.msg ? '' : ' hidden'}>${esc(tplW.msg)}</p></div>` : ''}
@@ -1149,8 +1174,9 @@ function setMode(m, silent) {
     if (activeTab !== 'matrix') setTab('test');
   } else { T = null; manual = false; if (presenting) { presenting = false; document.body.classList.remove('present'); $('presentBar').hidden = true; } }
   if (!silent) renderAll();
-  /* the hint text changes with the mode; where the hint is under the toolbar (a phone, a narrow drawing), refit so it does not cover the graph */
-  if (autoFit && placeHint()) requestAnimationFrame(fitView);
+  /* the hint text changes with the mode; where the hint is under the toolbar (a phone, a narrow drawing), or the graph has a
+     title (1.4.18), refit so the hint does not cover the graph or its title */
+  if (autoFit && (placeHint() || G.title)) requestAnimationFrame(fitView);
 }
 function setWhatIf(on) {
   if (animating || (T && T.running)) return;
@@ -2350,6 +2376,7 @@ function stepFrames(panels) {
 function initExportPanel() {
   $('tab-export').innerHTML = `<h2>Export and share</h2>
   <p class="small muted">Pictures and TikZ show the graph as it is on the canvas, including any test progress. R code describes the initial graph.<span id="sbsNote" hidden> For an entangled graph, "Graphs side by side" draws each component graph on its own, as Maurer and Bretz (2013) do in their Fig. 2.</span></p>
+  <div class="form"><label for="fileName">File name <span class="hint">Used for the downloads in this tab and for the Download button. Filled in from the title until you change it. Clear it to follow the title again.</span><input class="txt" id="fileName" value="${DEFAULT_FILE}" maxlength="80" autocomplete="off" spellcheck="false"></label></div>
   <div class="export-grid">
     <button class="btn" data-export="png">Picture (PNG)</button>
     <button class="btn" data-export="sbs" hidden>Graphs side by side (PNG)</button>
@@ -2357,6 +2384,7 @@ function initExportPanel() {
     <button class="btn" data-export="json">Save as a file</button>
     <button class="btn" data-export="load">Open a saved graph</button>
   </div>
+  <label class="chk" id="ptitleRow" hidden><input type="checkbox" id="ptitleToggle" checked> Put the title on the pictures (PNG, SVG and TikZ)</label>
   <div class="adv">
   <h3>For documents and slides</h3>
   <div class="export-grid">
@@ -2382,7 +2410,39 @@ function updateExportPanel() {
   const r = $('sbsRow'); if (r) r.hidden = !ent;
   const n = $('sbsNote'); if (n) n.hidden = !ent;
   const t = $('sbsToggle'); if (t) t.checked = sideBySide;
+  const pr = $('ptitleRow'); if (pr) pr.hidden = !G.title;
+  const pt = $('ptitleToggle'); if (pt) pt.checked = titleOnPics;
+  /* the box follows the title; it is left alone only while the user is typing in it */
+  const fn = $('fileName'); if (fn && (document.activeElement !== fn || fileNameTyped == null)) fn.value = fileBase();
+  fileLabels();
 }
+/* The names on the Download buttons, updated in place as the File name box changes. The tab is not drawn again, and a label
+   is rewritten only when it changes, so a press on a Download button that ends the typing lands on that button (WebKit drops
+   a click whose button text was replaced between the press and the release). */
+function fileLabels() { document.querySelectorAll('#tab-export button[data-end]').forEach(b => { const t = 'Download ' + fileFor(b.dataset.end); if (b.textContent !== t) b.textContent = t; }); }
+/* The title for the PNG, SVG and TikZ pictures (1.4.18): empty when there is none or the Export tab's tick is off */
+function picTitle() { return titleOnPics ? (G.title || '') : ''; }
+/* File names (1.4.18). Up to 1.4.17 every download was multiplicity-graph with a fixed ending. Now the start of the name
+   comes from the Export tab's File name box: the title as letters, digits and hyphens (at most 60 characters), or what the
+   user typed there, or multiplicity-graph. The endings stay: -components, -steps, -gMCP and the file type. */
+const DEFAULT_FILE = 'multiplicity-graph';
+const FILE_LETTERS = { 'æ': 'ae', 'ø': 'o', 'ß': 'ss', 'œ': 'oe', 'ł': 'l', 'đ': 'd', 'ð': 'd', 'þ': 'th', 'ı': 'i' };
+function fileSlug(title) {
+  const s = readTitle(title).toLowerCase().replace(/[æøßœłđðþı]/g, c => FILE_LETTERS[c]).normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  let t = s.slice(0, 60);
+  /* cut at the last hyphen, unless that would leave less than 40 characters (one very long word) */
+  if (s.length > 60 && s[60] !== '-' && t.lastIndexOf('-') >= 40) t = t.slice(0, t.lastIndexOf('-'));
+  return t.replace(/-+$/, '');
+}
+/* A typed name: characters that file systems refuse become spaces, typed file endings are taken off, at most 80 characters.
+   Cleaning a clean name changes nothing, so the label shown while typing is the one used after Enter. */
+function cleanFileName(v) {
+  let t = String(v || '').replace(/[\u0000-\u001f\u007f\/\\:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').slice(0, 80).replace(/^[.\s]+|[.\s]+$/g, '');
+  while (/\.(png|svg|tex|r|json)$/i.test(t)) t = t.replace(/\.(png|svg|tex|r|json)$/i, '').replace(/[.\s]+$/, '');
+  return t;
+}
+function fileBase() { return (fileNameTyped != null && cleanFileName(fileNameTyped)) || fileSlug(G.title) || DEFAULT_FILE; }
+const fileFor = end => fileBase() + end;
 /* The component graphs of the entangled graph on the canvas as side-by-side panels: the stored design graph with its
    symbolic labels, or in Test mode each component's current graph with the rejected hypotheses greyed */
 function currentPanels() {
@@ -2407,11 +2467,14 @@ function optShareSwitch(what) {
   if (!G.opt || isEntangled(G)) return '';
   return `<label class="chk"><input type="checkbox" data-optshare="1" ${G.opt.share ? 'checked' : ''}> Include the gain function and multigrain's result in ${what}</label><p class="small muted">The gain function can encode commercially sensitive judgements and need not be disclosed (Spiers et al. 2026, p. 19). Off: ${what === 'the SAP text' ? 'the text says the graph was chosen by gain-function optimisation without giving the gain function' : 'only the graph is written'}.</p>`;
 }
-function codeBlock(title, desc, code, file, mime) {
+/* end: the file's ending (1.4.18), such as '.svg' or '-steps.tex'; null for no download. The name is read from the File
+   name box when the button is pressed, so a name typed just before the press is used. */
+function codeBlock(title, desc, code, end, mime) {
+  const file = end ? fileFor(end) : null;
   const dl = file && canDownload(file);
   return `<h3>${esc(title)}</h3>${desc ? `<p class="small muted">${desc}</p>` : ''}
   <pre class="code" id="exportCode" tabindex="0">${esc(code)}</pre>
-  <div class="row-actions"><button class="btn primary" data-action="copy">Copy</button>${dl ? `<button class="btn" data-action="download" data-file="${file}" data-mime="${mime}">Download ${esc(file)}</button>` : ''}</div>`;
+  <div class="row-actions"><button class="btn primary" data-action="copy">Copy</button>${dl ? `<button class="btn" data-action="download" data-end="${esc(end)}" data-mime="${mime}">Download ${esc(file)}</button>` : ''}</div>`;
 }
 function currentPicture() { const vm = buildVM(); return { vm, layout: layoutEdges(vm) }; }
 function svgToPng(svgStr) {
@@ -2481,11 +2544,12 @@ async function downloadPicture() {
   if (!canDownload('x.png')) { setTab('export'); await showExport('png'); return; }
   const { vm, layout } = currentPicture();
   let url;
-  try { url = await svgToPng(exportSVG(vm, layout, fmt)); }
+  try { url = await svgToPng(exportSVG(vm, layout, fmt, { title: picTitle() })); }
   catch (err) { flashMessage(err.message); return; }
-  const ok = await download('multiplicity-graph.png', 'image/png', dataUrlToBlob(url), null);
+  const name = fileFor('.png');
+  const ok = await download(name, 'image/png', dataUrlToBlob(url), null);
   if (!ok) flashMessage(touchWords('The picture could not be saved here. Open the Export tab, press Picture (PNG), then right-click the picture to save it.'));
-  else if (touchScreen()) flashMessage('Look for multiplicity-graph.png in Downloads (on an iPhone or iPad, in the Files app).');
+  else if (touchScreen()) flashMessage(`Look for ${name} in Downloads (on an iPhone or iPad, in the Files app).`);
 }
 async function showExport(kind) {
   exportView = kind;
@@ -2497,30 +2561,30 @@ async function showExport(kind) {
   const sbs = isEntangled(G) && (kind === 'sbs' || (sideBySide && (kind === 'svg' || kind === 'tikz' || kind === 'beamer')));
   const sbsDesc = 'Each component graph drawn on its own with the hypotheses in the same places, its name and share c underneath, in the style of Maurer and Bretz (2013), Fig. 2.';
   if (kind === 'svg') {
-    exportPayload = sbs ? exportSVGPanels(currentPanels(), fmt) : exportSVG(vm, layout, fmt);
-    out.innerHTML = codeBlock('SVG picture', (sbs ? sbsDesc + ' ' : '') + 'White background, no interface chrome. Scales to any size.', exportPayload, sbs ? 'multiplicity-graph-components.svg' : 'multiplicity-graph.svg', 'image/svg+xml');
+    exportPayload = sbs ? exportSVGPanels(currentPanels(), fmt, { title: picTitle() }) : exportSVG(vm, layout, fmt, { title: picTitle() });
+    out.innerHTML = codeBlock('SVG picture', (sbs ? sbsDesc + ' ' : '') + 'White background, no interface chrome. Scales to any size.', exportPayload, sbs ? '-components.svg' : '.svg', 'image/svg+xml');
   } else if (kind === 'png' || kind === 'sbs') {
-    const s = sbs ? exportSVGPanels(currentPanels(), fmt) : exportSVG(vm, layout, fmt);
+    const s = sbs ? exportSVGPanels(currentPanels(), fmt, { title: picTitle() }) : exportSVG(vm, layout, fmt, { title: picTitle() });
     try {
       const url = await svgToPng(s);
       exportPayload = url;
-      const dl = canDownload('x.png'), file = sbs ? 'multiplicity-graph-components.png' : 'multiplicity-graph.png';
+      const dl = canDownload('x.png'), end = sbs ? '-components.png' : '.png';
       out.innerHTML = `<h3>${sbs ? 'PNG picture: the component graphs side by side' : 'PNG picture'}</h3><p class="small muted">${sbs ? sbsDesc + ' ' : ''}Twice screen resolution, white background.${dl ? '' : ' ' + touchWords('Right-click (or long-press) the picture to save or copy it.')}</p>
         <img class="preview-img" id="pngPreview" alt="${sbs ? 'The component graphs side by side as a PNG picture' : 'The graph as a PNG picture'}" src="${url}">
-        ${dl ? `<div class="row-actions"><button class="btn primary" data-action="download-png" data-file="${file}">Download ${file}</button></div>` : ''}`;
+        ${dl ? `<div class="row-actions"><button class="btn primary" data-action="download-png" data-end="${end}">Download ${esc(fileFor(end))}</button></div>` : ''}`;
     } catch (err) { out.innerHTML = `<p class="err-text">✕ ${esc(err.message)}</p>`; }
   } else if (kind === 'tikz') {
-    exportPayload = sbs ? exportTikZPanels(currentPanels()).text : exportTikZ(vm, layout);
-    out.innerHTML = codeBlock('TikZ', (sbs ? sbsDesc + ' One scope per panel. ' : '') + 'Same positions and curvature as the canvas (1 cm = 60 px). Paste into a LaTeX or beamer document.' + (!sbs && vm.all ? ' All view: one line style per component and a key below the picture.' : ''), exportPayload, sbs ? 'multiplicity-graph-components.tex' : 'multiplicity-graph.tex', 'text/x-tex');
+    exportPayload = sbs ? exportTikZPanels(currentPanels(), { title: picTitle() }).text : exportTikZ(vm, layout, { title: picTitle() });
+    out.innerHTML = codeBlock('TikZ', (sbs ? sbsDesc + ' One scope per panel. ' : '') + 'Same positions and curvature as the canvas (1 cm = 60 px). Paste into a LaTeX or beamer document.' + (!sbs && vm.all ? ' All view: one line style per component and a key below the picture.' : ''), exportPayload, sbs ? '-components.tex' : '.tex', 'text/x-tex');
   } else if (kind === 'graphicalmcp') {
     exportPayload = exportGraphicalMCP(G);
-    out.innerHTML = codeBlock('R code for graphicalMCP', isEntangled(G) ? 'graphicalMCP has no entangled graph object. The code builds each component and gives the intersection weights of the whole procedure, with a Bonferroni closed test by hand when every hypothesis has a p-value.' : 'Initial graph, plus the test call when every hypothesis has a p-value. For the parametric test, each block of known correlations becomes a test group. For Simes within groups, read the note in the code, since graphicalMCP\'s grouped Simes test is stronger than the Sketchpad\'s.', exportPayload, 'multiplicity-graph.R', 'text/plain');
+    out.innerHTML = codeBlock('R code for graphicalMCP', isEntangled(G) ? 'graphicalMCP has no entangled graph object. The code builds each component and gives the intersection weights of the whole procedure, with a Bonferroni closed test by hand when every hypothesis has a p-value.' : 'Initial graph, plus the test call when every hypothesis has a p-value. For the parametric test, each block of known correlations becomes a test group. For Simes within groups, read the note in the code, since graphicalMCP\'s grouped Simes test is stronger than the Sketchpad\'s.', exportPayload, '.R', 'text/plain');
   } else if (kind === 'gmcp') {
     exportPayload = exportGMCP(G);
-    out.innerHTML = codeBlock('R code for gMCP', isEntangled(G) ? 'Builds each component with matrix2graph() and joins them as an entangledMCP object. gMCP tests an entangled graph with Bonferroni only, so the code also prints the intersection weights to check a closed test by hand.' : 'Builds the graph with matrix2graph(), and tests it when every hypothesis has a p-value.', exportPayload, 'multiplicity-graph-gMCP.R', 'text/plain');
+    out.innerHTML = codeBlock('R code for gMCP', isEntangled(G) ? 'Builds each component with matrix2graph() and joins them as an entangledMCP object. gMCP tests an entangled graph with Bonferroni only, so the code also prints the intersection weights to check a closed test by hand.' : 'Builds the graph with matrix2graph(), and tests it when every hypothesis has a p-value.', exportPayload, '-gMCP.R', 'text/plain');
   } else if (kind === 'json') {
     exportPayload = JSON.stringify(G.opt && G.opt.share ? serializeGraph(G) : stripOptimisation(serializeGraph(G)), null, 2);
-    out.innerHTML = optShareSwitch('the file') + codeBlock('Graph file (JSON)', 'Keeps labels, exact weights, positions, curvature, p-values and &alpha;. Open it again with "Open a saved graph".', exportPayload, 'multiplicity-graph.json', 'application/json');
+    out.innerHTML = optShareSwitch('the file') + codeBlock('Graph file (JSON)', 'Keeps labels, exact weights, positions, curvature, p-values and &alpha;. Open it again with "Open a saved graph".', exportPayload, '.json', 'application/json');
   } else if (kind === 'link') {
     const token = encodeShare(G);
     if (isTop) {
@@ -2532,8 +2596,8 @@ async function showExport(kind) {
     }
   } else if (kind === 'beamer') {
     const frames = stepFrames(sbs);
-    exportPayload = exportBeamer(frames, 'Graphical multiple testing procedure');
-    out.innerHTML = codeBlock('Beamer frame, one overlay per rejection', `${sbs ? sbsDesc + ' Every overlay is the panel set at that step, with each component graph\'s own level under its hypotheses. ' : ''}${frames.length} overlay${frames.length === 1 ? '' : 's'}: the initial graph${frames.length > 1 ? ` and ${frames.length - 1} rejection${frames.length > 2 ? 's' : ''}` : ''}. ${mode === 'test' && T && T.closed ? 'A closed test has no rejection order, so the second overlay shows the final result.' : mode === 'test' && T && T.step ? 'Follows the steps you have taken in Test mode.' : 'Follows the automatic run of the Bonferroni graph on the entered p-values.'} Works with the Metropolis theme. Add the \\usetikzlibrary line to the preamble.`, exportPayload, sbs ? 'multiplicity-graph-components-steps.tex' : 'multiplicity-graph-steps.tex', 'text/x-tex');
+    exportPayload = exportBeamer(frames, G.title || 'Graphical multiple testing procedure');
+    out.innerHTML = codeBlock('Beamer frame, one overlay per rejection', `${sbs ? sbsDesc + ' Every overlay is the panel set at that step, with each component graph\'s own level under its hypotheses. ' : ''}${frames.length} overlay${frames.length === 1 ? '' : 's'}: the initial graph${frames.length > 1 ? ` and ${frames.length - 1} rejection${frames.length > 2 ? 's' : ''}` : ''}. ${mode === 'test' && T && T.closed ? 'A closed test has no rejection order, so the second overlay shows the final result.' : mode === 'test' && T && T.step ? 'Follows the steps you have taken in Test mode.' : 'Follows the automatic run of the Bonferroni graph on the entered p-values.'} ${G.title ? 'The frame title is the graph\'s title. ' : ''}Works with the Metropolis theme. Add the \\usetikzlibrary line to the preamble.`, exportPayload, sbs ? '-components-steps.tex' : '-steps.tex', 'text/x-tex');
   } else if (kind === 'sap') {
     const sap = sapText(G);
     const textAll = sapPlainText(sap) + '\n\n' + sap.tables.map(tableToTSV).join('\n\n') + '\n\n' + sapRefsText(sap);
@@ -3435,6 +3499,10 @@ $('tab-graph').addEventListener('change', e => {
     checkpoint(); G.ent.c[k] = r.q; G.ent.cexpr = G.ent.cexpr || []; G.ent.cexpr[k] = r.expr || undefined; CT = null; deferChange();
   } else if (t.id === 'node-color-custom' && n) {
     setColors([n.id], validColor(t.value));
+  } else if (t.id === 'graph-title') {
+    const v = readTitle(t.value);
+    if (v === (G.title || '')) { t.value = v; return; }
+    checkpoint(); G.title = v; setTimeout(() => { renderAll(); if (autoFit) fitView(); }, 0); scheduleHash();
   } else if (t.id === 'node-desc' && n) {
     if (t.value.trim() === (n.desc || '')) return;
     checkpoint(); n.desc = t.value.trim(); setTimeout(renderAll, 0); scheduleHash();
@@ -3501,15 +3569,15 @@ $('tab-graph').addEventListener('click', e => {
   else if (act === 'comp-add') addComponent();
   else if (act === 'comp-remove') removeComponent();
   else if (act === 'comp-extract' && isEntangled(G)) extractComponent(G.ent.active);
-  else if (act === 'comp-collapse' && isEntangled(G)) { const o = entCollapse(G); if (o) loadGraph(o); }
+  else if (act === 'comp-collapse' && isEntangled(G)) { const o = entCollapse(G); if (o) loadGraph(o, { same: true }); }
   else if (act === 'tpl-w-create' && tplW) { const txt = $('tplW').value; if (!createFromWeights(tplW.key, txt, $('tplWMsg'))) tplW.msg = $('tplWMsg').textContent; }
   else if (act === 'tpl-w-cancel') { tplW = null; renderGraphPanel(); }
   else if (act === 'vars-fix') { checkpoint(); G.nodes.forEach(n => { delete n.wexpr; }); G.edges.forEach(e => { delete e.expr; }); G.vars = {}; afterChange(); }
-  else if (act === 'join') { const k = $('joinSelect').value; if (TEMPLATES[k]) loadGraph(joinGraphs(G, deserializeGraph(templateJSON(k), false, 1).G)); }
+  else if (act === 'join') { const k = $('joinSelect').value; if (TEMPLATES[k]) loadGraph(joinGraphs(G, deserializeGraph(templateJSON(k), false, 1).G), { same: true }); }
   else if (act === 'subgraph') {
     const keep = [...document.querySelectorAll('#tab-graph [data-keep]')].filter(c => c.checked).map(c => c.dataset.keep);
     if (!keep.length) return;
-    if (keep.length < G.nodes.length) loadGraph(subgraphOf(G, keep));
+    if (keep.length < G.nodes.length) loadGraph(subgraphOf(G, keep), { same: true });
   }
   else if (act === 'remove-edge') {
     checkpoint(); G.edges = G.edges.filter(x => gKey(x.from, x.to) !== b.dataset.key); afterChange();
@@ -3590,7 +3658,7 @@ $('tab-matrix').addEventListener('click', e => {
     const dg = defaultGraphOf(G); if (!dg) return;
     const shown = DG.hide ? dg.seqs.filter(s => Q.cmp(s.c, Q.parse('1/100')) >= 0) : dg.seqs;
     if (act === 'dg-copy') copyText(defaultGraphText(shown), b);
-    else if (shown.length && shown.length <= 24) { loadGraph(defaultGraphToEntangled(G, Object.assign({}, dg, { seqs: shown }))); }
+    else if (shown.length && shown.length <= 24) { loadGraph(defaultGraphToEntangled(G, Object.assign({}, dg, { seqs: shown })), { same: true }); }
   }
   else if (act === 'mx-current' || act === 'mx-initial') { mxView = act === 'mx-current' ? 'current' : 'initial'; renderMatrixPanel(); }
   else if (act === 'import-current') {
@@ -3754,8 +3822,8 @@ $('tab-export').addEventListener('click', e => {
   else if (act === 'copy-sap-text') { const sp = sapText(G); copyRich(sapPlainText(sp) + '\n\n' + sapRefsText(sp), sapParasHTML(sp) + sapRefsHTML(sp), b, 'sapText'); }
   else if (act === 'copy-sap-tables') copyRich(sapText(G).tables.map(tableToTSV).join('\n\n'), sapText(G).tables.map(tableToHTML).join(''), b, 'sapTable0');
   else if (act === 'copy-sap-all') copyRich(exportPayload, sapHTML, b, 'sapText');
-  else if (act === 'download') download(b.dataset.file, b.dataset.mime, exportPayload, b);
-  else if (act === 'download-png') download(b.dataset.file || 'multiplicity-graph.png', 'image/png', dataUrlToBlob(exportPayload), b);
+  else if (act === 'download') download(fileFor(b.dataset.end), b.dataset.mime, exportPayload, b);
+  else if (act === 'download-png') download(fileFor(b.dataset.end || '.png'), 'image/png', dataUrlToBlob(exportPayload), b);
   else if (act === 'load-text') loadFromText($('loadText').value);
 });
 document.addEventListener('change', e => {
@@ -3771,6 +3839,16 @@ $('tab-export').addEventListener('change', e => {
     if (exportView === 'svg' || exportView === 'tikz' || exportView === 'beamer') showExport(exportView);
     return;
   }
+  if (e.target.id === 'fileName') {
+    const v = cleanFileName(e.target.value);
+    fileNameTyped = v || null; e.target.value = fileBase(); fileLabels();
+    return;
+  }
+  if (e.target.id === 'ptitleToggle') {
+    titleOnPics = e.target.checked; store.set('mgs-ptitle', titleOnPics ? '1' : '0');
+    if (['png', 'sbs', 'svg', 'tikz'].includes(exportView)) showExport(exportView);
+    return;
+  }
   if (e.target.id !== 'loadFile') return;
   const f = e.target.files && e.target.files[0];
   if (!f) return;
@@ -3779,6 +3857,7 @@ $('tab-export').addEventListener('change', e => {
   r.onerror = () => { const m = $('loadMsg'); if (m) m.innerHTML = '<p class="err-text">✕ Could not read that file.</p>'; };
   r.readAsText(f);
 });
+$('tab-export').addEventListener('input', e => { if (e.target.id === 'fileName') { fileNameTyped = e.target.value; fileLabels(); } });
 $('statusBar').addEventListener('click', e => {
   const b = e.target.closest('[data-fix]');
   if (b) doFix(statusFixes[+b.dataset.fix]);
@@ -3857,7 +3936,7 @@ $('skipToDrawing').addEventListener('click', () => {
   if (to) to.focus();
 });
 $('clearYes').addEventListener('click', () => {
-  checkpoint(); G = { nodes: [], edges: [], diag: {}, alpha: G.alpha, sided: G.sided, note: '', test: defaultTest() }; sel = null;
+  checkpoint(); G = { nodes: [], edges: [], diag: {}, alpha: G.alpha, sided: G.sided, note: '', title: '', test: defaultTest() }; sel = null; fileNameTyped = null;
   closeMenu(); afterChange(); fitView();
 });
 $('moreMenu').addEventListener('toggle', () => { if ($('moreMenu').open) fitMenuHeight(); });
@@ -4129,6 +4208,7 @@ new ResizeObserver(() => {
   if (sk && ['auto', 'cream', 'white', 'dark'].includes(sk)) { $('skinSelect').value = sk; applySkin(sk); }
   if (store.get('mgs-num') === 'dec') { numMode = 'dec'; $('decToggle').checked = true; }
   if (store.get('mgs-snap') === '1') { snap = true; $('snapToggle').checked = true; }
+  if (store.get('mgs-ptitle') === '0') titleOnPics = false;
   if (GAPS[store.get('mgs-gap')]) setGap(store.get('mgs-gap'));
   setPlain(store.get('mgs-plain') === '1', true);
   if (store.get('mgs-hints') === '0') { hints = false; $('hintToggle').checked = false; }
