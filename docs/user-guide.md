@@ -1,6 +1,6 @@
 # Multiplicity Graph Sketchpad User Guide
 
-Niamh Fitzgerald · version 1.4.17
+Niamh Fitzgerald · version 1.4.18
 
 The Sketchpad draws, tests and explains graphical multiple testing procedures (Bretz et al., 2009) in the browser. Nothing you enter leaves your computer. This guide covers how to use the Sketchpad.
 
@@ -25,6 +25,7 @@ Start from a template or from an empty canvas. The template picker in the toolba
 - **Matrix tab:** edit the weight vector and transition matrix as numbers. It stays in step with the canvas.
 - **Fit:** the Fit button fits the whole graph in view. The view also refits by itself when the window changes width, unless you have zoomed or moved it. It always refits when the side panel moves below the drawing or back, for example when you turn a tablet. In presentation mode it also always refits when you turn a phone or tablet. On a phone, and on a narrow drawing such as an iPad held sideways, the hint box sits under the toolbar and the graph is fitted below it.
 - **Description and group:** each hypothesis has optional fields such as "dose 1, primary endpoint" and "primary". They feed the plain-language text, the SAP text and the group bands on the canvas.
+- **Title:** type a title in the box at the top of the Graph tab. It shows above the graph on the drawing and in the pictures, and it is the frame title of the beamer frames. It is saved with the graph, in share links and in kept copies. Loading a template clears it.
 
 Alpha is set in the toolbar (default 0.025). Next to it, say whether your p-values are one-sided or two-sided; the SAP text repeats the choice, and the parametric test accepts one-sided p-values only.
 
@@ -133,10 +134,12 @@ When the graph or a setting changes after a comparison, a notice asks you to run
 
 Every export is in the Export tab. Pictures and TikZ show the graph as it is on the canvas, including any test progress; the R code describes the initial graph.
 
-- **Download button:** press **Download** next to Fit to save the PNG picture in one press. On a phone held upright it is next to More at the top. The More menu has it too, as "Download a picture (PNG)". It saves the same file as the Export tab.
+- **File name:** the box at the top of the Export tab names the downloads in that tab and the Download button. It is filled in from the title, for example `two-doses-two-endpoints`, or reads `multiplicity-graph` when there is no title. Type your own name to keep it, or clear the box to follow the title again. Opening another graph or a template goes back to the title. Each file keeps its ending, such as `-steps.tex` for the beamer frames or `-gMCP.R` for gMCP.
+- **Download button:** press **Download** next to Fit to save the PNG picture in one press. On a phone held upright it is next to More at the top. The More menu has it too, as "Download a picture (PNG)". It saves the same file, with the same name, as the Export tab.
 - **Picture:** PNG at twice screen resolution, or **Vector picture (SVG)** under "For documents and slides" (untick Plain language to see it). Both have a white background and include group bands and colours. For an entangled graph, **Graphs side by side (PNG)** draws each component graph on its own (see Entangled Graphs).
+- **Title on the pictures:** a graph with a title has it above the graph in the PNG, SVG and TikZ pictures. To leave it out, untick **Put the title on the pictures (PNG, SVG and TikZ)** in the Export tab. The drawing and the beamer frames keep it.
 - **LaTeX (TikZ):** the same positions and curves as the canvas, with the `\usetikzlibrary` line it needs in a comment at the top.
-- **Beamer, step by step:** one frame with one overlay per rejection, following the steps you took in Test mode (or the automatic run on the p-values). Each overlay shows the levels and a caption. It works with the Metropolis theme.
+- **Beamer, step by step:** one frame with one overlay per rejection, following the steps you took in Test mode (or the automatic run on the p-values). Each overlay shows the levels and a caption. The frame title is the graph's title, if it has one. It works with the Metropolis theme.
 - **R:** `graph_create()` for graphicalMCP, with `graph_test_shortcut()` when every p-value is entered; `matrix2graph()` for gMCP. For an entangled graph, see the Entangled Graphs section.
 - **SAP / protocol text:** a multiplicity section in the usual SAP order: hypotheses, error rate and procedure, initial allocation, propagation, conclusions, interim analyses and reporting, plus technical details for the Simes and parametric tests. Below it are tables of the hypotheses and initial levels, the transition weights and, for the parametric test, the correlations, then a reference list. Fill in the [square-bracket placeholders] (for example the success criterion and the software), number the tables to match your document, and export the graph as a PNG or SVG for the figure. Copy tables pastes into Word as a table, and into Pages as text separated by tabs.
 - **Share link:** the whole graph is encoded in the link, so nothing is uploaded.

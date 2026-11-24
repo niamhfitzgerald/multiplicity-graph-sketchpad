@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.18 (2026-11-24)
+
+A title for the graph, and a name for the downloaded files. No result the app shows has changed.
+
+- Title: a box at the top of the Graph tab, in both views. The title is drawn above the graph on the drawing and in the PNG, SVG and TikZ pictures, and it is the frame title of the beamer frames. A tick in the Export tab leaves it out of the pictures. Greek letters in the TikZ and beamer titles are written as LaTeX maths. It is kept in saved files, share links, kept copies and undo. Loading a template clears it. With no title, the drawing and every export are as in 1.4.17.
+- File name: a box at the top of the Export tab names the downloads in that tab, the Download button and the More menu item. It is filled in from the title (letters, digits and hyphens, at most 60 characters), or reads `multiplicity-graph` when there is no title. A typed name is kept until the box is cleared or another graph is opened. Each download keeps its ending (`-components`, `-steps`, `-gMCP` and the file type). The Optimise tab's script keeps its own name.
+- User guide: the title and the file name.
+- Tests: 2 new browser checks (80). Self-tests: 163. Stress checks: 59.
+
 ## 1.4.17 (2026-11-23)
 
 Four points from the review of 1.4.16. No result the app shows has changed.
