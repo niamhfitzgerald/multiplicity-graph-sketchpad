@@ -1353,11 +1353,17 @@ async function step(name, fn) {
        1.3.6: the side-by-side export of an entangled graph (Maurer and Bretz 2013, Fig. 2): the "Graphs side by side"
        button and its note show in both views, the tick box for the SVG, TikZ and beamer exports with Plain language off only;
        1.4.12: "Download a picture (PNG)" in the More menu, in both views (Niamh's choice, 18 November). With
-       Plain language on it shares the menu line with the 1.3.2 Import difference, so that line is listed whole. */
+       Plain language on it shares the menu line with the 1.3.2 Import difference, so that line is listed whole.
+       1.4.18: the Title box at the top of the Graph tab, in both views (Niamh's choice, 24 November). The Export tab's
+       title tick shows only once a title is typed, so it is not in these views. The File name box at the top of the
+       Export tab, in both views (Niamh's choice, 24 November); for an entangled graph it shares the export line with
+       the 1.3.6 difference, so those two lines are listed whole. */
     const planned = ['menu: only with 1.3.0 Advanced off: importBtn; only with Plain language on: downloadMenuBtn',
       'menu: only with Plain language off: downloadMenuBtn',
-      'entangledDesign.export: only with Plain language on: #sbsNote, export:sbs',
-      'entangledDesign.export: only with Plain language off: #sbsNote, #sbsRow, #sbsToggle, export:sbs'];
+      'entangledDesign.export: only with Plain language on: #fileName, #sbsNote, export:sbs',
+      'entangledDesign.export: only with Plain language off: #fileName, #sbsNote, #sbsRow, #sbsToggle, export:sbs',
+      ...['design', 'stepStart'].flatMap(v => [`${v}.export: only with Plain language on: #fileName`, `${v}.export: only with Plain language off: #fileName`]),
+      ...['design', 'stepStart', 'entangledDesign'].flatMap(v => [`${v}.graph: only with Plain language on: #graph-title`, `${v}.graph: only with Plain language off: #graph-title`])];
     let out = '';
     for (const on of [true, false]) {
       const { c, p } = await freshPage();
@@ -3002,6 +3008,191 @@ async function step(name, fn) {
     await p.evaluate(() => document.getElementById('aboutBtn').click()); await p.waitForTimeout(150);
     const a = await p.locator('#modalBody').innerText();
     for (const r of ['Dmitrienko A, Tamhane AC (2007). Gatekeeping procedures with clinical trial applications', 'Ouyang J, Zhang P, Carroll KJ, Lee J, Koch G (2020)', 'Quan H, Luo X, Capizzi T (2005)', 'Kordzakhia G, Brechenmacher T, Ishida E, Dmitrienko A, Zheng WW, Li DF (2018)', 'Mielke J, Jones B, Posch M, König F (2021)', 'Guilbaud O (2022). Note on a stepwise procedure', 'Guilbaud O (2026). On a Holm-related MTP']) if (!a.includes(r)) out += `About: reference "${r}" missing. `;
+    await c.close();
+    if (out) return out;
+  });
+
+  /* 1.4.18, B2 of the improvements plan of 24 November: a title on the graph */
+  await step('Title (1.4.18): typed in the Graph tab, drawn above the graph clear of the hint box and buttons, in the PNG, SVG and TikZ pictures and the side-by-side pictures (escaped, Greek letters as LaTeX maths) and as the beamer frame title, left out of the pictures with the Export tick (also by the Download button), kept through a file, a link, Join and undo, cleared by Clear, a title edit keeps the test, and an empty title changes nothing', async () => {
+    /* 1280 x 800: the hint box sits beside the drawing's buttons and would cover a title above the graph without the refit */
+    const c = await b.newContext({ viewport: { width: 1280, height: 800 }, acceptDownloads: true }); const p = await c.newPage();
+    let out = '';
+    p.on('pageerror', e => { out += `page error: ${e.message}. `; });
+    await p.goto(FILE); await p.waitForTimeout(500);
+    await p.evaluate(() => { setPlain(false, true); loadGraph(templateJSON('bretz')); });
+    await p.click('#tabbtn-graph'); await p.waitForTimeout(150);
+    if (!(await p.locator('#graph-title').count())) { await c.close(); return 'no title box in the Graph tab'; }
+    const noTitle = await p.evaluate(() => { const { vm, layout } = currentPicture(); return { a: exportSVG(vm, layout, fmt), b: exportSVG(vm, layout, fmt, { title: '' }), t: exportTikZ(vm, layout), u: exportTikZ(vm, layout, { title: '' }) }; });
+    if (noTitle.a !== noTitle.b || noTitle.t !== noTitle.u) out += 'an empty title changed a picture. ';
+    if (await p.locator('#canvas .gtitle').count()) out += 'title drawn with no title. ';
+    await p.click('#tabbtn-export'); await p.waitForTimeout(100);
+    if (!(await p.locator('#ptitleRow').isHidden())) out += 'title tick shown with no title. ';
+    await p.click('#tabbtn-graph'); await p.waitForTimeout(100);
+    const T = '  Doses & endpoints:   50% <A_1> ';
+    await p.fill('#graph-title', T); await p.press('#graph-title', 'Enter'); await p.waitForTimeout(250);
+    const want = 'Doses & endpoints: 50% <A_1>';
+    if (await p.evaluate(() => G.title) !== want) out += `stored title "${await p.evaluate(() => G.title)}". `;
+    const drawn = await p.locator('#canvas .gtitle text').allTextContents();
+    if (drawn.join(' ') !== want) out += `drawn title "${drawn.join(' | ')}". `;
+    /* above every hypothesis, and not under the hint box or the buttons on the drawing */
+    const geo = await p.evaluate(() => { const t = document.querySelector('#canvas .gtitle').getBoundingClientRect(); const top = Math.min(...[...document.querySelectorAll('#canvas [data-node]')].map(n => n.getBoundingClientRect().top)); const chip = document.getElementById('hintChip').getBoundingClientRect(), fit = document.getElementById('zoomFit').getBoundingClientRect(); return { tb: t.bottom, tt: t.top, top, chip: chip.bottom, fit: fit.bottom }; });
+    if (!(geo.tb <= geo.top)) out += `title not above the hypotheses (${JSON.stringify(geo)}). `;
+    if (geo.tt < Math.max(geo.chip, geo.fit)) out += `title under the hint box or buttons (${JSON.stringify(geo)}). `;
+    /* a title edit in Test mode keeps the test, and the longer Test hint still leaves the title clear */
+    await p.evaluate(async () => { G.nodes.forEach((n, i) => { n.p = ['0.004', '0.009', '0.011', '0.03'][i]; }); setMode('test'); await stepOnce(true); });
+    await p.waitForTimeout(300);
+    const before = await p.evaluate(() => ({ mode, step: T.step, rej: [...T.rejected.keys()].join() }));
+    await p.click('#tabbtn-graph'); await p.waitForTimeout(100);
+    await p.fill('#graph-title', 'Doses & endpoints: 50% <A_1>, Test'); await p.press('#graph-title', 'Enter'); await p.waitForTimeout(400);
+    const after = await p.evaluate(() => ({ mode, step: T.step, rej: [...T.rejected.keys()].join() }));
+    if (JSON.stringify(before) !== JSON.stringify(after) || before.step !== 1) out += `title edit in Test mode: ${JSON.stringify([before, after])}. `;
+    const geoT = await p.evaluate(() => { const t = document.querySelector('#canvas .gtitle').getBoundingClientRect(), chip = document.getElementById('hintChip').getBoundingClientRect(), fit = document.getElementById('zoomFit').getBoundingClientRect(); return { tt: t.top, chip: chip.bottom, fit: fit.bottom }; });
+    if (geoT.tt < Math.max(geoT.chip, geoT.fit)) out += `Test mode: title under the hint box or buttons (${JSON.stringify(geoT)}). `;
+    await p.evaluate(() => setMode('design')); await p.click('#tabbtn-graph'); await p.waitForTimeout(100);
+    await p.fill('#graph-title', T); await p.press('#graph-title', 'Enter'); await p.waitForTimeout(250);
+    await p.click('#tabbtn-export'); await p.waitForTimeout(150);
+    if (await p.locator('#ptitleRow').isHidden()) out += 'title tick hidden. ';
+    if (!(await p.locator('#ptitleToggle').isChecked())) out += 'title tick not ticked. ';
+    await p.click('[data-export="svg"]'); await p.waitForTimeout(200);
+    const svg = await p.evaluate(() => exportPayload);
+    if (!svg.includes('font-weight="700" text-anchor="middle" fill="#1b1f23">Doses &amp; endpoints: 50% &lt;A_1&gt;</text>')) out += 'SVG title missing or not escaped. ';
+    const h = s => +/height="(\d+)"/.exec(s)[1];
+    if (!(h(svg) >= h(noTitle.a) + 30)) out += `SVG not taller with the title (${h(svg)} vs ${h(noTitle.a)}). `;
+    await p.click('[data-export="tikz"]'); await p.waitForTimeout(200);
+    const tex = await p.evaluate(() => exportPayload);
+    if (!tex.includes('\\node[anchor=south, font=\\large\\bfseries, align=center] at ([yshift=6pt]current bounding box.north) {Doses \\& endpoints: 50\\% \\textless{}A\\_1\\textgreater{}};')) out += 'TikZ title missing or not escaped. ';
+    await p.click('[data-export="beamer"]'); await p.waitForTimeout(200);
+    if (!(await p.evaluate(() => exportPayload)).includes('\\begin{frame}{Doses \\& endpoints: 50\\% \\textless{}A\\_1\\textgreater{}}')) out += 'beamer frame title. ';
+    /* Greek letters in the TikZ and beamer titles become LaTeX maths, so pdflatex does not stop on them; a backslash is written once */
+    const greek = await p.evaluate(() => [tikzTitle(titleLines('γ = 1/2, ε, Ω, Β and ά', 400)), exportBeamer(stepFrames(false), 'Δ test \\ 5'), exportBeamer(stepFrames(false), 'Graphical multiple testing procedure')]);
+    if (!greek[0].includes('{$\\gamma$ = 1/2, $\\epsilon$, $\\Omega$, B and $\\alpha$};')) out += `Greek in the TikZ title: ${greek[0]}. `;
+    if (!greek[1].includes('\\begin{frame}{$\\Delta$ test \\textbackslash{} 5}')) out += 'Greek or backslash in the beamer frame title. ';
+    if (!greek[2].includes('\\begin{frame}{Graphical multiple testing procedure}')) out += 'default beamer frame title. ';
+    await p.click('[data-export="png"]'); await p.waitForTimeout(400);
+    const imgH = () => p.evaluate(() => new Promise(r => { const i = new Image(); i.onload = () => r(i.naturalHeight); i.onerror = () => r(0); i.src = exportPayload; }));
+    const dlH = async () => { const w = p.waitForEvent('download', { timeout: 5000 }).then(async d => require('fs').readFileSync(await d.path()).readUInt32BE(20), () => -1); await p.click('#downloadBtn'); return w; };
+    const pngH = await imgH(), btnH = await dlH();
+    /* untick: the pictures lose the title (the Download button's too), the beamer frame keeps it, the drawing keeps it */
+    await p.uncheck('#ptitleToggle'); await p.waitForTimeout(400);
+    const pngH0 = await imgH(), btnH0 = await dlH();
+    if (!(pngH > pngH0 + 50)) out += `PNG height ${pngH} with the title, ${pngH0} without. `;
+    if (btnH !== pngH || btnH0 !== pngH0) out += `Download button PNG heights ${btnH}, ${btnH0} against ${pngH}, ${pngH0}. `;
+    await p.click('[data-export="svg"]'); await p.waitForTimeout(200);
+    if ((await p.evaluate(() => exportPayload)) !== noTitle.a) out += 'SVG with the tick off differs from no title. ';
+    await p.click('[data-export="tikz"]'); await p.waitForTimeout(200);
+    if ((await p.evaluate(() => exportPayload)).includes('current bounding box')) out += 'TikZ title with the tick off. ';
+    await p.click('[data-export="beamer"]'); await p.waitForTimeout(200);
+    if (!(await p.evaluate(() => exportPayload)).includes('\\begin{frame}{Doses \\& endpoints')) out += 'beamer frame title with the tick off. ';
+    if (!(await p.locator('#canvas .gtitle').count())) out += 'drawing lost the title with the tick off. ';
+    if (await p.evaluate(() => localStorage.getItem('mgs-ptitle')) !== '0') out += 'tick not remembered. ';
+    await p.check('#ptitleToggle'); await p.waitForTimeout(200);
+    /* file, link, undo */
+    const rt = await p.evaluate(() => {
+      const f = JSON.stringify(serializeGraph(G)), l = encodeShare(G);
+      const a = deserializeGraph(JSON.parse(f)).G.title, bb = deserializeGraph(decodeShare(l)).G.title;
+      loadFromText(f); const c1 = G.title; loadFromText('#' + l); const c2 = G.title;
+      return { a, bb, c1, c2, plain: JSON.parse(JSON.stringify(serializeGraph(Object.assign({}, G, { title: '' })))).title };
+    });
+    if (rt.a !== want || rt.bb !== want || rt.c1 !== want || rt.c2 !== want) out += `round trip ${JSON.stringify(rt)}. `;
+    if (rt.plain !== undefined) out += 'a file without a title has a title field. ';
+    /* Join with a template keeps the title */
+    if (await p.evaluate(() => { loadGraph(joinGraphs(G, deserializeGraph(templateJSON('holm'), false, 1).G), { same: true }); return G.title; }) !== want) out += 'Join lost the title. ';
+    await p.evaluate(() => { loadGraph(templateJSON('bretz')); }); await p.click('#tabbtn-graph'); await p.waitForTimeout(150);
+    if (await p.evaluate(() => G.title) !== '') out += 'a template kept the old title. ';
+    await p.fill('#graph-title', 'First'); await p.press('#graph-title', 'Enter'); await p.waitForTimeout(150);
+    await p.fill('#graph-title', 'Second'); await p.press('#graph-title', 'Enter'); await p.waitForTimeout(150);
+    await p.evaluate(() => undo()); await p.waitForTimeout(150);
+    const u1 = await p.evaluate(() => G.title), box1 = await p.inputValue('#graph-title');
+    await p.evaluate(() => redo()); await p.waitForTimeout(150);
+    const r1 = await p.evaluate(() => G.title);
+    if (u1 !== 'First' || box1 !== 'First' || r1 !== 'Second') out += `undo/redo ${u1}/${box1}/${r1}. `;
+    /* an entangled graph drawn side by side keeps the title above the panels, from the Export tab */
+    await p.evaluate(() => { loadGraph(entangledTemplateJSON('maurerFig2')); G.title = 'Panels'; renderAll(); setTab('export'); }); await p.waitForTimeout(150);
+    await p.check('#sbsToggle'); await p.waitForTimeout(100);
+    await p.click('[data-export="svg"]'); await p.waitForTimeout(200);
+    if (!/>Panels<\/text>/.test(await p.evaluate(() => exportPayload))) out += 'side-by-side SVG without the title. ';
+    await p.click('[data-export="tikz"]'); await p.waitForTimeout(200);
+    if (!(await p.evaluate(() => exportPayload)).includes('current bounding box.north) {Panels};')) out += 'side-by-side TikZ without the title. ';
+    await p.click('[data-export="sbs"]'); await p.waitForTimeout(400);
+    const sbsH = await imgH();
+    await p.uncheck('#ptitleToggle'); await p.waitForTimeout(400);
+    if (!(sbsH > (await imgH()) + 50)) out += 'side-by-side PNG without the title. ';
+    await p.check('#ptitleToggle'); await p.uncheck('#sbsToggle');
+    /* Clear removes the title and a typed file name */
+    await p.evaluate(() => { fileNameTyped = 'typed'; $('clearYes').click(); }); await p.waitForTimeout(200);
+    if (await p.evaluate(() => G.title + '|' + fileNameTyped) !== '|null') out += `Clear kept ${await p.evaluate(() => G.title + '|' + fileNameTyped)}. `;
+    await c.close();
+    if (out) return out;
+  });
+
+  /* 1.4.18, B1 of the improvements plan of 24 November: name the downloaded file (Niamh's choice D1) */
+  await step('File name (1.4.18): the Export tab\'s box starts as multiplicity-graph, follows the title (letters, digits and hyphens, at most 60 characters), can be typed over (unsafe characters and a typed ending removed), is used by a Download press straight after typing, follows the title again when cleared, stays through Join, resets for a new graph, and names every download with its ending, in both views', async () => {
+    const c = await b.newContext({ viewport: { width: 1400, height: 900 }, acceptDownloads: true }); const p = await c.newPage();
+    let out = '';
+    p.on('pageerror', e => { out += `page error: ${e.message}. `; });
+    await p.goto(FILE); await p.waitForTimeout(500);
+    const dl = async sel => { const w = p.waitForEvent('download', { timeout: 5000 }).then(d => d.suggestedFilename(), () => 'none'); await p.click(sel); return w; };
+    const exportAs = async k => { await p.click(`[data-export="${k}"]`); await p.waitForTimeout(k === 'png' || k === 'sbs' ? 400 : 200); return dl(k === 'png' || k === 'sbs' ? '[data-action="download-png"]' : '[data-action="download"]'); };
+    await p.evaluate(() => { setPlain(false, true); loadGraph(templateJSON('bretz')); });
+    await p.click('#tabbtn-export'); await p.waitForTimeout(150);
+    if (!(await p.locator('#fileName').count())) { await c.close(); return 'no File name box in the Export tab'; }
+    if (await p.inputValue('#fileName') !== 'multiplicity-graph') out += `box with no title: "${await p.inputValue('#fileName')}". `;
+    if (await dl('#downloadBtn') !== 'multiplicity-graph.png') out += 'Download button with no title. ';
+    if (await exportAs('json') !== 'multiplicity-graph.json') out += 'JSON with no title. ';
+    /* from the title: accents dropped, other characters become hyphens */
+    await p.evaluate(() => { G.title = readTitle('Café α-test: dose 1 & 2 / week 12'); renderAll(); });
+    const slug = 'cafe-test-dose-1-2-week-12';
+    if (await p.inputValue('#fileName') !== slug) out += `box from the title: "${await p.inputValue('#fileName')}". `;
+    if (await dl('#downloadBtn') !== slug + '.png') out += 'Download button from the title. ';
+    const want = { png: '.png', svg: '.svg', tikz: '.tex', beamer: '-steps.tex', graphicalmcp: '.R', gmcp: '-gMCP.R', json: '.json' };
+    for (const [k, end] of Object.entries(want)) { const got = await exportAs(k); if (got !== slug + end) out += `${k}: ${got}. `; }
+    /* a long title is cut at a hyphen, at most 60 characters */
+    const long = await p.evaluate(() => { G.title = readTitle('A very long title for a graph that names the trial, both doses, both endpoints and the population'); renderAll(); return fileBase(); });
+    if (long !== 'a-very-long-title-for-a-graph-that-names-the-trial-both') out += `long title: "${long}". `;
+    /* one very long word after an early hyphen is cut at 60; letters with no accent split are spelt out */
+    const edge = await p.evaluate(() => [fileSlug('abc-' + 'x'.repeat(70)), fileSlug('Ærø ß straße œuvre'), cleanFileName('report.png.'), cleanFileName(' R&D <plan> '), cleanFileName('a.png.json .'), cleanFileName(cleanFileName('a.png.json .'))]);
+    if (edge.join('|') !== 'abc-' + 'x'.repeat(56) + '|aero-ss-strasse-oeuvre|report|R&D plan|a|a') out += `edge names ${JSON.stringify(edge)}. `;
+    /* typed over: unsafe characters and a typed ending removed; kept when the title changes; cleared follows the title again */
+    await p.fill('#fileName', 'Figure 2: final/v1.png'); await p.press('#fileName', 'Enter'); await p.waitForTimeout(150);
+    if (await p.inputValue('#fileName') !== 'Figure 2 final v1') out += `typed name: "${await p.inputValue('#fileName')}". `;
+    if (await exportAs('json') !== 'Figure 2 final v1.json') out += 'JSON with a typed name. ';
+    if (await dl('#downloadBtn') !== 'Figure 2 final v1.png') out += 'Download button with a typed name. ';
+    await p.evaluate(() => { G.title = 'Another title'; renderAll(); });
+    if (await p.inputValue('#fileName') !== 'Figure 2 final v1') out += 'a typed name followed the title. ';
+    await p.fill('#fileName', ''); await p.press('#fileName', 'Enter'); await p.waitForTimeout(150);
+    if (await p.inputValue('#fileName') !== 'another-title') out += `cleared box: "${await p.inputValue('#fileName')}". `;
+    /* typed and then a Download button pressed at once, without Enter: the first press saves the typed name */
+    await p.click('[data-export="json"]'); await p.waitForTimeout(200);
+    await p.click('#fileName'); await p.fill('#fileName', 'Straight away');
+    if (await dl('[data-action="download"]') !== 'Straight away.json') out += 'first press after typing (JSON). ';
+    if ((await p.locator('[data-action="download"]').innerText()) !== 'Download Straight away.json') out += 'button label after typing. ';
+    await p.click('[data-export="png"]'); await p.waitForTimeout(400);
+    await p.click('#fileName'); await p.fill('#fileName', 'Straight png');
+    if (await dl('[data-action="download-png"]') !== 'Straight png.png') out += 'first press after typing (PNG). ';
+    /* a name with & and angle brackets: the label shows it as typed (angle brackets removed) */
+    await p.fill('#fileName', 'R&D <plan>'); await p.press('#fileName', 'Enter'); await p.waitForTimeout(100);
+    if ((await p.locator('[data-action="download-png"]').innerText()) !== 'Download R&D plan.png') out += `label "${await p.locator('[data-action="download-png"]').innerText()}". `;
+    /* Join rebuilds the same graph, so the typed name stays */
+    await p.evaluate(() => { setTab('graph'); document.getElementById('det-build').open = true; }); await p.waitForTimeout(100);
+    await p.selectOption('#joinSelect', 'holm'); await p.click('[data-action="join"]'); await p.waitForTimeout(200);
+    if (await p.evaluate(() => fileBase()) !== 'R&D plan') out += 'Join forgot the typed name. ';
+    await p.click('#tabbtn-export'); await p.waitForTimeout(100);
+    await p.fill('#fileName', 'mine'); await p.press('#fileName', 'Enter'); await p.waitForTimeout(100);
+    await p.selectOption('#templateSelect', 'holm'); await p.waitForTimeout(200);
+    if (await p.inputValue('#fileName') !== 'multiplicity-graph' || await p.evaluate(() => fileBase()) !== 'multiplicity-graph') out += 'a new graph kept the typed name. ';
+    /* an entangled graph: the -components endings */
+    await p.evaluate(() => { loadGraph(entangledTemplateJSON('maurerFig2')); G.title = 'Memory'; renderAll(); setTab('export'); });
+    await p.waitForTimeout(150);
+    if (await exportAs('sbs') !== 'memory-components.png') out += 'side by side PNG. ';
+    await p.check('#sbsToggle'); await p.waitForTimeout(100);
+    if (await exportAs('svg') !== 'memory-components.svg') out += 'side by side SVG. ';
+    if (await exportAs('beamer') !== 'memory-components-steps.tex') out += 'side by side beamer. ';
+    if (await exportAs('tikz') !== 'memory-components.tex') out += 'side by side TikZ. ';
+    await p.uncheck('#sbsToggle');
+    /* the clinician view: the box shows, and names the picture */
+    await p.evaluate(() => { setPlain(true); setTab('export'); }); await p.waitForTimeout(150);
+    if (!(await p.locator('#fileName').isVisible())) out += 'box hidden in the clinician view. ';
+    if (await exportAs('png') !== 'memory.png') out += 'clinician view PNG. ';
     await c.close();
     if (out) return out;
   });
