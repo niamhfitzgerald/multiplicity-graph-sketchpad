@@ -1,7 +1,7 @@
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.4.19';
-const APP_DATE = '2026-11-24';
+const APP_VERSION = '1.4.20';
+const APP_DATE = '2026-11-25';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
 /* The author's LinkedIn profile; the header byline and About link to it. */
@@ -1190,10 +1190,13 @@ function exportGMCP(G) {
   }
   return s;
 }
+/* Text for LaTeX: hypothesis labels, group names and the beamer captions. From 1.4.20 every Greek letter is written as
+   LaTeX maths, with the title's table (greekTeX), since pdflatex stops on a Greek character in the text; up to 1.4.19 only
+   α was. Other characters are as before. */
 function texEscape(s) {
   const t = String(s).replace(/\\/g, '\\textbackslash{}').replace(/([#$%&_{}])/g, '\\$1').replace(/~/g, '\\textasciitilde{}').replace(/\^/g, '\\textasciicircum{}');
   const sym = { '\u03b1': '$\\alpha$', '\u2264': '$\\le$', '\u2265': '$\\ge$', '\u00d7': '$\\times$', '\u2192': '$\\to$', '\u2013': '--', '\u2014': '---', '\u2713': '$\\checkmark$', '\u2715': '$\\times$', '\u1d62': '$_i$' };
-  return t.replace(/[\u03b1\u2264\u2265\u00d7\u2192\u2013\u2014\u2713\u2715\u1d62]/g, c => sym[c]);
+  return t.replace(/[\u03b1\u2264\u2265\u00d7\u2192\u2013\u2014\u2713\u2715\u1d62]/g, c => sym[c]).replace(/[\u0370-\u03ff]/g, greekTeX);
 }
 function texLabel(label) {
   const lp = labelParts(label);
@@ -1446,12 +1449,14 @@ function svgTitle(lines, cx, top) {
 const TITLE_GREEK = { 'α': 'alpha', 'β': 'beta', 'γ': 'gamma', 'δ': 'delta', 'ε': 'epsilon', 'ζ': 'zeta', 'η': 'eta', 'θ': 'theta', 'ι': 'iota', 'κ': 'kappa', 'λ': 'lambda', 'μ': 'mu', 'ν': 'nu', 'ξ': 'xi', 'π': 'pi', 'ρ': 'rho', 'ς': 'varsigma', 'σ': 'sigma', 'τ': 'tau', 'υ': 'upsilon', 'φ': 'phi', 'χ': 'chi', 'ψ': 'psi', 'ω': 'omega', 'ϵ': 'epsilon', 'ϑ': 'vartheta', 'ϕ': 'phi', 'Γ': 'Gamma', 'Δ': 'Delta', 'Θ': 'Theta', 'Λ': 'Lambda', 'Ξ': 'Xi', 'Π': 'Pi', 'Σ': 'Sigma', 'Υ': 'Upsilon', 'Φ': 'Phi', 'Ψ': 'Psi', 'Ω': 'Omega' };
 const TITLE_GREEK_LATIN = { 'Α': 'A', 'Β': 'B', 'Ε': 'E', 'Ζ': 'Z', 'Η': 'H', 'Ι': 'I', 'Κ': 'K', 'Μ': 'M', 'Ν': 'N', 'Ο': 'O', 'Ρ': 'P', 'Τ': 'T', 'Χ': 'X', 'ο': 'o' };
 const TITLE_TEX = { '\\': '\\textbackslash{}', '{': '\\{', '}': '\\}', '#': '\\#', '$': '\\$', '%': '\\%', '&': '\\&', '_': '\\_', '~': '\\textasciitilde{}', '^': '\\textasciicircum{}', '<': '\\textless{}', '>': '\\textgreater{}', '|': '\\textbar{}', '≤': '$\\le$', '≥': '$\\ge$', '≠': '$\\neq$', '−': '$-$', '×': '$\\times$', '→': '$\\to$', '–': '--', '—': '---', '✓': '$\\checkmark$', '✕': '$\\times$', 'ᵢ': '$_i$' };
+/* One Greek character as LaTeX: the letter as maths, an accented letter as its base letter, a capital that looks like a
+   Latin one as that letter, anything else left out (1.4.18 for the title; from 1.4.20 also for texEscape) */
+function greekTeX(ch) {
+  const c = ch.normalize('NFD')[0];
+  return TITLE_GREEK[c] ? `$\\${TITLE_GREEK[c]}$` : TITLE_GREEK_LATIN[c] || '';
+}
 function titleTeX(line) {
-  return String(line).replace(/[\\{}#$%&_~^<>|≤≥≠−×→–—✓✕ᵢ\u0370-\u03ff]/g, ch => {
-    if (TITLE_TEX[ch]) return TITLE_TEX[ch];
-    const c = ch.normalize('NFD')[0];
-    return TITLE_GREEK[c] ? `$\\${TITLE_GREEK[c]}$` : TITLE_GREEK_LATIN[c] || '';
-  });
+  return String(line).replace(/[\\{}#$%&_~^<>|≤≥≠−×→–—✓✕ᵢ\u0370-\u03ff]/g, ch => TITLE_TEX[ch] || greekTeX(ch));
 }
 function tikzTitle(lines) {
   return `\\node[anchor=south, font=\\large\\bfseries, align=center] at ([yshift=6pt]current bounding box.north) {${lines.map(titleTeX).join(' \\\\ ')}};`;

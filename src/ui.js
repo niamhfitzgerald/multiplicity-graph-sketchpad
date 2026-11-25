@@ -91,7 +91,7 @@ let plain = false;    // the clinician view: everyday words (plainWords), and th
 let presenting = false;
 let allView = false;  // entangled graphs: show every component overlaid (read-only) instead of the active one
 let sideBySide = false; // entangled graphs: the SVG, TikZ and beamer exports draw the component graphs side by side (Fig. 2 style)
-let stepsSideBySide = false; // 1.4.19, an ordinary graph with the Bonferroni step-through: the SVG and TikZ exports draw all the steps side by side
+let stepsSideBySide = false; // 1.4.19, an ordinary graph with the Bonferroni step-through (from 1.4.20 also What if under a closed test): the SVG and TikZ exports draw all the steps side by side
 let titleOnPics = true; // the graph's title (1.4.18) above the PNG, SVG and TikZ pictures; the Export tab's tick turns it off
 let fileNameTyped = null; // the Export tab's File name box (1.4.18): what the user typed, or null to follow the title
 const hist = { past: [], future: [] };
@@ -2323,7 +2323,7 @@ function stepFrames(panels) {
     return { nodes, edges, all: true, n: s.ent.comps.length, c: s.ent.c };
   };
   const captionFor = (data) => data ? (plain ? plainStepText(data, G.alpha) : (data.manual ? `Rejected ${data.label} (what if).` : `Rejected ${data.label}: p = ${fmtNum(data.p)} ≤ ${fmtNum(data.level)}.`) + (data.gave.length ? ' Passed on: ' + data.gave.map(([to, q]) => `+${fmt(q)} to ${to}`).join(', ') + '.' : '')) : '';
-  /* rejW (1.4.19): each rejected hypothesis's weight when it was rejected, for the steps picture; the beamer frames do not use it */
+  /* rejW (1.4.19): each rejected hypothesis's weight when it was rejected, for the steps picture and, from 1.4.20, the beamer frames */
   const rejW = new Map();
   const push = (s, rej, cap, data) => states.push({ st: s, rejected: new Map(rej), caption: cap, data: data || null, rejW: new Map(rejW) });
   push(st, rejected, 'Initial graph. Each hypothesis is tested at its level, weight × α.');
@@ -2374,7 +2374,9 @@ function stepFrames(panels) {
       nodes: G.nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y, rx: nodeRx(n.label), ry: NODE_R, p: n.p, group: n.group || '', color: n.color || '', w: rej.has(n.id) ? Q.ZERO : (s.w.get(n.id) || Q.ZERO), rejected: rej.has(n.id) })),
       edges: [...s.g.entries()].filter(([, g]) => !Q.isZero(g)).map(([k, g]) => { const [a, b] = k.split('>'); const o = edgeOf(a, b); return { from: a, to: b, g, bend: o ? o.bend : null, text: fmt(g) }; })
     };
-    if (!s.ent) for (const n of vm.nodes) if (n.rejected) { const r = G.nodes.find(x => x.id === n.id); n.w = r ? r.w : Q.ZERO; }
+    /* a rejected hypothesis shows the weight it was rejected at, as on the drawing in Test mode (up to 1.4.19 the beamer frames
+       showed its starting weight) */
+    if (!s.ent) for (const n of vm.nodes) if (n.rejected) { const r = G.nodes.find(x => x.id === n.id); n.w = rw.has(n.id) ? rw.get(n.id) : r ? r.w : Q.ZERO; }
     return Object.assign({ vm, layout: layoutEdges(vm), caption, alpha: G.alpha, data, rejW: rw }, panels && s.ent ? { panels: componentPanels(G, s, rejWithVec(rej), fmt) } : {});
   });
 }
@@ -2393,10 +2395,14 @@ function stepPanels() {
   let frames = stepFrames(false);
   /* What if ignores the p-values: until a hypothesis is rejected by hand there are no steps to draw */
   if (whatIfWaiting()) frames = frames.slice(0, 1);
-  /* a rejected hypothesis shows the weight it was rejected at, as on the drawing in Test mode */
-  return frames.map(f => ({ vm: Object.assign({}, f.vm, { nodes: f.vm.nodes.map(n => (n.rejected && f.rejW && f.rejW.has(n.id) ? Object.assign({}, n, { w: f.rejW.get(n.id) }) : n)) }), layout: f.layout, title: stepCaption(f.data, pl) }));
+  /* stepFrames already gives a rejected hypothesis the weight it was rejected at (1.4.20) */
+  return frames.map(f => ({ vm: f.vm, layout: f.layout, title: stepCaption(f.data, pl) }));
 }
 function whatIfWaiting() { return mode === 'test' && manual && !(T && T.log.some(l => l.data)); }
+/* The steps picture is drawn for the Bonferroni step-through and, from 1.4.20, for What if under a closed test: What if
+   (Bonferroni graph) rejects by the graph's own update, which gives the weights of the hypotheses left whichever test is
+   used (Bretz et al., 2011, section 2, Algorithm 1, p. 896), and the beamer frames already drew those steps */
+function stepsAllowed() { return isBonf() || (mode === 'test' && manual && !!T && !T.closed); }
 /* Why there is no steps picture: nothing to test, or nothing rejected */
 function stepsMissingText() {
   if (whatIfWaiting()) return touchWords(plainWords() ? 'Click a question on the drawing to see what happens if it succeeds.' : 'In What if, click a hypothesis on the drawing to reject it first.');
@@ -2418,7 +2424,7 @@ function initExportPanel() {
     <button class="btn" data-export="json">Save as a file</button>
     <button class="btn" data-export="load">Open a saved graph</button>
   </div>
-  <p class="small muted" id="stepsNote" hidden>Steps side by side is for the Bonferroni step-through. A closed test has no steps to draw.</p>
+  <p class="small muted" id="stepsNote" hidden>Steps side by side is for the Bonferroni step-through. A closed test has no steps to draw. In the Test tab, What if draws the hypotheses you reject by hand.</p>
   <label class="chk" id="ptitleRow" hidden><input type="checkbox" id="ptitleToggle" checked> Put the title on the pictures (PNG, SVG and TikZ)</label>
   <div class="adv">
   <h3>For documents and slides</h3>
@@ -2440,14 +2446,15 @@ function initExportPanel() {
   <div id="exportOut" class="form" aria-live="polite"></div>`;
 }
 /* The side-by-side button, note and tick box show for an entangled graph only. The steps picture, its tick box (1.4.19)
-   show for an ordinary graph with the Bonferroni step-through; for a closed test a line says why they are missing. */
+   show for an ordinary graph with the Bonferroni step-through, and from 1.4.20 in What if under a closed test
+   (stepsAllowed); otherwise, for a closed test, a line says why they are missing. */
 function updateExportPanel() {
   const ent = isEntangled(G), b = document.querySelector('#tab-export [data-export="sbs"]');
   if (b) b.hidden = !ent;
-  const stp = !ent && isBonf(), sb = document.querySelector('#tab-export [data-export="steps"]');
+  const stp = !ent && stepsAllowed(), sb = document.querySelector('#tab-export [data-export="steps"]');
   if (sb) sb.hidden = !stp;
   const sr = $('stepsRow'); if (sr) sr.hidden = !stp;
-  const sn = $('stepsNote'); if (sn) sn.hidden = ent || isBonf();
+  const sn = $('stepsNote'); if (sn) sn.hidden = ent || stepsAllowed();
   const st = $('stepsToggle'); if (st) st.checked = stepsSideBySide;
   const r = $('sbsRow'); if (r) r.hidden = !ent;
   const n = $('sbsNote'); if (n) n.hidden = !ent;
@@ -2608,10 +2615,12 @@ async function showExport(kind) {
   const sbs = isEntangled(G) && (kind === 'sbs' || (sideBySide && (kind === 'svg' || kind === 'tikz' || kind === 'beamer')));
   const sbsDesc = 'Each component graph drawn on its own with the hypotheses in the same places, its name and share c underneath, in the style of Maurer and Bretz (2013), Fig. 2.';
   /* all the steps side by side (1.4.19): for the "Steps side by side" button, and for SVG and TikZ with its box ticked;
-     only for an ordinary graph with the Bonferroni step-through, and only when at least one hypothesis is rejected */
-  const stepsWanted = !isEntangled(G) && isBonf() && (kind === 'steps' || (stepsSideBySide && (kind === 'svg' || kind === 'tikz')));
+     only for an ordinary graph with the Bonferroni step-through or, from 1.4.20, What if under a closed test (stepsAllowed),
+     and only when at least one hypothesis is rejected. Under a closed test outside What if the line under the buttons says
+     why, so the picture's place is left empty (1.4.20); an entangled graph keeps the sentence. */
+  const stepsWanted = !isEntangled(G) && stepsAllowed() && (kind === 'steps' || (stepsSideBySide && (kind === 'svg' || kind === 'tikz')));
   const stepP = stepsWanted ? stepPanels() : null, steps = !!(stepP && stepP.length > 1);
-  if (kind === 'steps' && !steps) { out.innerHTML = `<p class="muted">${stepsWanted ? stepsMissingText() : 'Steps side by side is for the Bonferroni step-through of an ordinary graph.'}</p>`; return; }
+  if (kind === 'steps' && !steps) { out.innerHTML = stepsWanted ? `<p class="muted">${stepsMissingText()}</p>` : isEntangled(G) ? '<p class="muted">Steps side by side is for the Bonferroni step-through of an ordinary graph.</p>' : ''; return; }
   const stepsDesc = 'The graph at the start and after each rejection, in the order of the step-through, with the hypotheses in the same places (as in Bretz et al., 2009, Fig. 4).';
   if (kind === 'svg') {
     exportPayload = steps ? exportSVGPanels(stepP, fmt, { title: picTitle(), wrap: true }) : sbs ? exportSVGPanels(currentPanels(), fmt, { title: picTitle() }) : exportSVG(vm, layout, fmt, { title: picTitle() });
@@ -4060,7 +4069,7 @@ $('helpBtn').addEventListener('click', () => openModal('Help and shortcuts', tou
     <li><b>Compare:</b> keep a copy of the graph, change it, and the Compare tab shows both pictures, the weights and transitions that differ, the test result on the same p-values and the power on the same simulated trials.</li>
     <li><b>Optimise</b> (shown with Plain language off): say what each set of claims is worth (a gain function: quick rules, build from values, or write your own), and lock the parts of the graph that must not change. The tab then writes an R script for the multigrain package. Run it in R, open the file it saves, and the tab compares multigrain's expected gain with a fresh estimate and the starting graph.</li>
     <li><b>Matrix tab:</b> edit w and G as numbers, or import R code. In Test mode it shows the graph after each step.</li>
-    <li><b>Export:</b> picture (PNG or SVG), TikZ, beamer frames step by step, SAP or protocol text, R code for graphicalMCP or gMCP, a share link, or a saved file. The Download button, or Download a picture (PNG) in the More menu, saves the PNG picture in one press. Open a saved graph reads a saved file, a share link or code, or a multigrain result. Steps side by side draws the graph at the start and after each rejection of the step-through, and a tick box does the same for the SVG and TikZ exports. For an entangled graph, Graphs side by side draws each component graph on its own, and a tick box does the same for the SVG, TikZ and beamer exports.</li>
+    <li><b>Export:</b> picture (PNG or SVG), TikZ, beamer frames step by step, SAP or protocol text, R code for graphicalMCP or gMCP, a share link, or a saved file. The Download button, or Download a picture (PNG) in the More menu, saves the PNG picture in one press. Open a saved graph reads a saved file, a share link or code, or a multigrain result. Steps side by side draws the graph at the start and after each rejection of the step-through or of What if, and a tick box does the same for the SVG and TikZ exports. For an entangled graph, Graphs side by side draws each component graph on its own, and a tick box does the same for the SVG, TikZ and beamer exports.</li>
     <li><b>Plain language</b> (foot of the side panel, or the More menu): everyday words for a clinical team, and only the parts they need. Untick it to see every tab, template and export.</li>
   </ul>
   <p><b>Shortcuts</b></p>
