@@ -184,9 +184,24 @@ body.present .comp-bar, .comp-bar[hidden] { display: none; }
 @keyframes wflash { 0% { fill: var(--flow); font-size: 17px; } 100% { } }
 .ncap { font-size: 12.5px; fill: var(--muted); text-anchor: middle; pointer-events: none; font-variant-numeric: tabular-nums; paint-order: stroke; stroke: var(--canvas); stroke-width: 4px; stroke-linejoin: round; }
 .ncap.rej { fill: var(--ink); font-weight: 700; }
+/* A description under its circle (1.4.21), when the graph shows descriptions */
+.ndesc { font-size: 12px; fill: var(--muted); text-anchor: middle; pointer-events: none; paint-order: stroke; stroke: var(--canvas); stroke-width: 3px; stroke-linejoin: round; }
+.node.rejected .ndesc { fill: var(--rej); }
+.node.rejected.claimed .ndesc { fill: var(--muted); }
+/* inside a box (1.4.21) the description needs no edge round its letters */
+.node.box .ndesc { stroke: none; }
+#shapeRow { align-items: center; }
 .node.rejected .node-body { fill: var(--rej-fill); stroke: var(--rej); stroke-dasharray: 4 3; }
 .node.rejected .nlabel, .node.rejected .nweight { fill: var(--rej); }
 .strike { stroke: var(--rej); stroke-width: 2.2; stroke-linecap: round; }
+/* A rejected hypothesis drawn as a success (1.4.21): light green fill, a solid green outline, the label and weight in ink,
+   and a green badge with a tick (.okbadge) in place of the line through the label. Keyboard focus still shows. */
+.node.rejected.claimed .node-body { fill: var(--ok-soft); stroke: var(--ok); stroke-width: 3; stroke-dasharray: none; }
+.node.rejected.claimed:focus-visible .node-body { stroke: var(--accent); stroke-width: 3.2; stroke-dasharray: 3 2; }
+.node.rejected.claimed .nlabel, .node.rejected.claimed .nweight { fill: var(--ink); }
+.okbadge { pointer-events: none; }
+.okbadge circle { fill: var(--ok); stroke: var(--canvas); stroke-width: 1.5; }
+.okbadge path { fill: none; stroke: var(--canvas); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .manual .node:not(.rejected) { cursor: pointer; }
 .test .node:not(.rejected) { cursor: pointer; }
 .test .node.can-reject .node-ring { display: inline; stroke: var(--ok); stroke-width: 3.5; stroke-dasharray: 7 4; }

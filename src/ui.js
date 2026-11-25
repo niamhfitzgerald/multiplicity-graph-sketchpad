@@ -93,6 +93,7 @@ let allView = false;  // entangled graphs: show every component overlaid (read-o
 let sideBySide = false; // entangled graphs: the SVG, TikZ and beamer exports draw the component graphs side by side (Fig. 2 style)
 let stepsSideBySide = false; // 1.4.19, an ordinary graph with the Bonferroni step-through (from 1.4.20 also What if under a closed test): the SVG and TikZ exports draw all the steps side by side
 let titleOnPics = true; // the graph's title (1.4.18) above the PNG, SVG and TikZ pictures; the Export tab's tick turns it off
+let greenRejected = false; // the statistician view (1.4.21): the Export tab's tick draws rejected hypotheses as successes, green with a tick
 let fileNameTyped = null; // the Export tab's File name box (1.4.18): what the user typed, or null to follow the title
 const hist = { past: [], future: [] };
 const SIM = { power: {}, rho: '0.5', useMatrix: false, corr: {}, n: 10000, success: { ids: [], rule: 'any' }, running: null, result: null, runs: [], error: '' };
@@ -319,8 +320,10 @@ function handleHitR() { return Math.max(8, 12 / view.k).toFixed(1); }
 function fitView() {
   if (!G.nodes.length) { view = { cx: 0, cy: 0, k: 1 }; applyView(); return; }
   const { W, H } = canvasSize();
-  const xs = G.nodes.map(n => [n.x - nodeRx(n.label), n.x + nodeRx(n.label)]).flat();
-  const ys = G.nodes.map(n => [n.y - NODE_R, n.y + NODE_R]).flat();
+  /* each hypothesis with its description (1.4.21) */
+  const looks = G.nodes.map(n => nodeLook(n, G));
+  const xs = G.nodes.map((n, i) => [n.x - Math.max(looks[i].rx, looks[i].descW / 2), n.x + Math.max(looks[i].rx, looks[i].descW / 2)]).flat();
+  const ys = G.nodes.map((n, i) => [n.y - looks[i].ry, n.y + looks[i].ry + looks[i].descH]).flat();
   let minX = Math.min(...xs) - 80, maxX = Math.max(...xs) + 80, minY = Math.min(...ys) - 95;
   const maxY = Math.max(...ys) + 90;
   const tb = canvasTitle(buildVM());
@@ -357,7 +360,7 @@ function toClient(x, y) { return new DOMPoint(x, y).matrixTransform(svg.getScree
 function buildVM() {
   if (inAllView()) return buildAllVM();
   const nodes = G.nodes.map(n => {
-    const v = { id: n.id, label: n.label, x: n.x, y: n.y, rx: nodeRx(n.label), ry: NODE_R, p: n.p, w: n.w, color: n.color || '', group: n.group || '', wexpr: mode === 'test' ? '' : (n.wexpr || ''), rejected: false, capH: mode === 'test' ? (manual ? 24 : 40) : (witActive() ? 24 : 0) };
+    const v = { id: n.id, label: n.label, x: n.x, y: n.y, ...nodeLook(n, G), p: n.p, w: n.w, color: n.color || '', group: n.group || '', wexpr: mode === 'test' ? '' : (n.wexpr || ''), rejected: false, capH: mode === 'test' ? (manual ? 24 : 40) : (witActive() ? 24 : 0) };
     if (mode === 'test' && T) {
       const r = T.rejected.get(n.id);
       if (r) { v.w = r.w; v.rejected = true; v.step = r.step; }
@@ -365,6 +368,7 @@ function buildVM() {
         v.w = T.st.w.get(n.id) || Q.ZERO;
         if (T.pending === n.id) { v.rejected = true; v.pending = true; }
       }
+      if (v.rejected && showGreen()) v.claimed = true;
     }
     return v;
   });
@@ -387,13 +391,14 @@ function buildAllVM() {
   const inTest = mode === 'test' && T, st = inTest ? T.st : stateFromGraph(G);
   const comps = st.ent.comps, n = comps.length;
   const nodes = G.nodes.map(nd => {
-    const v = { id: nd.id, label: nd.label, x: nd.x, y: nd.y, rx: nodeRx(nd.label), ry: NODE_R, p: nd.p, w: st.w.get(nd.id) || Q.ZERO, color: nd.color || '', group: nd.group || '', wexpr: '', rejected: false, capH: inTest ? (manual ? 24 : 40) : (witActive() ? 24 : 0) };
+    const v = { id: nd.id, label: nd.label, x: nd.x, y: nd.y, ...nodeLook(nd, G), p: nd.p, w: st.w.get(nd.id) || Q.ZERO, color: nd.color || '', group: nd.group || '', wexpr: '', rejected: false, capH: inTest ? (manual ? 24 : 40) : (witActive() ? 24 : 0) };
     const r = inTest ? T.rejected.get(nd.id) : null;
     if (r) { v.w = r.w; v.rejected = true; v.step = r.step; if (r.wvec) v.wvec = r.wvec; }
     else {
       v.wvec = comps.map(cs => cs.w.get(nd.id) || Q.ZERO);
       if (inTest && T.pending === nd.id) { v.rejected = true; v.pending = true; }
     }
+    if (v.rejected && showGreen()) v.claimed = true;
     return v;
   });
   const edges = [];
@@ -410,7 +415,7 @@ function buildAllVM() {
 /* All view of an entangled graph object outside Test mode (the Compare tab's pictures) */
 function designAllVM(Gx) {
   const views = Gx.ent.comps.map((_, k) => entViewGraph(Gx, k)), st = stateFromGraph(Gx);
-  const nodes = Gx.nodes.map(nd => ({ id: nd.id, label: nd.label, x: nd.x, y: nd.y, rx: nodeRx(nd.label), ry: NODE_R, p: nd.p, w: st.w.get(nd.id) || Q.ZERO, color: nd.color || '', group: nd.group || '', wexpr: '', rejected: false, wvec: views.map(v => v.nodes.find(n => n.id === nd.id).w) }));
+  const nodes = Gx.nodes.map(nd => ({ id: nd.id, label: nd.label, x: nd.x, y: nd.y, ...nodeLook(nd, Gx), p: nd.p, w: st.w.get(nd.id) || Q.ZERO, color: nd.color || '', group: nd.group || '', wexpr: '', rejected: false, wvec: views.map(v => v.nodes.find(n => n.id === nd.id).w) }));
   const edges = [];
   views.forEach((v, k) => v.edges.forEach(e => edges.push({ from: e.from, to: e.to, g: e.g, bend: e.bend, expr: e.expr, text: e.expr ? exprDisplay(e.expr) : fmt(e.g), comp: k })));
   return { nodes, edges, all: true, n: views.length, c: Gx.ent.c };
@@ -458,32 +463,48 @@ function renderCanvas() {
      screen at any zoom (WCAG 2.2, 2.5.8). It sits behind every hypothesis, so a tap on a circle still selects that circle.
      With a mouse nothing is drawn here. */
   const hitNode = touchScreen() && mode === 'design' && !vm.all && !linking && sel && sel.type === 'node' ? vm.nodes.find(n => n.id === sel.id) : null;
-  P.push('</g>' + (hitNode ? `<g class="handle-hits"><circle class="handle-hit" data-hit="${hitNode.id}" cx="${(hitNode.x + (hitNode.rx + 6.5) * Math.SQRT1_2).toFixed(1)}" cy="${(hitNode.y - (hitNode.ry + 6.5) * Math.SQRT1_2).toFixed(1)}" r="${handleHitR()}"/></g>` : '') + '<g class="nodes">');
+  P.push('</g>' + (hitNode ? `<g class="handle-hits"><circle class="handle-hit" data-hit="${hitNode.id}" cx="${(hitNode.x + handleAt(hitNode).x).toFixed(1)}" cy="${(hitNode.y + handleAt(hitNode).y).toFixed(1)}" r="${handleHitR()}"/></g>` : '') + '<g class="nodes">');
   for (const n of vm.nodes) {
     const isSel = sel && sel.type === 'node' && sel.id === n.id;
     const cls = ['node'];
     if (isSel) cls.push('sel');
     if (errNodes.has(n.id)) cls.push('err');
     if (n.rejected) cls.push('rejected');
+    if (n.claimed) cls.push('claimed');
+    if (n.shape === 'box') cls.push('box');
     if (linking && linking.from === n.id) cls.push('sel');
     if (witActive()) { if (wit.target === n.id) cls.push('wit-target'); else if (wit.set.includes(n.id)) cls.push('wit-set'); }
     const lp = labelParts(n.label);
     const colored = n.color && !n.rejected;
     const tcol = colored ? `fill:${textOnColor(n.color)};` : '';
-    const lab = lp ? `<text class="nlabel" y="-3" style="${tcol}">${esc(lp.base)}<tspan font-size="12" dy="5">${esc(lp.sub)}</tspan></text>`
-      : `<text class="nlabel" y="-3" style="font-size:15px;${tcol}">${esc(n.label)}</text>`;
+    const ty = nodeTextY(n);
+    const lab = lp ? `<text class="nlabel" y="${ty.label}" style="${tcol}">${esc(lp.base)}<tspan font-size="12" dy="5">${esc(lp.sub)}</tspan></text>`
+      : `<text class="nlabel" y="${ty.label}" style="font-size:15px;${tcol}">${esc(n.label)}</text>`;
     const flash = T && T.flashNodes && T.flashNodes.has(n.id);
     const wt = n.wvec ? `(${n.wvec.map(q => fmt(q)).join(', ')})` : (mode !== 'test' && !n.rejected && (nodeById(n.id) || {}).wexpr) ? exprDisplay(nodeById(n.id).wexpr) : fmt(n.w);
     const pl = plainWords();
     /* screen readers: the share at the start as a percentage in the clinician view (1.3.5) */
     let aria = n.wvec ? `${n.label}, weights by component ${wt}` : plain && mode !== 'test' ? `${n.label}, share at the start ${pctWords(Q.toNum(n.w) * G.alpha)}` : pl ? n.label : `${n.label}, weight ${wt}`;
     if (n.rejected) aria += pl ? ', claimed' : ', rejected';
-    let extra = '';
-    if (n.rejected) extra += `<line class="strike" x1="${(-n.rx * 0.6).toFixed(1)}" y1="-9" x2="${(n.rx * 0.6).toFixed(1)}" y2="-9"/>`;
-    if (errNodes.has(n.id)) extra += `<g class="badge" transform="translate(${(n.rx * 0.78).toFixed(1)},${(-n.ry * 0.8).toFixed(1)})"><circle r="9"/><text y="4">!</text></g>`;
+    /* the description, when the graph shows descriptions (1.4.21): in the screen-reader label, in full on hover, and in up to
+       two lines under the circle; the test captions go below it */
+    const fullDesc = n.desc && n.desc.length ? ((nodeById(n.id) || {}).desc || '').trim() : '';
+    if (fullDesc) aria += `, ${fullDesc}`;
+    const dh = n.descH || 0;
+    const tip = fullDesc ? `<title>${esc(fullDesc)}</title>` : '';
+    /* inside a coloured box the description takes the label's colour (1.4.21) */
+    const dcol = colored && n.shape === 'box' ? ` style="${tcol}opacity:.85"` : '';
+    let extra = fullDesc ? n.desc.map((line, i) => `<text class="ndesc" y="${ty.desc(i)}"${dcol}>${esc(line)}</text>`).join('') : '';
+    const bo = badgeOffset(n);
+    /* a claimed hypothesis (1.4.21) has a green badge with a tick in place of the line through its label */
+    if (n.claimed) extra += `<g class="okbadge" transform="translate(${bo.x.toFixed(1)},${bo.y.toFixed(1)})"><circle r="9"/><path d="M${OK_TICK.map(([x, y]) => `${x},${y}`).join(' L')}"/></g>`;
+    else if (n.rejected) extra += `<line class="strike" x1="${(-n.rx * 0.6).toFixed(1)}" y1="${ty.label - 6}" x2="${(n.rx * 0.6).toFixed(1)}" y2="${ty.label - 6}"/>`;
+    if (errNodes.has(n.id)) extra += `<g class="badge" transform="translate(${bo.x.toFixed(1)},${bo.y.toFixed(1)})"><circle r="9"/><text y="4">!</text></g>`;
     if (mode === 'test' && T) {
-      const y1 = n.ry + 17;
-      if (n.rejected && !n.pending) extra += pl ? `<text class="ncap rej" y="${y1}">\u2713 Claimed (step ${n.step})</text>` : `<text class="ncap rej" y="${y1}">\u2713 Rejected${T.closed ? '' : ` (step ${n.step})`}</text>`;
+      /* a box's ring has a flat bottom, so its caption goes 4 px lower to keep clear of it (1.4.21) */
+      const y1 = n.ry + 17 + dh + (n.shape === 'box' ? 4 : 0);
+      const rc = n.claimed ? 'ncap rej ok' : 'ncap rej';
+      if (n.rejected && !n.pending) extra += pl ? `<text class="${rc}" y="${y1}">\u2713 Claimed (step ${n.step})</text>` : `<text class="${rc}" y="${y1}">\u2713 Rejected${T.closed ? '' : ` (step ${n.step})`}</text>`;
       else if (T.closed) { const p = parseP(n.p); extra += `<text class="ncap" y="${y1}">${ctRunning ? 'testing\u2026' : '\u2715 not rejected'}</text><text class="ncap" y="${y1 + 16}">p = ${fmtNum(p)}</text>`; }
       else if (!n.pending) {
         const p = parseP(n.p);
@@ -500,14 +521,18 @@ function renderCanvas() {
       }
     }
     if (witActive() && !n.rejected) {
-      const yw = n.ry + 17 + (mode === 'test' ? 32 : 0);
+      const yw = n.ry + 17 + dh + (mode === 'test' ? 32 : 0);
       if (wit.target === n.id) extra += `<text class="ncap lvl" y="${yw}" style="fill:var(--accent)">\u2192 ${pl ? `share would be ${pctWords(wit.level)}` : `level would be ${fmtNum(wit.level)}`}</text>`;
       else if (wit.set.includes(n.id)) extra += `<text class="ncap lvl" y="${yw}" style="fill:var(--flow)">${pl ? 'if it succeeds' : 'if rejected'}</text>`;
     }
-    const hx = ((n.rx + 6.5) * Math.SQRT1_2).toFixed(1), hy = (-(n.ry + 6.5) * Math.SQRT1_2).toFixed(1);
-    P.push(`<g class="${cls.join(' ')}" data-node="${n.id}" transform="translate(${n.x.toFixed(1)},${n.y.toFixed(1)})" tabindex="0" role="button" aria-label="${esc(aria)}">` +
-      `<ellipse class="node-ring" rx="${n.rx + 6.5}" ry="${n.ry + 6.5}"/><ellipse class="node-body" rx="${n.rx}" ry="${n.ry}"${colored ? ` style="fill:${n.color}"` : ''}/>${lab}` +
-      `<text class="nweight${flash ? ' flash' : ''}" y="16"${colored ? ` style="${tcol}opacity:.85"` : ''}${n.wvec && wt.length > 7 ? ' style="font-size:11px"' : ''}>${esc(wt)}</text>${extra}${vm.all ? '' : `<circle class="handle" cx="${hx}" cy="${hy}" r="7"><title>Drag to another hypothesis, or click then click the target, to add a transition</title></circle>`}</g>`);
+    const ha = handleAt(n), hx = ha.x.toFixed(1), hy = ha.y.toFixed(1);
+    /* the ring (a target for drawing a transition) and the outline: ellipses, or rounded boxes (1.4.21) */
+    const shapes = n.shape === 'box'
+      ? `<rect class="node-ring" x="${-(n.rx + 6.5)}" y="${-(n.ry + 6.5)}" width="${2 * n.rx + 13}" height="${2 * n.ry + 13}" rx="${BOX_CORNER + 6.5}"/><rect class="node-body" x="${-n.rx}" y="${-n.ry}" width="${2 * n.rx}" height="${2 * n.ry}" rx="${BOX_CORNER}"${colored ? ` style="fill:${n.color}"` : ''}/>`
+      : `<ellipse class="node-ring" rx="${n.rx + 6.5}" ry="${n.ry + 6.5}"/><ellipse class="node-body" rx="${n.rx}" ry="${n.ry}"${colored ? ` style="fill:${n.color}"` : ''}/>`;
+    P.push(`<g class="${cls.join(' ')}" data-node="${n.id}" transform="translate(${n.x.toFixed(1)},${n.y.toFixed(1)})" tabindex="0" role="button" aria-label="${esc(aria)}">${tip}` +
+      `${shapes}${lab}` +
+      `<text class="nweight${flash ? ' flash' : ''}" y="${ty.weight}"${colored ? ` style="${tcol}opacity:.85"` : ''}${n.wvec && wt.length > 7 ? ' style="font-size:11px"' : ''}>${esc(wt)}</text>${extra}${vm.all ? '' : `<circle class="handle" cx="${hx}" cy="${hy}" r="7"><title>Drag to another hypothesis, or click then click the target, to add a transition</title></circle>`}</g>`);
   }
   P.push('</g><g class="labels">');
   for (const e of layout) {
@@ -758,6 +783,9 @@ function overviewPanel() {
   }).join('');
   return `<h2>Graph</h2>
   <div class="form"><label for="graph-title">Title <span class="hint">Optional. Shown above the drawing and in the pictures.</span><input class="txt" id="graph-title" value="${esc(G.title || '')}" maxlength="${TITLE_MAX}" autocomplete="off" spellcheck="true"></label></div>
+  <div class="row-actions" id="shapeRow"><span class="small">Shape</span><div class="seg" role="group" aria-label="Shape of the ${plain ? 'questions' : 'hypotheses'} on the drawing"><button data-action="shape" data-shape="circle" aria-pressed="${G.shape !== 'box'}">Circles</button><button data-action="shape" data-shape="box" aria-pressed="${G.shape === 'box'}">Boxes</button></div></div>
+  <label class="chk" id="descRow"><input type="checkbox" id="descToggle"${G.showDesc ? ' checked' : ''}> Show descriptions on the drawing</label>
+  ${G.showDesc && G.nodes.length && G.nodes.every(n => !(n.desc || '').trim()) ? `<p class="small muted" id="descNone">${touchWords(`No descriptions yet. Click a ${plain ? 'question' : 'hypothesis'} and open Description and group.`)}</p>` : ''}
   ${tplW && mode === 'design' ? `<div class="tpl-w"><p class="small"><b>${WEIGHT_GEN[tplW.key].title}${WEIGHT_GEN[tplW.key].kind === 'kofm' ? '' : ' for any m'}.</b> ${WEIGHT_GEN[tplW.key].prompt || 'Type the initial weights of H1, H2, &hellip; separated by commas.'} ${WEIGHT_GEN[tplW.key].blurb} This replaces the current graph (Undo brings it back).</p>
     <div class="row-actions"><input class="txt" id="tplW" value="${esc(tplW.text)}" aria-label="Initial weights" spellcheck="false"><button class="btn small primary" data-action="tpl-w-create">Create</button><button class="btn small" data-action="tpl-w-cancel">Cancel</button></div>
     <p class="err-text" id="tplWMsg"${tplW.msg ? '' : ' hidden'}>${esc(tplW.msg)}</p></div>` : ''}
@@ -1484,6 +1512,11 @@ function orderSection() {
 /* Plain language rewords the Test tab, the drawing, the hint and presentation mode for the Bonferroni step-through.
    Closed tests (Simes, parametric) keep the statistician's words. With plain off nothing changes from 1.3.0. */
 function plainWords() { return plain && isBonf(); }
+/* Rejected hypotheses drawn as successes, green with a tick (1.4.21; LaLonde and Nissen, 2025, Fig. 2). The clinician view:
+   wherever the drawing says "claimed" (plainWords), so a closed test keeps its grey, as it keeps its words (D3 of 1.3.1).
+   The statistician view: the Export tab's tick (Niamh's D5, 25 November), for every rejection. The drawing and every
+   picture follow it. */
+function showGreen() { return plain ? plainWords() : greenRejected; }
 function plainName(id, full) { const n = nodeById(id); if (!n) return '?'; return full && n.desc ? `${n.label} (${n.desc})` : n.label; }
 function plainSection() {
   if (!G.nodes.length) return '';
@@ -2312,9 +2345,11 @@ function stepFrames(panels) {
   const bendsOf = st.ent ? st.ent.comps.map((_, k) => new Map(entViewGraph(G, k).edges.map(e => [gKey(e.from, e.to), e.bend]))) : null;
   /* rejected hypotheses with the component weights they had when rejected, for the panels */
   const rejWithVec = rej => new Map([...rej].map(([id, k]) => [id, { step: k, wvec: rejVec.get(id) }]));
+  /* rejected hypotheses drawn as successes (1.4.21) */
+  const green = showGreen();
   const entVM = (s, rej) => {
     const nodes = G.nodes.map(n => {
-      const v = { id: n.id, label: n.label, x: n.x, y: n.y, rx: nodeRx(n.label), ry: NODE_R, p: n.p, group: n.group || '', color: n.color || '', w: s.w.get(n.id) || Q.ZERO, rejected: rej.has(n.id) };
+      const v = { id: n.id, label: n.label, x: n.x, y: n.y, ...nodeLook(n, G), p: n.p, group: n.group || '', color: n.color || '', w: s.w.get(n.id) || Q.ZERO, rejected: rej.has(n.id), claimed: green && rej.has(n.id) };
       v.wvec = rej.has(n.id) ? (rejVec.get(n.id) || s.ent.comps.map(cs => cs.w.get(n.id) || Q.ZERO)) : s.ent.comps.map(cs => cs.w.get(n.id) || Q.ZERO);
       return v;
     });
@@ -2335,10 +2370,10 @@ function stepFrames(panels) {
     push(st, rejected, `${TEST_TYPES[testType()]} closed test at α = ${fmtNum(G.alpha)}: rejected ${rej.length ? joinWords(rej.map(n => n.label)) : 'nothing'}${not.length ? `; not rejected ${joinWords(not.map(n => n.label))}` : ''}.`);
     return states.map(({ st: s, rejected: rj, caption }) => {
       const vm = s.ent ? entVM(s, rj) : {
-        nodes: G.nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y, rx: nodeRx(n.label), ry: NODE_R, p: n.p, group: n.group || '', color: n.color || '', w: n.w, rejected: rj.has(n.id) })),
+        nodes: G.nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y, ...nodeLook(n, G), p: n.p, group: n.group || '', color: n.color || '', w: n.w, rejected: rj.has(n.id), claimed: green && rj.has(n.id) })),
         edges: [...s.g.entries()].filter(([, g]) => !Q.isZero(g)).map(([k, g]) => { const [a, b] = k.split('>'); const o = edgeOf(a, b); return { from: a, to: b, g, bend: o ? o.bend : null, text: fmt(g) }; })
       };
-      return Object.assign({ vm, layout: layoutEdges(vm), caption, alpha: G.alpha }, panels && s.ent ? { panels: componentPanels(G, s, rejWithVec(rj), fmt) } : {});
+      return Object.assign({ vm, layout: layoutEdges(vm), caption, alpha: G.alpha }, panels && s.ent ? { panels: componentPanels(G, s, rejWithVec(rj), fmt, 0, green) } : {});
     });
   }
   const steps = (mode === 'test' && T && T.log.some(l => l.data)) ? T.log.filter(l => l.data) : null;
@@ -2371,13 +2406,13 @@ function stepFrames(panels) {
   if (states.length > 1) states[states.length - 1].caption += rem.length ? ` Final result: ${joinWords(rem)} not rejected.` : ' Final result: all hypotheses rejected.';
   return states.map(({ st: s, rejected: rej, caption, data, rejW: rw }) => {
     const vm = s.ent ? entVM(s, rej) : {
-      nodes: G.nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y, rx: nodeRx(n.label), ry: NODE_R, p: n.p, group: n.group || '', color: n.color || '', w: rej.has(n.id) ? Q.ZERO : (s.w.get(n.id) || Q.ZERO), rejected: rej.has(n.id) })),
+      nodes: G.nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y, ...nodeLook(n, G), p: n.p, group: n.group || '', color: n.color || '', w: rej.has(n.id) ? Q.ZERO : (s.w.get(n.id) || Q.ZERO), rejected: rej.has(n.id), claimed: green && rej.has(n.id) })),
       edges: [...s.g.entries()].filter(([, g]) => !Q.isZero(g)).map(([k, g]) => { const [a, b] = k.split('>'); const o = edgeOf(a, b); return { from: a, to: b, g, bend: o ? o.bend : null, text: fmt(g) }; })
     };
     /* a rejected hypothesis shows the weight it was rejected at, as on the drawing in Test mode (up to 1.4.19 the beamer frames
        showed its starting weight) */
     if (!s.ent) for (const n of vm.nodes) if (n.rejected) { const r = G.nodes.find(x => x.id === n.id); n.w = rw.has(n.id) ? rw.get(n.id) : r ? r.w : Q.ZERO; }
-    return Object.assign({ vm, layout: layoutEdges(vm), caption, alpha: G.alpha, data, rejW: rw }, panels && s.ent ? { panels: componentPanels(G, s, rejWithVec(rej), fmt) } : {});
+    return Object.assign({ vm, layout: layoutEdges(vm), caption, alpha: G.alpha, data, rejW: rw }, panels && s.ent ? { panels: componentPanels(G, s, rejWithVec(rej), fmt, 0, green) } : {});
   });
 }
 
@@ -2426,6 +2461,7 @@ function initExportPanel() {
   </div>
   <p class="small muted" id="stepsNote" hidden>Steps side by side is for the Bonferroni step-through. A closed test has no steps to draw. In the Test tab, What if draws the hypotheses you reject by hand.</p>
   <label class="chk" id="ptitleRow" hidden><input type="checkbox" id="ptitleToggle" checked> Put the title on the pictures (PNG, SVG and TikZ)</label>
+  <label class="chk adv" id="greenRow"><input type="checkbox" id="greenToggle"> Draw rejected hypotheses in green, with a tick, on the drawing and in the pictures</label>
   <div class="adv">
   <h3>For documents and slides</h3>
   <div class="export-grid">
@@ -2461,6 +2497,7 @@ function updateExportPanel() {
   const t = $('sbsToggle'); if (t) t.checked = sideBySide;
   const pr = $('ptitleRow'); if (pr) pr.hidden = !G.title;
   const pt = $('ptitleToggle'); if (pt) pt.checked = titleOnPics;
+  const gt = $('greenToggle'); if (gt) gt.checked = greenRejected;
   /* the box follows the title; it is left alone only while the user is typing in it */
   const fn = $('fileName'); if (fn && (document.activeElement !== fn || fileNameTyped == null)) fn.value = fileBase();
   fileLabels();
@@ -2497,7 +2534,7 @@ const fileFor = end => fileBase() + end;
    symbolic labels, or in Test mode each component's current graph with the rejected hypotheses greyed */
 function currentPanels() {
   const inTest = mode === 'test' && T;
-  return componentPanels(G, inTest ? T.st : null, inTest ? T.rejected : null, fmt);
+  return componentPanels(G, inTest ? T.st : null, inTest ? T.rejected : null, fmt, 0, showGreen());
 }
 const SAVE_OK = ['png', 'svg', 'json', 'txt', 'md', 'html', 'csv'];
 function canDownload(file) {
@@ -2760,7 +2797,7 @@ function cmpSig() { const t = compareTarget(); return snapshot() + '|' + CMP.mat
 function graphPicture(S) {
   const Gx = deserializeGraph(S, false, 1).G;
   const vm = isEntangled(Gx) ? designAllVM(Gx) : {
-    nodes: Gx.nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y, rx: nodeRx(n.label), ry: NODE_R, p: n.p, w: n.w, color: n.color || '', group: n.group || '', wexpr: n.wexpr || '', rejected: false })),
+    nodes: Gx.nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y, ...nodeLook(n, Gx), p: n.p, w: n.w, color: n.color || '', group: n.group || '', wexpr: n.wexpr || '', rejected: false })),
     edges: Gx.edges.map(e => ({ from: e.from, to: e.to, g: e.g, bend: e.bend, expr: e.expr, text: e.expr ? exprDisplay(e.expr) : fmt(e.g) }))
   };
   return exportSVG(vm, layoutEdges(vm), fmt).replace(/<svg /, '<svg class="cmp-pic" ').replace(/ width="[^"]*" height="[^"]*"/, '');
@@ -3121,7 +3158,8 @@ function positionInline() {
   } else {
     const n = nodeById(inline.id);
     if (!n) return;
-    x = n.x; y = inline.kind === 'nodew' ? n.y + 11 : n.y - 8;
+    const ty = nodeTextY(nodeLook(n, G));   /* over the label or the weight: in a box with descriptions they move apart */
+    x = n.x; y = n.y + (inline.kind === 'nodew' ? ty.weight : ty.label) - 5;
   }
   const pt = toClient(x, y);
   const wr = svg.parentElement.getBoundingClientRect();
@@ -3181,7 +3219,7 @@ function nodeAt(p, exclude) {
   for (let i = G.nodes.length - 1; i >= 0; i--) {
     const n = G.nodes[i];
     if (n.id === exclude) continue;
-    if (insideNode({ x: n.x, y: n.y, rx: nodeRx(n.label), ry: NODE_R }, p, 10)) return n;
+    if (insideNode(Object.assign({ x: n.x, y: n.y }, nodeLook(n, G)), p, 10)) return n;
   }
   return null;
 }
@@ -3189,8 +3227,8 @@ function drawTempLink(fromId, p) {
   const a = nodeById(fromId);
   if (!a) return;
   const target = nodeAt(p, fromId);
-  const end = target ? borderPoint({ x: target.x, y: target.y, rx: nodeRx(target.label), ry: NODE_R }, a) : p;
-  const src = borderPoint({ x: a.x, y: a.y, rx: nodeRx(a.label), ry: NODE_R }, target ? target : p);
+  const end = target ? borderPoint(Object.assign({ x: target.x, y: target.y }, nodeLook(target, G)), a) : p;
+  const src = borderPoint(Object.assign({ x: a.x, y: a.y }, nodeLook(a, G)), target ? target : p);
   overlay.innerHTML = `<path class="temp-link" d="M${src.x},${src.y} L${end.x},${end.y}" marker-end="url(#ahSel)"/>`;
   world.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
   if (target) { const el = world.querySelector(`[data-node="${target.id}"]`); if (el) el.classList.add('drop-target'); }
@@ -3561,6 +3599,10 @@ $('tab-graph').addEventListener('change', e => {
     checkpoint(); G.ent.c[k] = r.q; G.ent.cexpr = G.ent.cexpr || []; G.ent.cexpr[k] = r.expr || undefined; CT = null; deferChange();
   } else if (t.id === 'node-color-custom' && n) {
     setColors([n.id], validColor(t.value));
+  } else if (t.id === 'descToggle') {
+    /* descriptions on the drawing (1.4.21): saved with the graph, so it can be undone */
+    if (t.checked === !!G.showDesc) return;
+    checkpoint(); G.showDesc = t.checked; setTimeout(() => { renderAll(); if (autoFit) fitView(); }, 0); scheduleHash();
   } else if (t.id === 'graph-title') {
     const v = readTitle(t.value);
     if (v === (G.title || '')) { t.value = v; return; }
@@ -3627,6 +3669,8 @@ $('tab-graph').addEventListener('click', e => {
   else if (act === 'color-all' && sel && sel.type === 'node') { const c = (nodeById(sel.id) || {}).color || ''; setColors(G.nodes.map(n => n.id), c); }
   else if (act === 'equal-row' && sel && sel.type === 'node') doFix({ act: 'equalRow', id: sel.id });
   else if (act === 'equal-w') doFix({ act: 'equalW' });
+  /* the shape of the hypotheses (1.4.21): saved with the graph, so it can be undone */
+  else if (act === 'shape') { const v = b.dataset.shape === 'box' ? 'box' : undefined; if (v !== G.shape) { checkpoint(); G.shape = v; renderAll(); if (autoFit) fitView(); scheduleHash(); } }
   else if (act === 'make-ent') makeEntangled();
   else if (act === 'comp-add') addComponent();
   else if (act === 'comp-remove') removeComponent();
@@ -3914,6 +3958,13 @@ $('tab-export').addEventListener('change', e => {
   if (e.target.id === 'ptitleToggle') {
     titleOnPics = e.target.checked; store.set('mgs-ptitle', titleOnPics ? '1' : '0');
     if (['png', 'sbs', 'steps', 'svg', 'tikz'].includes(exportView)) showExport(exportView);
+    return;
+  }
+  /* the statistician view's green tick (1.4.21): the drawing and every picture follow it; the browser remembers it */
+  if (e.target.id === 'greenToggle') {
+    greenRejected = e.target.checked; store.set('mgs-green', greenRejected ? '1' : '0');
+    renderCanvas();
+    if (['png', 'sbs', 'steps', 'svg', 'tikz', 'beamer'].includes(exportView)) showExport(exportView);
     return;
   }
   if (e.target.id !== 'loadFile') return;
@@ -4276,6 +4327,7 @@ new ResizeObserver(() => {
   if (store.get('mgs-num') === 'dec') { numMode = 'dec'; $('decToggle').checked = true; }
   if (store.get('mgs-snap') === '1') { snap = true; $('snapToggle').checked = true; }
   if (store.get('mgs-ptitle') === '0') titleOnPics = false;
+  if (store.get('mgs-green') === '1') greenRejected = true;
   if (GAPS[store.get('mgs-gap')]) setGap(store.get('mgs-gap'));
   setPlain(store.get('mgs-plain') === '1', true);
   if (store.get('mgs-hints') === '0') { hints = false; $('hintToggle').checked = false; }

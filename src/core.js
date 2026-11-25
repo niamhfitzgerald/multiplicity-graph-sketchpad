@@ -1,6 +1,6 @@
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.4.20';
+const APP_VERSION = '1.4.21';
 const APP_DATE = '2026-11-25';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
@@ -208,6 +208,59 @@ function nodeRx(label) {
   const lp = labelParts(label);
   const w = lp ? textWidth(lp.base, 17) + textWidth(lp.sub, 12) : textWidth(label, 15);
   return Math.min(110, Math.max(NODE_R, w / 2 + 14));
+}
+/* Descriptions on the drawing (1.4.21): with the graph's showDesc ticked, each description is drawn in 12 px text under its
+   circle, wrapped at about 130 px (about 20 characters) and cut with "…" after two lines. */
+const DESC_SIZE = 12, DESC_LINE = 14, DESC_WRAP = 130, DESC_GAP = 8, DESC_MAX = 2;
+function descLines(desc) {
+  const t = String(desc || '').replace(/\s+/g, ' ').trim();
+  if (!t) return [];
+  const wid = x => textWidth(x, DESC_SIZE);
+  /* a line that is too wide loses characters from its end until it fits with "…" */
+  const cut = x => { let y = x; while (y && wid(y + '…') > DESC_WRAP) y = y.slice(0, -1); return y.replace(/[\s,;:.]+$/, '') + '…'; };
+  const lines = [];
+  let cur = '';
+  for (const w of t.split(' ')) {
+    if (cur && wid(cur + ' ' + w) > DESC_WRAP) { lines.push(cur); cur = w; }
+    else cur = cur ? cur + ' ' + w : w;
+  }
+  lines.push(cur);
+  const out = lines.slice(0, DESC_MAX).map(x => (wid(x) > DESC_WRAP ? cut(x) : x));
+  if (lines.length > DESC_MAX && !out[DESC_MAX - 1].endsWith('…')) out[DESC_MAX - 1] = cut(out[DESC_MAX - 1] + ' ' + lines[DESC_MAX]);
+  return out;
+}
+/* How a hypothesis is drawn (1.4.21): its half-width rx and half-height ry, as up to 1.4.20, and with the graph's showDesc
+   its description lines (desc), how far they reach below the circle (descH) and their widest line (descW). Gx: the graph
+   the hypothesis belongs to. With the graph's shape 'box' (B4) the hypothesis is a rounded rectangle (shape: 'box'), at
+   least 72 x 52 px, as wide as its label or its description needs, with the description inside (descH 0). */
+const BOX_RY = 26, BOX_PAD = 12, BOX_CORNER = 8;
+function nodeLook(n, Gx) {
+  const desc = Gx && Gx.showDesc ? descLines(n.desc) : [];
+  const descW = desc.length ? Math.max(...desc.map(x => textWidth(x, DESC_SIZE))) : 0;
+  if (Gx && Gx.shape === 'box') {
+    const lp = labelParts(n.label);
+    const lw = lp ? textWidth(lp.base, 17) + textWidth(lp.sub, 12) : textWidth(n.label, 15);
+    return { rx: Math.min(110, Math.max(NODE_R, Math.max(lw, descW) / 2 + BOX_PAD)), ry: BOX_RY + desc.length * DESC_LINE / 2, shape: 'box', desc, descH: 0, descW };
+  }
+  return { rx: nodeRx(n.label), ry: NODE_R, desc, descH: desc.length ? DESC_GAP + desc.length * DESC_LINE : 0, descW };
+}
+/* Where the text of a hypothesis goes, about its centre: the label's and the weight's baselines, and each description
+   line's (under a circle; inside a box, between the label and the weight). A box without a description puts the label and
+   the weight where a circle does. */
+function nodeTextY(n) {
+  if (n.shape !== 'box') return { label: -3, weight: 16, desc: i => n.ry + DESC_GAP + 10 + i * DESC_LINE };
+  const l = -n.ry + 23;
+  return { label: l, weight: n.ry - 10, desc: i => l + 15 + i * DESC_LINE };
+}
+/* The badges (the error badge on the drawing, the tick of a claimed hypothesis): on the circle's edge at the top right, or
+   on a box's top right corner */
+function badgeOffset(n) { return n.shape === 'box' ? { x: n.rx - 3, y: -n.ry + 3 } : { x: n.rx * 0.78, y: -n.ry * 0.8 }; }
+/* The blue dot (and its touch target), about the centre: on the ring 6.5 px outside the circle at 45 degrees, or at the
+   middle of the ring's top right corner round a box */
+function handleAt(n) {
+  if (n.shape !== 'box') return { x: (n.rx + 6.5) * Math.SQRT1_2, y: -(n.ry + 6.5) * Math.SQRT1_2 };
+  const r = BOX_CORNER + 6.5;
+  return { x: n.rx + 6.5 - r + r * Math.SQRT1_2, y: -(n.ry + 6.5 - r + r * Math.SQRT1_2) };
 }
 const gKey = (a, b) => `${a}>${b}`;
 
@@ -925,8 +978,18 @@ function arrangePositions(G, shape, gap, cx, cy) {
 function borderPoint(n, toward) {
   const dx = toward.x - n.x, dy = toward.y - n.y, L = Math.hypot(dx, dy) || 1;
   const ux = dx / L, uy = dy / L;
-  const t = 1 / Math.sqrt((ux / n.rx) ** 2 + (uy / n.ry) ** 2);
+  const t = n.shape === 'box' ? boxBorderT(n, ux, uy) : 1 / Math.sqrt((ux / n.rx) ** 2 + (uy / n.ry) ** 2);
   return { x: n.x + ux * t, y: n.y + uy * t, ang: Math.atan2(-uy, ux) * 180 / Math.PI };
+}
+/* How far from a box's centre a ray (ux, uy) leaves it (1.4.21): at a side, or on a rounded corner */
+function boxBorderT(n, ux, uy) {
+  const a = n.rx, b = n.ry, r = BOX_CORNER;
+  let t = Math.min(Math.abs(ux) > 1e-12 ? a / Math.abs(ux) : Infinity, Math.abs(uy) > 1e-12 ? b / Math.abs(uy) : Infinity);
+  if (Math.abs(ux * t) > a - r && Math.abs(uy * t) > b - r) {
+    const cx = Math.sign(ux) * (a - r), cy = Math.sign(uy) * (b - r), d = ux * cx + uy * cy;
+    t = d + Math.sqrt(Math.max(0, d * d - (cx * cx + cy * cy) + r * r));
+  }
+  return t;
 }
 function curveGeom(a, b, bend) {
   const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy) || 1;
@@ -945,6 +1008,7 @@ function pointAt(geo, t) {
   return { x: u * u * geo.s.x + 2 * u * t * geo.c.x + t * t * geo.e.x, y: u * u * geo.s.y + 2 * u * t * geo.c.y + t * t * geo.e.y };
 }
 function insideNode(n, p, pad) {
+  if (n.shape === 'box') return Math.abs(p.x - n.x) < n.rx + pad && Math.abs(p.y - n.y) < n.ry + pad;
   return ((p.x - n.x) / (n.rx + pad)) ** 2 + ((p.y - n.y) / (n.ry + pad)) ** 2 < 1;
 }
 function autoBend(a, b, bidir, nodes) {
@@ -967,11 +1031,13 @@ function rectHitsNode(r, n, pad) {
 }
 const rectsOverlap = (a, b, pad) => a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad;
 
-/* vm: { nodes: [{id,x,y,rx,ry}], edges: [{from,to,bend,text}] } */
-function layoutEdges(vm) {
+/* Where along an arrow its weight label may go, tried in this order */
+const LABEL_TS = [0.5, 0.42, 0.58, 0.34, 0.66, 0.27, 0.73, 0.2, 0.8];
+/* vm: { nodes: [{id,x,y,rx,ry}], edges: [{from,to,bend,text}] }; ts: the label places to try */
+function layoutEdges(vm, ts = LABEL_TS) {
   const byId = new Map(vm.nodes.map(n => [n.id, n]));
   /* captions under a node (test mode) count as part of the obstacle */
-  const obstacles = vm.nodes.map(n => (n.capH ? Object.assign({}, n, { y: n.y + n.capH / 2, ry: n.ry + n.capH / 2 }) : n));
+  const obstacles = vm.nodes.map(n => { const below = (n.capH || 0) + (n.descH || 0); return below ? Object.assign({}, n, { y: n.y + below / 2, ry: n.ry + below / 2 }) : n; });
   const keys = new Set(vm.edges.map(e => gKey(e.from, e.to)));
   const out = [];
   /* the same transition in several components (an entangled graph's All view, e.comp set) is drawn as separate
@@ -987,7 +1053,6 @@ function layoutEdges(vm) {
     out.push(Object.assign({}, e, { key: e.comp == null ? base : `${base}#${e.comp}`, a, b, bend, auto: e.bend == null }, curveGeom(a, b, bend)));
   }
   const placed = [];
-  const ts = [0.5, 0.42, 0.58, 0.34, 0.66, 0.27, 0.73, 0.2, 0.8];
   const ordered = out.slice().sort((x, y) => (x.key < y.key ? -1 : 1));
   /* keep a label off other arrows so it is clear which arrow it belongs to */
   const crossesOther = (e, r) => out.some(o => {
@@ -1215,18 +1280,22 @@ function groupBoxes(vm, pad = 22) {
   const groups = [...new Set(vm.nodes.map(n => n.group).filter(Boolean))];
   return groups.map(g => {
     const ns = vm.nodes.filter(n => n.group === g);
-    const x1 = Math.min(...ns.map(n => n.x - n.rx)) - pad, x2 = Math.max(...ns.map(n => n.x + n.rx)) + pad;
-    const y1 = Math.min(...ns.map(n => n.y - n.ry)) - pad - 16, y2 = Math.max(...ns.map(n => n.y + n.ry + (n.capH || 0))) + pad;
+    /* half the width of the hypothesis, or of its description under a circle (1.4.21), whichever is wider */
+    const hw = n => Math.max(n.rx, n.descH ? (n.descW || 0) / 2 : 0);
+    const x1 = Math.min(...ns.map(n => n.x - hw(n))) - pad, x2 = Math.max(...ns.map(n => n.x + hw(n))) + pad;
+    const y1 = Math.min(...ns.map(n => n.y - n.ry)) - pad - 16, y2 = Math.max(...ns.map(n => n.y + n.ry + (n.capH || 0) + (n.descH || 0))) + pad;
     const colored = ns.find(n => n.color);
     return { group: g, x: x1, y: y1, w: x2 - x1, h: y2 - y1, color: colored ? colored.color : '' };
   });
 }
 const TIKZ_S = 60; // pixels per cm
 /* The style lines of a picture; withComp adds one line style per component (All view and side-by-side panels) */
-function tikzStyles(withComp) {
+function tikzStyles(withComp, withBox) {
   const L = ['\\begin{tikzpicture}['];
   L.push('  hyp/.style={circle, draw, thick, minimum size=1.2cm, inner sep=1pt, outer sep=0pt, align=center, font=\\small},');
   L.push('  hypwide/.style={ellipse, draw, thick, inner sep=1pt, outer sep=0pt, align=center, font=\\small},');
+  /* boxes (1.4.21): written only when the picture has them, so a picture of circles is as before */
+  if (withBox) L.push(`  hypbox/.style={rectangle, rounded corners=${(BOX_CORNER / TIKZ_S).toFixed(2)}cm, draw, thick, inner sep=1pt, outer sep=0pt, align=center, font=\\small},`);
   L.push('  rejected/.style={draw=gray, dashed, text=gray},');
   L.push('  trans/.style={-{Stealth[length=2.2mm]}, semithick},');
   L.push('  wt/.style={fill=white, draw, rounded corners=1pt, inner sep=1.5pt, font=\\scriptsize}' + (withComp ? ',' : ''));
@@ -1248,6 +1317,9 @@ function tikzBody(vm, layout, opts, cx, cy) {
   const boxes = opts.bands === false ? [] : groupBoxes(vm);
   const cols = [...new Set(vm.nodes.filter(n => n.color && !n.rejected).map(n => n.color.toUpperCase()))];
   cols.forEach((c, i) => L.push(`\\definecolor{hypfill${String.fromCharCode(65 + i)}}{HTML}{${c.slice(1)}}`));
+  /* rejected hypotheses drawn as successes (1.4.21): green outline and fill, and a badge with a tick after the arrows */
+  const claimed = vm.nodes.filter(n => n.rejected && n.claimed);
+  if (claimed.length) L.push('\\definecolor{claimgreen}{HTML}{2D6A39}', '\\definecolor{claimfill}{HTML}{E1EFDF}');
   if (boxes.length) {
     L.push('\\begin{scope}[on background layer]');
     boxes.forEach((b, i) => {
@@ -1258,11 +1330,14 @@ function tikzBody(vm, layout, opts, cx, cy) {
     L.push('\\end{scope}');
   }
   for (const n of vm.nodes) {
-    const wide = Math.abs(n.rx - n.ry) > 0.5;
-    let style = wide ? `hypwide, minimum width=${(2 * n.rx / S).toFixed(2)}cm, minimum height=${(2 * n.ry / S).toFixed(2)}cm` : 'hyp';
-    if (n.rejected) style += ', rejected';
+    const wide = Math.abs(n.rx - n.ry) > 0.5, box = n.shape === 'box';
+    let style = box ? `hypbox, minimum width=${(2 * n.rx / S).toFixed(2)}cm, minimum height=${(2 * n.ry / S).toFixed(2)}cm` : wide ? `hypwide, minimum width=${(2 * n.rx / S).toFixed(2)}cm, minimum height=${(2 * n.ry / S).toFixed(2)}cm` : 'hyp';
+    if (n.rejected && n.claimed) style += ', draw=claimgreen, fill=claimfill, very thick';
+    else if (n.rejected) style += ', rejected';
     else if (n.color) { const k = cols.indexOf(n.color.toUpperCase()); style += `, fill=hypfill${String.fromCharCode(65 + k)}${textOnColor(n.color) === '#ffffff' ? ', text=white' : ''}`; }
-    L.push(`\\node[${style}] (${id(n)}) at (${cx(n.x)}, ${cy(n.y)}) {${texLabel(n.label)}\\\\ ${n.wvec ? texVec(n.wvec) : n.wexpr && !n.rejected ? exprTeX(n.wexpr) : texNum(n.w)}};${n.rejected ? ' % rejected' : ''}`);
+    /* a box (1.4.21) has its description inside, between the label and the weight */
+    const inner = box && n.desc && n.desc.length ? n.desc.map(x => `{\\scriptsize ${descTeX(x)}}\\\\ `).join('') : '';
+    L.push(`\\node[${style}] (${id(n)}) at (${cx(n.x)}, ${cy(n.y)}) {${texLabel(n.label)}\\\\ ${inner}${n.wvec ? texVec(n.wvec) : n.wexpr && !n.rejected ? exprTeX(n.wexpr) : texNum(n.w)}};${n.rejected ? ' % rejected' : ''}`);
   }
   const compOf = e => (vm.all && e.comp != null ? e.comp : vm.comp != null ? vm.comp : 0);
   for (const e of layout) {
@@ -1276,9 +1351,18 @@ function tikzBody(vm, layout, opts, cx, cy) {
       L.push(`\\draw[${st}] (${A}.${e.s.ang.toFixed(1)}) .. controls (${cx(c1.x)}, ${cy(c1.y)}) and (${cx(c2.x)}, ${cy(c2.y)}) .. ${lab} (${B}.${e.e.ang.toFixed(1)});`);
     }
   }
+  /* the description under each circle (1.4.21), named nKd so the beamer level caption can go below it. Written after the
+     arrows, with white behind it as behind the level captions, so an arrow leaving the circle downwards runs under the
+     text. descTeX, since pdflatex's default font prints < and > as other characters. */
+  for (const n of vm.nodes) if (n.shape !== 'box' && n.desc && n.desc.length) L.push(`\\node[anchor=north, font=\\scriptsize, align=center, fill=white, inner sep=1pt, text=${n.rejected && !n.claimed ? 'gray' : 'black!70'}] (${id(n)}d) at (${cx(n.x)}, ${cy(n.y + n.ry + DESC_GAP)}) {${n.desc.map(descTeX).join('\\\\ ')}};`);
+  for (const n of claimed) {
+    const b = okBadgeAt(n), pt = ([x, y]) => `(${cx(b.x + x)}, ${cy(b.y + y)})`;
+    L.push(`\\fill[claimgreen, draw=white, line width=0.6pt] ${pt([0, 0])} circle (0.15);`);
+    L.push(`\\draw[white, line width=1.1pt, line cap=round, line join=round] ${OK_TICK.map(pt).join(' -- ')};`);
+  }
   if (vm.all) {
     /* key: one short line per component below the picture */
-    const kx = Math.min(...vm.nodes.map(n => n.x - n.rx)), ky = Math.max(...vm.nodes.map(n => n.y + n.ry + (n.capH || 0))) + (opts.levels ? 60 : 36);
+    const kx = Math.min(...vm.nodes.map(n => n.x - n.rx)), ky = Math.max(...vm.nodes.map(n => n.y + n.ry + (n.capH || 0) + (n.descH || 0))) + (opts.levels ? 60 : 36);
     for (let k = 0; k < vm.n; k++) {
       const st = 'semithick' + (k % 4 ? `, comp${k % 4}` : '');
       L.push(`\\draw[${st}] (${cx(kx)}, ${cy(ky + 18 * k)}) -- ++(0.7, 0) node[right, font=\\scriptsize] {Graph ${k + 1}${vm.c ? ` ($c = ${texNum(vm.c[k]).slice(1, -1)}$)` : ''}};`);
@@ -1287,8 +1371,9 @@ function tikzBody(vm, layout, opts, cx, cy) {
   if (opts.levels && opts.alpha != null) {
     for (const n of vm.nodes) {
       const lv = opts.cScale ? Q.toNum(Q.mul(n.w, opts.cScale)) * opts.alpha : Q.toNum(n.w) * opts.alpha;
-      if (n.rejected) L.push(`\\node[below=1pt of ${id(n)}, font=\\scriptsize, text=gray, fill=white, inner sep=1pt] {rejected};`);
-      else L.push(`\\node[below=1pt of ${id(n)}, font=\\scriptsize, align=center, fill=white, inner sep=1pt] {level $${fmtNum(lv)}$${n.p != null && Number.isFinite(parseP(n.p)) ? `\\\\ $p = ${fmtNum(parseP(n.p))}$` : ''}};`);
+      const under = n.shape !== 'box' && n.desc && n.desc.length ? id(n) + 'd' : id(n);
+      if (n.rejected) L.push(`\\node[below=1pt of ${under}, font=\\scriptsize, text=${n.claimed ? 'claimgreen' : 'gray'}, fill=white, inner sep=1pt] {rejected};`);
+      else L.push(`\\node[below=1pt of ${under}, font=\\scriptsize, align=center, fill=white, inner sep=1pt] {level $${fmtNum(lv)}$${n.p != null && Number.isFinite(parseP(n.p)) ? `\\\\ $p = ${fmtNum(parseP(n.p))}$` : ''}};`);
     }
   }
   return L;
@@ -1301,7 +1386,7 @@ function exportTikZ(vm, layout, opts = {}) {
   const L = [];
   const boxes = opts.bands === false ? [] : groupBoxes(vm);
   if (!opts.inner) L.push(`% Needs: \\usepackage{tikz} and \\usetikzlibrary{arrows.meta, shapes.geometric${boxes.length ? ', backgrounds' : ''}}`);
-  L.push(...tikzStyles(!!vm.all));
+  L.push(...tikzStyles(!!vm.all, vm.nodes.some(n => n.shape === 'box')));
   L.push(...tikzBody(vm, layout, opts, cx, cy));
   /* opts.title (1.4.18): a node above the picture, wrapped as in the SVG picture */
   if (opts.title) { const b = svgBounds(vm, layout), lines = titleLines(opts.title, b.maxX - b.minX); if (lines.length) L.push(tikzTitle(lines)); }
@@ -1331,7 +1416,7 @@ function exportTikZPanels(panels, opts = {}) {
   const bands = panels.some(p => groupBoxes(p.vm).length);
   if (!opts.inner) L.push(`% Needs: \\usepackage{tikz} and \\usetikzlibrary{arrows.meta, shapes.geometric, positioning${bands ? ', backgrounds' : ''}}`);
   if (!opts.inner) L.push(opts.comment || `% The component graphs of an entangled graph drawn side by side (Maurer and Bretz, 2013, Fig. 2).`);
-  L.push(...tikzStyles(true));
+  L.push(...tikzStyles(true, panels.some(p => p.vm.nodes.some(n => n.shape === 'box'))));
   panels.forEach((p, k) => {
     const dx = (k % cols) * (bw + gap), dy = -Math.floor(k / cols) * (bh + labelCm + gap);
     const cx = x => ((x - box.minX) / S + inset).toFixed(2), cy = y => (-(y - box.minY) / S).toFixed(2);
@@ -1349,13 +1434,59 @@ function exportTikZPanels(panels, opts = {}) {
 /* Beamer frame with one overlay per step. frames: [{vm, layout, caption, alpha}], or [{panels, caption, alpha}]
    for an entangled graph drawn side by side (every overlay is the panel set at that step, the panels keeping
    their places; a picture too wide or too tall for the frame is scaled down with \resizebox). */
+/* a Metropolis frame title and the space round it: 245.23 pt of text height less 7 cm on a 4:3 slide (measured) */
+const BEAMER_HEAD = 1.62;
+/* Beamer frames with descriptions (1.4.21): the level captions sit below the descriptions, so the arrows and the weight
+   labels are laid out round them too. The heights are TikZ's, measured in a Metropolis frame: a caption of two lines
+   about 47 px, each description line about 7 px taller than on the drawing, and a weight label about 8 px taller. Labels
+   may also go nearer the ends of an arrow (LABEL_TS_NEAR), as the captions leave less room in the middle. */
+const BEAMER_CAP = 53, BEAMER_DESC_LINE = 8, LABEL_TS_NEAR = [0.86, 0.14, 0.9, 0.1];
+function beamerCaptioned(vm) {
+  const v = Object.assign({}, vm, { nodes: vm.nodes.map(n => Object.assign({}, n, { capH: BEAMER_CAP + BEAMER_DESC_LINE * (n.desc ? n.desc.length : 0) })) });
+  return { vm: v, layout: layoutEdges(v, LABEL_TS.concat(LABEL_TS_NEAR)) };
+}
 function exportBeamer(frames, title) {
   const L = [];
   L.push('% Needs in the preamble: \\usepackage{tikz} \\usetikzlibrary{arrows.meta, shapes.geometric, positioning, backgrounds}');
   L.push('% One overlay per step: use the arrow keys in the PDF viewer to step through the rejections.');
   L.push(`\\begin{frame}{${titleTeX(title)}}`);
   L.push('\\centering');
-  if (frames.some(f => f.panels)) {
+  /* With descriptions (1.4.21; Niamh's option 3) the pictures are taller, so LaTeX measures them and scales every overlay
+     by the same factor when the tallest picture and the tallest caption do not fit the frame's height, or the widest
+     picture its width. Frames without descriptions are written as before: side-by-side panels scaled by the 1.3.6
+     estimate, an ordinary graph as it is. The room for the picture, the gap and the caption is the frame's text height
+     less a Metropolis frame title (BEAMER_HEAD; 7 cm on a 4:3 slide, less on a wider one). */
+  const descShown = frames.some(f => (f.panels ? f.panels.flatMap(p => p.vm.nodes) : f.vm.nodes).some(n => n.desc && n.desc.length));
+  if (descShown) {
+    let pics;
+    if (frames.some(f => f.panels)) {
+      const ps = frames.map(f => f.panels.map(p => Object.assign({}, p, beamerCaptioned(p.vm))));
+      const box = panelPlaces(ps.flat(), 0, 0).box;
+      pics = ps.map((p, k) => exportTikZPanels(p, { inner: true, levels: true, alpha: frames[k].alpha, box }).text.trimEnd());
+    } else {
+      const allX = frames.flatMap(f => f.vm.nodes.map(n => n.x)), allY = frames.flatMap(f => f.vm.nodes.map(n => n.y));
+      const x0 = Math.min(...allX), y0 = Math.min(...allY);
+      pics = frames.map(f => { const c = beamerCaptioned(f.vm); return exportTikZ(c.vm, c.layout, { inner: true, x0, y0, levels: true, alpha: f.alpha }).trimEnd(); });
+    }
+    const pic = k => `\\csname mgsPic${k + 1}\\endcsname`, num = d => `\\numexpr\\dimexpr${d}\\relax\\relax`;
+    L.push('% The pictures are scaled together to fit the frame. Each overlay\'s picture is kept as \\mgsPic1, \\mgsPic2, ...; LaTeX');
+    L.push('% measures the tallest and the widest picture (\\mgsPicH, \\mgsPicW) and the tallest caption (\\mgsCapH).');
+    pics.forEach((t, k) => { L.push(`\\expandafter\\long\\expandafter\\def${pic(k)}{%`); L.push(t); L.push('}%'); });
+    L.push(`\\setbox0=\\hbox{${pics.map((_, k) => pic(k)).join('')}}\\edef\\mgsPicH{\\the\\dimexpr\\ht0+\\dp0\\relax}%`);
+    L.push(`\\setbox0=\\vbox{${pics.map((_, k) => `\\hbox{${pic(k)}}`).join('')}}\\edef\\mgsPicW{\\the\\wd0}%`);
+    L.push('\\def\\mgsCapH{0pt}%');
+    frames.forEach(f => L.push(`\\setbox0=\\vbox{\\hsize=\\linewidth\\centering\\small ${texEscape(f.caption)}}\\ifdim\\dimexpr\\ht0+\\dp0\\relax>\\mgsCapH\\edef\\mgsCapH{\\the\\dimexpr\\ht0+\\dp0\\relax}\\fi`));
+    L.push(`\\edef\\mgsRoom{\\the\\dimexpr\\textheight-${BEAMER_HEAD}cm-\\mgsCapH-0.5em\\relax}%`);
+    /* the scale is \mgsNum / \mgsDen: the room over the tallest picture, or the line width over the widest, whichever is smaller */
+    L.push(`\\ifdim\\dimexpr\\mgsPicW*${num('\\mgsRoom')}/${num('\\mgsPicH')}\\relax>\\linewidth\\edef\\mgsNum{\\the\\linewidth}\\edef\\mgsDen{\\mgsPicW}\\else\\edef\\mgsNum{\\mgsRoom}\\edef\\mgsDen{\\mgsPicH}\\fi`);
+    pics.forEach((_, k) => {
+      L.push(`\\only<${k + 1}>{%`);
+      L.push(`\\setbox0=\\hbox{${pic(k)}}\\ifdim\\mgsDen>\\mgsNum\\relax\\resizebox{!}{\\dimexpr(\\ht0+\\dp0)*${num('\\mgsNum')}/${num('\\mgsDen')}\\relax}{\\copy0}\\else\\copy0\\fi%`);
+      /* no space after the picture: a picture scaled to the full line width would push the line breaks that follow onto an
+         empty second line */
+      L.push('}%');
+    });
+  } else if (frames.some(f => f.panels)) {
     const box = panelPlaces(frames.flatMap(f => f.panels), 0, 0).box;
     frames.forEach((f, k) => {
       const r = exportTikZPanels(f.panels, { inner: true, levels: true, alpha: f.alpha, box });
@@ -1377,7 +1508,9 @@ function exportBeamer(frames, title) {
     });
   }
   L.push('\\par\\vspace{0.5em}');
-  frames.forEach((f, k) => L.push(`\\only<${k + 1}>{\\small ${texEscape(f.caption)}}`));
+  /* with descriptions the caption lines end in %, so no space from the line ends comes before a caption and it is set as
+     it was measured (a space there can push a long caption onto a second line) */
+  frames.forEach((f, k) => L.push(`\\only<${k + 1}>{\\small ${texEscape(f.caption)}}${descShown ? '%' : ''}`));
   L.push('\\end{frame}');
   return L.join('\n') + '\n';
 }
@@ -1458,6 +1591,9 @@ function greekTeX(ch) {
 function titleTeX(line) {
   return String(line).replace(/[\\{}#$%&_~^<>|≤≥≠−×→–—✓✕ᵢ\u0370-\u03ff]/g, ch => TITLE_TEX[ch] || greekTeX(ch));
 }
+/* A description in TikZ (1.4.21): as the title, and a few more symbols that stop pdflatex's default set-up; … as \dots */
+const DESC_TEX = { '≈': '$\\approx$', '∞': '$\\infty$', '√': '$\\surd$', '∼': '$\\sim$', '≪': '$\\ll$', '≫': '$\\gg$', '′': '$^\\prime$', '″': '$^{\\prime\\prime}$', '…': '\\dots{}' };
+function descTeX(line) { return titleTeX(line).replace(/[≈∞√∼≪≫′″…]/g, ch => DESC_TEX[ch]); }
 function tikzTitle(lines) {
   return `\\node[anchor=south, font=\\large\\bfseries, align=center] at ([yshift=6pt]current bounding box.north) {${lines.map(titleTeX).join(' \\\\ ')}};`;
 }
@@ -1465,12 +1601,14 @@ function tikzTitle(lines) {
 function svgBounds(vm, layout) {
   const pts = [];
   for (const n of vm.nodes) pts.push([n.x - n.rx, n.y - n.ry], [n.x + n.rx, n.y + n.ry]);
+  /* descriptions under the circles (1.4.21) */
+  for (const n of vm.nodes) if (n.descH) pts.push([n.x - n.descW / 2, n.y + n.ry + n.descH], [n.x + n.descW / 2, n.y + n.ry + n.descH]);
   for (const b of groupBoxes(vm)) pts.push([b.x, b.y], [b.x + b.w, b.y + b.h]);
   for (const e of layout) {
     for (let t = 0; t <= 1; t += 0.1) { const p = pointAt(e, t); pts.push([p.x, p.y]); }
     pts.push([e.label.r.x, e.label.r.y], [e.label.r.x + e.label.r.w, e.label.r.y + e.label.r.h]);
   }
-  const key = vm.all ? { x: Math.min(...vm.nodes.map(n => n.x - n.rx)), y: Math.max(...vm.nodes.map(n => n.y + n.ry + (n.capH || 0))) + 30 } : null;
+  const key = vm.all ? { x: Math.min(...vm.nodes.map(n => n.x - n.rx)), y: Math.max(...vm.nodes.map(n => n.y + n.ry + (n.capH || 0) + (n.descH || 0))) + 30 } : null;
   if (key) { pts.push([key.x, key.y - 8], [key.x + 160, key.y + 18 * vm.n]); }
   if (!pts.length) pts.push([0, 0], [100, 100]);
   return { key, minX: Math.min(...pts.map(p => p[0])), minY: Math.min(...pts.map(p => p[1])), maxX: Math.max(...pts.map(p => p[0])), maxY: Math.max(...pts.map(p => p[1])) };
@@ -1496,12 +1634,16 @@ function svgBody(vm, layout, fmt, key) {
     o.push(`<text x="${l.x.toFixed(1)}" y="${(l.y + 4.3).toFixed(1)}" font-size="12.5" text-anchor="middle" fill="${ink}">${xmlEsc(e.text)}</text>`);
   }
   for (const n of vm.nodes) {
-    const col = n.rejected ? grey : (n.color ? textOnColor(n.color) : ink);
-    o.push(`<ellipse cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" rx="${n.rx.toFixed(1)}" ry="${n.ry.toFixed(1)}" fill="${n.rejected ? '#f1f2f3' : (n.color || '#ffffff')}" stroke="${col}" stroke-width="1.8"${n.rejected ? ' stroke-dasharray="4 3"' : ''}/>`);
-    o.push(svgLabelText(n.label, n.x.toFixed(1), (n.y - 3).toFixed(1), 17, `text-anchor="middle" font-weight="700" fill="${col}"`));
+    /* n.claimed (1.4.21): a rejected hypothesis drawn as a success, green with a tick (svgClaimed) */
+    if (n.rejected && n.claimed) { o.push(...svgClaimed(n, fmt)); continue; }
+    const col = n.rejected ? grey : (n.color ? textOnColor(n.color) : ink), ty = nodeTextY(n);
+    o.push(svgShape(n, `fill="${n.rejected ? '#f1f2f3' : (n.color || '#ffffff')}" stroke="${col}" stroke-width="1.8"${n.rejected ? ' stroke-dasharray="4 3"' : ''}`));
+    o.push(svgLabelText(n.label, n.x.toFixed(1), (n.y + ty.label).toFixed(1), 17, `text-anchor="middle" font-weight="700" fill="${col}"`));
     const wt = n.wvec ? `(${n.wvec.map(q => fmt(q)).join(', ')})` : n.wexpr && !n.rejected ? exprDisplay(n.wexpr) : fmt(n.w);
-    o.push(`<text x="${n.x.toFixed(1)}" y="${(n.y + 16).toFixed(1)}" font-size="${n.wvec && wt.length > 7 ? 11 : 13}" text-anchor="middle" fill="${col}">${xmlEsc(wt)}</text>`);
-    if (n.rejected) o.push(`<line x1="${(n.x - n.rx * 0.62).toFixed(1)}" y1="${(n.y - 8).toFixed(1)}" x2="${(n.x + n.rx * 0.62).toFixed(1)}" y2="${(n.y - 8).toFixed(1)}" stroke="${grey}" stroke-width="2"/>`);
+    o.push(`<text x="${n.x.toFixed(1)}" y="${(n.y + ty.weight).toFixed(1)}" font-size="${n.wvec && wt.length > 7 ? 11 : 13}" text-anchor="middle" fill="${col}">${xmlEsc(wt)}</text>`);
+    if (n.rejected) o.push(`<line x1="${(n.x - n.rx * 0.62).toFixed(1)}" y1="${(n.y + ty.label - 5).toFixed(1)}" x2="${(n.x + n.rx * 0.62).toFixed(1)}" y2="${(n.y + ty.label - 5).toFixed(1)}" stroke="${grey}" stroke-width="2"/>`);
+    /* inside a coloured box the description takes the label's colour */
+    o.push(...svgDesc(n, n.rejected ? grey : n.shape === 'box' && n.color ? col : SVG_MUTED));
   }
   if (key) {
     for (let k = 0; k < vm.n; k++) {
@@ -1511,6 +1653,40 @@ function svgBody(vm, layout, fmt, key) {
     }
   }
   return o;
+}
+/* A rejected hypothesis drawn as a success (1.4.21; LaLonde and Nissen, 2025, Fig. 2): light green fill, a solid green
+   outline, the label and weight in ink with no line through them, and a green badge with a white tick at the top right,
+   where the error badge sits on the drawing. Colour plus the tick, so colour is not the only sign (WCAG 2.2, 1.4.1). */
+const SVG_OK = '#2d6a39', SVG_OK_FILL = '#e1efdf';
+/* the tick inside the badge, about its centre (y down) */
+const OK_TICK = [[-4, 0], [-1.2, 3], [4.2, -3.2]];
+function okBadgeAt(n) { const b = badgeOffset(n); return { x: n.x + b.x, y: n.y + b.y }; }
+/* The outline of a hypothesis in a picture: an ellipse (a circle for short labels), or a rounded box (1.4.21) */
+function svgShape(n, attrs) {
+  if (n.shape === 'box') return `<rect x="${(n.x - n.rx).toFixed(1)}" y="${(n.y - n.ry).toFixed(1)}" width="${(2 * n.rx).toFixed(1)}" height="${(2 * n.ry).toFixed(1)}" rx="${BOX_CORNER}" ${attrs}/>`;
+  return `<ellipse cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" rx="${n.rx.toFixed(1)}" ry="${n.ry.toFixed(1)}" ${attrs}/>`;
+}
+function svgClaimed(n, fmt) {
+  const ink = SVG_INK, o = [];
+  const ty = nodeTextY(n);
+  o.push(svgShape(n, `fill="${SVG_OK_FILL}" stroke="${SVG_OK}" stroke-width="2.6"`));
+  o.push(svgLabelText(n.label, n.x.toFixed(1), (n.y + ty.label).toFixed(1), 17, `text-anchor="middle" font-weight="700" fill="${ink}"`));
+  const wt = n.wvec ? `(${n.wvec.map(q => fmt(q)).join(', ')})` : fmt(n.w);
+  o.push(`<text x="${n.x.toFixed(1)}" y="${(n.y + ty.weight).toFixed(1)}" font-size="${n.wvec && wt.length > 7 ? 11 : 13}" text-anchor="middle" fill="${ink}">${xmlEsc(wt)}</text>`);
+  const b = okBadgeAt(n);
+  o.push(`<circle cx="${b.x.toFixed(1)}" cy="${b.y.toFixed(1)}" r="9" fill="${SVG_OK}" stroke="#ffffff" stroke-width="1.5"/>`);
+  o.push(`<path d="M${OK_TICK.map(([x, y]) => `${(b.x + x).toFixed(1)},${(b.y + y).toFixed(1)}`).join(' L')}" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`);
+  o.push(...svgDesc(n, SVG_MUTED));
+  return o;
+}
+/* The description lines under a circle (1.4.21), in col */
+const SVG_MUTED = '#55606a';
+function svgDesc(n, col) {
+  const ty = nodeTextY(n);
+  /* a white edge round the letters under a circle, as on the drawing, so an arrow leaving the circle downwards does not run
+     through the text; inside a box none is needed */
+  const halo = n.shape === 'box' ? '' : ' stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke"';
+  return (n.desc || []).map((line, i) => `<text x="${n.x.toFixed(1)}" y="${(n.y + ty.desc(i)).toFixed(1)}" font-size="${DESC_SIZE}" text-anchor="middle" fill="${col}"${halo}>${xmlEsc(line)}</text>`);
 }
 const svgArrowDef = () => `<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="${SVG_INK}"/></marker></defs>`;
 /* opts.title (1.4.18): drawn above the graph, the picture widened if the title is wider than the graph */
@@ -1543,8 +1719,8 @@ function panelColumns(n) { return n <= 3 ? n : n === 4 ? 2 : 3; }
    (stateFromGraph, or the test's current state) for the current weights and transitions; null for the stored
    design graph with its symbolic labels. rejected: Map id -> { wvec } (or any Map or Set of ids) for the
    hypotheses already rejected; a rejected hypothesis shows the component weight it had when rejected (wvec[k])
-   when given. Returns [{ vm, layout, title, c }]. */
-function componentPanels(G, st, rejected, fmt, capH) {
+   when given. green (1.4.21): draw the rejected hypotheses as successes. Returns [{ vm, layout, title, c }]. */
+function componentPanels(G, st, rejected, fmt, capH, green) {
   entSync(G);
   const rej = rejected || new Map();
   const info = id => (rej.has(id) && typeof rej.get === 'function' ? rej.get(id) : null);
@@ -1553,7 +1729,7 @@ function componentPanels(G, st, rejected, fmt, capH) {
     const nodes = v.nodes.map(n => {
       const r = info(n.id), isRej = rej.has(n.id);
       const w = isRej && r && r.wvec ? (r.wvec[k] || Q.ZERO) : cs ? (cs.w.get(n.id) || Q.ZERO) : n.w;
-      return { id: n.id, label: n.label, x: n.x, y: n.y, rx: nodeRx(n.label), ry: NODE_R, p: n.p, color: n.color || '', group: n.group || '', wexpr: st ? '' : (n.wexpr || ''), w, rejected: isRej, capH: capH || 0 };
+      return Object.assign({ id: n.id, label: n.label, x: n.x, y: n.y }, nodeLook(n, G), { p: n.p, color: n.color || '', group: n.group || '', wexpr: st ? '' : (n.wexpr || ''), w, rejected: isRej, claimed: !!(isRej && green), capH: capH || 0 });
     });
     const edges = cs
       ? [...cs.g.entries()].filter(([, g]) => !Q.isZero(g)).map(([key, g]) => { const [a, b] = key.split('>'); const o = v.edges.find(e => e.from === a && e.to === b); return { from: a, to: b, g, bend: o ? o.bend : null, text: fmt(g) }; })
@@ -1616,7 +1792,7 @@ function serializeGraph(G) {
   const v0 = ent ? entViewGraph(G, 0) : G;
   const edgeOut = e => ({ from: e.from, to: e.to, weight: Q.exact(e.g), bend: e.bend == null ? null : Math.round(e.bend * 10) / 10, expr: e.expr || undefined });
   return {
-    format: 'multiplicity-graph', version: ent ? 2 : 1, generator: 'Multiplicity Graph Sketchpad ' + APP_VERSION, alpha: G.alpha, sided: G.sided === 'two' ? 'two' : 'one', note: G.note || '', title: G.title || undefined,
+    format: 'multiplicity-graph', version: ent ? 2 : 1, generator: 'Multiplicity Graph Sketchpad ' + APP_VERSION, alpha: G.alpha, sided: G.sided === 'two' ? 'two' : 'one', note: G.note || '', title: G.title || undefined, showDesc: G.showDesc ? true : undefined, shape: G.shape === 'box' ? 'box' : undefined,
     nodes: v0.nodes.map(n => ({ id: n.id, label: n.label, weight: Q.exact(n.w), x: Math.round(n.x), y: Math.round(n.y), p: n.p || '', color: n.color || '', desc: n.desc || '', group: n.group || '', wexpr: n.wexpr || undefined })),
     edges: v0.edges.map(edgeOut),
     vars: Object.keys(G.vars || {}).length ? Object.fromEntries(Object.entries(G.vars).map(([k, v]) => [k, Q.exact(v)])) : undefined,
@@ -1678,7 +1854,7 @@ function deserializeGraph(o, keepIds, startId) {
   const alpha = Number(o.alpha);
   const vars = {};
   for (const [k, v] of Object.entries(o.vars || {})) { const q = typeof v === 'number' ? Q.fromNumber(v) : Q.parse(v); if (q) vars[normaliseExpr(k)] = q; }
-  const Gout = { nodes, edges, diag, alpha: alpha > 0 && alpha < 1 ? alpha : 0.025, sided: o.sided === 'two' ? 'two' : 'one', note: String(o.note || ''), title: readTitle(o.title), test: deserializeTest(o.test, map), vars };
+  const Gout = { nodes, edges, diag, alpha: alpha > 0 && alpha < 1 ? alpha : 0.025, sided: o.sided === 'two' ? 'two' : 'one', note: String(o.note || ''), title: readTitle(o.title), showDesc: o.showDesc === true, shape: o.shape === 'box' ? 'box' : undefined, test: deserializeTest(o.test, map), vars };
   /* Version 2: entangled components. A file with a damaged "ent" block falls back to the top-level graph. */
   if (o.ent && typeof o.ent === 'object' && Array.isArray(o.ent.comps) && o.ent.comps.length) {
     const comps = o.ent.comps.map(cs => {
@@ -1736,6 +1912,8 @@ function encodeShare(G) {
   if (t) c.t = { type: t.type, upscale: t.upscale, corr: Object.fromEntries(Object.entries(t.corr).map(([k, v]) => [k.split('|').map(id => idx.get(id)).join('|'), v])) };
   if (G.sided === 'two') c.s = 2;
   if (G.title) c.T = G.title;
+  if (G.showDesc) c.D = 1;
+  if (G.shape === 'box') c.B = 1;
   if (G.opt && G.opt.share && !isEntangled(G)) c.o = writeOptimisationBlock(G.opt);
   if (isEntangled(G)) {
     /* Entangled components: c (component weights), a (active), k (per component: w, e and optional expressions) */
@@ -1759,7 +1937,7 @@ function decodeShare(token) {
   try { c = JSON.parse(b64urlDecode(token.slice(2))); } catch (e) { throw new Error('This link or share code is damaged: it does not decode to a graph.'); }
   if (!c || typeof c !== 'object' || !Array.isArray(c.n) || !Array.isArray(c.e) || c.n.some(r => !Array.isArray(r)) || c.e.some(r => !Array.isArray(r))) throw new Error('This link or share code is damaged: it does not decode to a graph.');
   const out = {
-    format: 'multiplicity-graph', alpha: c.a, test: c.t, sided: c.s === 2 ? 'two' : 'one', title: typeof c.T === 'string' ? c.T : undefined,
+    format: 'multiplicity-graph', alpha: c.a, test: c.t, sided: c.s === 2 ? 'two' : 'one', title: typeof c.T === 'string' ? c.T : undefined, showDesc: c.D === 1 ? true : undefined, shape: c.B === 1 ? 'box' : undefined,
     nodes: c.n.map((r, i) => ({ id: String(i), label: r[0], weight: r[1], x: r[2], y: r[3], p: r[4], color: r[5] ? '#' + r[5] : '', desc: r[6] || '', group: r[7] || '', wexpr: c.x && c.x.n[i] ? c.x.n[i] : undefined })),
     edges: c.e.map((r, k) => ({ from: String(r[0]), to: String(r[1]), weight: r[2], bend: r[3], expr: c.x && c.x.e[k] ? c.x.e[k] : undefined })),
     vars: c.x ? c.x.v : undefined,
@@ -1907,7 +2085,7 @@ function joinGraphs(A, B) {
   const idMap = new Map();
   b.nodes.forEach((n, i) => { const id = 'b' + i; idMap.set(n.id, id); n.id = id; n.y = n.y - by + ay + 230; n.x = n.x - bx + ax; while (labels.has(n.label)) n.label += "'"; labels.add(n.label); });
   b.edges.forEach(e => { e.from = idMap.get(e.from); e.to = idMap.get(e.to); });
-  const out = { format: 'multiplicity-graph', alpha: a.alpha, note: [a.note, b.note].filter(Boolean).join(' Joined with: '), title: a.title, nodes: a.nodes.concat(b.nodes), edges: a.edges.concat(b.edges), diag: [], vars: Object.assign({}, b.vars || {}, a.vars || {}) };
+  const out = { format: 'multiplicity-graph', alpha: a.alpha, note: [a.note, b.note].filter(Boolean).join(' Joined with: '), title: a.title, showDesc: a.showDesc, shape: a.shape, nodes: a.nodes.concat(b.nodes), edges: a.edges.concat(b.edges), diag: [], vars: Object.assign({}, b.vars || {}, a.vars || {}) };
   const tot = out.nodes.reduce((s, n) => Q.add(s, Q.parse(n.weight) || Q.ZERO), Q.ZERO);
   if (Q.cmp(tot, Q.ONE) > 0) out.nodes.forEach(n => { if (!n.wexpr) n.weight = Q.exact(Q.div(Q.parse(n.weight), tot)); });
   return out;
