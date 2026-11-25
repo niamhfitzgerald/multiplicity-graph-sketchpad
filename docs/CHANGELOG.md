@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.4.20 (2026-11-25)
+
+Three points left from the review of 1.4.19. No result the app shows has changed.
+
+- Beamer frames: a rejected hypothesis shows the weight it was rejected at, as the drawing in Test mode and the other pictures do. Up to 1.4.19 it showed its starting weight, so in Bretz et al. (2009), Figure 4, H1 showed 1/3 beside "Rejected H1: p = 0.02 ≤ 0.025". It now shows 1/2.
+- Steps side by side: the button and its tick now also show with a closed test (Weighted Simes, Simes within groups or parametric) in What if (Bonferroni graph). The picture draws the hypotheses you reject by hand, as the beamer frames already did. Outside What if they stay hidden, and the line under the buttons now points to What if, in place of a second message below.
+- TikZ and beamer: a Greek letter other than α in a hypothesis label, a group name or a beamer caption stopped pdflatex. Every Greek letter is now written as LaTeX maths, as in the title.
+- Help: the Export line says the steps picture also follows What if.
+- User guide: the steps picture with a closed test, the beamer weights and Greek letters in TikZ.
+- Tests: 2 new browser checks (84); browser check 82 reads the new line under the buttons. 1 new stress check (60). Self-tests: 163.
+
 ## 1.4.19 (2026-11-24)
 
 All the steps of the test in one picture, and a shorter correlation help. No result the app shows has changed.
