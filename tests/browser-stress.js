@@ -1357,12 +1357,15 @@ async function step(name, fn) {
        1.4.18: the Title box at the top of the Graph tab, in both views (Niamh's choice, 24 November). The Export tab's
        title tick shows only once a title is typed, so it is not in these views. The File name box at the top of the
        Export tab, in both views (Niamh's choice, 24 November); for an entangled graph it shares the export line with
-       the 1.3.6 difference, so those two lines are listed whole. */
+       the 1.3.6 difference, so those two lines are listed whole.
+       1.4.19: "Steps side by side (PNG)" in the Export tab for an ordinary graph with the Bonferroni step-through, in both
+       views, and its tick box for the SVG and TikZ exports with Plain language off only (Niamh's approval of the A1 plan,
+       24 November). They share the export line with the 1.4.18 File name box, so those lines are listed whole. */
     const planned = ['menu: only with 1.3.0 Advanced off: importBtn; only with Plain language on: downloadMenuBtn',
       'menu: only with Plain language off: downloadMenuBtn',
       'entangledDesign.export: only with Plain language on: #fileName, #sbsNote, export:sbs',
       'entangledDesign.export: only with Plain language off: #fileName, #sbsNote, #sbsRow, #sbsToggle, export:sbs',
-      ...['design', 'stepStart'].flatMap(v => [`${v}.export: only with Plain language on: #fileName`, `${v}.export: only with Plain language off: #fileName`]),
+      ...['design', 'stepStart'].flatMap(v => [`${v}.export: only with Plain language on: #fileName, export:steps`, `${v}.export: only with Plain language off: #fileName, #stepsRow, #stepsToggle, export:steps`]),
       ...['design', 'stepStart', 'entangledDesign'].flatMap(v => [`${v}.graph: only with Plain language on: #graph-title`, `${v}.graph: only with Plain language off: #graph-title`])];
     let out = '';
     for (const on of [true, false]) {
@@ -2973,6 +2976,8 @@ async function step(name, fn) {
     const t = await p.locator('#tab-test').innerText();
     if (!/On an equal-weight Holm graph the closed Simes test is Hommel's procedure \(Hommel, 1988; Bretz et al\., 2011, p\. 906\)\. Hochberg's step-up procedure is not built in\. It equals Hommel's for two hypotheses and never rejects more \(Hochberg, 1988; Dmitrienko, Tamhane and Bretz, 2009, p\. 67\)\./.test(t)) out += 'Simes help: Hommel and Hochberg sentences missing. ';
     await p.click('#tabbtn-power'); await p.waitForTimeout(150);
+    /* from 1.4.19 the correlation help sits in the closed section "What to enter" */
+    await p.evaluate(() => { const d = document.getElementById('det-corrhelp'); if (d) d.open = true; }); await p.waitForTimeout(100);
     const pw = await p.locator('#tab-power').innerText();
     if (!/For the same test in two populations that partly overlap, with shares π₁ of the sample only in the first, π₂ only in the second and π₁₂ in both, it is π₁₂ \/ √\(\(π₁ \+ π₁₂\)\(π₂ \+ π₁₂\)\)\. This also assumes a common variance and the same ratio of treated to control patients in every part \(Luschei and Brannath, 2026a, eq\. 4, p\. 3; 2026b, p\. 3\)\./.test(pw)) out += 'correlation note: overlap sentence missing. ';
     if (!/before any adjustment \(Luschei and Brannath, 2026a\)/.test(pw)) out += 'correlation note: 2026a missing. ';
@@ -3193,6 +3198,180 @@ async function step(name, fn) {
     await p.evaluate(() => { setPlain(true); setTab('export'); }); await p.waitForTimeout(150);
     if (!(await p.locator('#fileName').isVisible())) out += 'box hidden in the clinician view. ';
     if (await exportAs('png') !== 'memory.png') out += 'clinician view PNG. ';
+    await c.close();
+    if (out) return out;
+  });
+
+  /* 1.4.19: the correlation help ("What to enter", about 275 words) is folded into a closed section in the Optimise
+     and Power tabs and in the Test tab's parametric help, with the whole text kept. It stays open through a redraw. */
+  await step('Correlation help (1.4.19): a closed "What to enter" section in the Optimise, Power and Test tabs, with the whole text inside; open, it stays open after the correlation changes', async () => {
+    /* the 1.4.18 paragraph without its first words, "What to enter. ", which became the heading */
+    const HELP = "For two doses compared with one control, the correlation of the two z statistics is √(n₁n₂ / ((n₁ + n₀)(n₂ + n₀))), so 0.5 with equal group sizes (Bretz et al., 2011, p. 904; Li, Deng and Ting, 2023, section 3.4). This assumes a common variance. For unequal variances, see Pigorsch, Hothorn and Konietschke (2025, eq. 4). For the same test in the full population and in a subgroup, it is about the square root of the subgroup's share γ of the sample (Zhao, Dmitrienko and Tamura, 2010, eq. 4). This assumes the outcome varies equally in the subgroup and in the rest of the population. With standard deviations σS in the subgroup and σC in the rest, it is σS√γ / √(γσS² + (1 − γ)σC²); the subgroup and the rest are uncorrelated (Thomas, Bornkamp, Posch and König, 2020, p. 58). For the same test in two populations that partly overlap, with shares π₁ of the sample only in the first, π₂ only in the second and π₁₂ in both, it is π₁₂ / √((π₁ + π₁₂)(π₂ + π₁₂)). This also assumes a common variance and the same ratio of treated to control patients in every part (Luschei and Brannath, 2026a, eq. 4, p. 3; 2026b, p. 3). These correlations assume each test is valid on its own. If subgroup effects can differ in sign, a pooled full-population test can exceed α before any adjustment (Luschei and Brannath, 2026a). For two endpoints measured on the same patients, it is the correlation between the endpoints. For binary endpoints, use the tetrachoric correlation, not the correlation of the 0/1 outcomes (Westfall et al., 2008, p. 620).";
+    const c = await b.newContext({ viewport: { width: 1400, height: 900 } }); const p = await c.newPage();
+    let out = '';
+    p.on('pageerror', e => { out += `page error: ${e.message}. `; });
+    await p.goto(FILE); await p.waitForTimeout(500);
+    await p.evaluate(() => setPlain(false, true));
+    const read = (tab, id) => p.evaluate(([tab, id]) => {
+      const d = document.getElementById(id), shown = document.getElementById('tab-' + tab).innerText;
+      if (!d) return { missing: true };
+      const pair = d.parentElement.querySelector('details[id$="det-corr"]');
+      return { open: d.open, tag: d.tagName, summary: d.querySelector('summary').textContent.trim(), body: d.querySelector('.det-body').textContent.trim(),
+        hiddenWhileClosed: !/tetrachoric|partly overlap/.test(shown), beforePairs: !pair || !!(d.compareDocumentPosition(pair) & Node.DOCUMENT_POSITION_FOLLOWING) };
+    }, [tab, id]);
+    const judge = (where, r) => {
+      if (r.missing) { out += `${where}: no "What to enter" section. `; return; }
+      if (r.tag !== 'DETAILS' || r.open) out += `${where}: not a closed section. `;
+      if (r.summary !== 'What to enter') out += `${where}: heading "${r.summary}". `;
+      if (!r.hiddenWhileClosed) out += `${where}: the help shows while the section is closed. `;
+      if (r.body !== HELP) out += `${where}: the help inside differs from the 1.4.18 text. `;
+      if (!r.beforePairs) out += `${where}: not above "Set each pair separately". `;
+    };
+    await p.click('#tabbtn-optimise'); await p.waitForTimeout(200);
+    judge('Optimise', await read('optimise', 'opt-det-corrhelp'));
+    await p.click('#tabbtn-power'); await p.waitForTimeout(200);
+    judge('Power', await read('power', 'det-corrhelp'));
+    /* opened, it stays open when the correlation is changed and the tab is drawn again */
+    await p.click('#det-corrhelp > summary'); await p.waitForTimeout(150);
+    await p.fill('#sim-rho', '0.3'); await p.press('#sim-rho', 'Tab'); await p.waitForTimeout(200);
+    await p.evaluate(() => renderAll()); await p.waitForTimeout(150);
+    const after = await p.evaluate(() => ({ open: document.getElementById('det-corrhelp').open, shown: /tetrachoric/.test(document.getElementById('tab-power').innerText) }));
+    if (!after.open || !after.shown) out += 'Power: the opened section closed after the correlation changed. ';
+    await p.evaluate(() => { G.test.type = 'parametric'; renderAll(); setTab('test'); const d = document.getElementById('det-testtype'); if (d) d.open = true; });
+    await p.waitForTimeout(200);
+    judge('Test (parametric)', await read('test', 'det-tcorrhelp'));
+    await c.close();
+    if (out) return out;
+  });
+
+  /* 1.4.19, A1 of the improvements plan: all the steps in one picture. Bretz et al. (2009), Fig. 4, p. 590: the Bonferroni-Holm
+     procedure for three hypotheses at alpha = 0.05 with p = (0.02, 0.055, 0.012) rejects H3, then H1, and not H2; the figure
+     draws the graph at each of the three steps. Captions (Niamh's choice D4): the p-value and level in the statistician view,
+     plain words in the clinician view. */
+  await step('Steps side by side (1.4.19): Bretz et al. (2009) Fig. 4 as three panels with the weights, transitions and captions of each step (plain words in the clinician view); the steps taken in Test mode in their order; What-if captions; -all-steps file names; SVG and TikZ with the tick, beamer unchanged; hidden for a closed test and an entangled graph; a note when there are no steps', async () => {
+    const c = await b.newContext({ viewport: { width: 1400, height: 900 }, acceptDownloads: true }); const p = await c.newPage();
+    let out = '';
+    p.on('pageerror', e => { out += `page error: ${e.message}. `; });
+    await p.goto(FILE); await p.waitForTimeout(500);
+    await p.evaluate(() => setPlain(false, true));
+    /* captions keep "p = 0.012 ≤ 0.01667" together with non-breaking spaces; compared here with plain spaces */
+    const titles = () => p.evaluate(() => stepPanels().map(q => q.title.replace(/\u00a0/g, ' ')));
+    const endOf = () => p.evaluate(() => { const x = document.querySelector('#exportOut button[data-end]'); return x ? x.dataset.end : ''; });
+    await p.evaluate(() => { loadGraph(generatedTemplate('holm', 3)); G.alpha = 0.05; ['0.02', '0.055', '0.012'].forEach((v, i) => { G.nodes[i].p = v; }); G.title = 'Figure 4'; renderAll(); setTab('export'); });
+    await p.waitForTimeout(200);
+    if (!(await p.isVisible('[data-export="steps"]'))) { await c.close(); return 'no "Steps side by side (PNG)" button'; }
+    if ((await p.locator('[data-export="steps"]').innerText()).trim() !== 'Steps side by side (PNG)') out += 'button text. ';
+    await p.click('[data-export="steps"]'); await p.waitForTimeout(700);
+    if (!(await p.isVisible('#pngPreview'))) out += 'no PNG preview. ';
+    const lab = await p.locator('[data-action="download-png"]').innerText();
+    if (lab !== 'Download figure-4-all-steps.png') out += `label "${lab}". `;
+    const dlName = await Promise.all([p.waitForEvent('download', { timeout: 8000 }).then(d => d.suggestedFilename(), () => 'none'), p.click('[data-action="download-png"]')]).then(r => r[0]);
+    if (dlName !== 'figure-4-all-steps.png') out += `saved as "${dlName}". `;
+    /* the title tick redraws the steps picture: unticked, the preview is shorter */
+    const ph = () => p.evaluate(() => new Promise(r => { const i = document.getElementById('pngPreview'); if (!i) return r(0); if (i.complete && i.naturalHeight) return r(i.naturalHeight); i.onload = () => r(i.naturalHeight); i.onerror = () => r(0); }));
+    const hWith = await ph();
+    await p.uncheck('#ptitleToggle'); await p.waitForTimeout(600);
+    const hWithout = await ph();
+    if (!(hWithout > 0 && hWithout < hWith)) out += `title tick: preview ${hWith} then ${hWithout} px tall. `;
+    await p.check('#ptitleToggle'); await p.waitForTimeout(400);
+    /* weights: a rejected hypothesis (x) shows the weight it was rejected at, as on the Test-mode drawing */
+    const fig = await p.evaluate(() => stepPanels().map(q => ({
+      title: q.title.replace(/\u00a0/g, ' '),
+      w: q.vm.nodes.map(n => (n.rejected ? 'x' + Q.exact(n.w) : Q.exact(n.w))).join(' '),
+      e: q.vm.edges.map(e => `${G.nodes.findIndex(n => n.id === e.from) + 1}>${G.nodes.findIndex(n => n.id === e.to) + 1} ${Q.exact(e.g)}`).sort().join(', ')
+    })));
+    const want = [
+      { title: 'Initial graph', w: '1/3 1/3 1/3', e: '1>2 1/2, 1>3 1/2, 2>1 1/2, 2>3 1/2, 3>1 1/2, 3>2 1/2' },
+      { title: 'After H3 is rejected (p = 0.012 ≤ 0.01667)', w: '1/2 1/2 x1/3', e: '1>2 1, 2>1 1' },
+      { title: 'After H1 is rejected (p = 0.02 ≤ 0.025)', w: 'x1/2 1 x1/3', e: '' }
+    ];
+    if (JSON.stringify(fig) !== JSON.stringify(want)) out += `Fig. 4 panels ${JSON.stringify(fig)}. `;
+    const svg = await p.evaluate(() => exportSVGPanels(stepPanels(), fmt, { title: picTitle(), wrap: true }));
+    const svgCaps = [...svg.matchAll(/font-size="14" font-weight="700"[^>]*>([^<]*)</g)].map(m => m[1].replace(/\u00a0/g, ' '));
+    if (!/p\u00a0=\u00a00\.012\u00a0≤\u00a00\.01667/.test(svg)) out += 'no non-breaking spaces in the caption. ';
+    if (svgCaps.join(' | ') !== want.map(x => x.title).join(' | ')) out += `SVG captions ${JSON.stringify(svgCaps)}. `;
+    if (!/>Figure 4</.test(svg)) out += 'no title above the panels. ';
+    /* a narrow panel: a long caption wraps onto more lines, and the picture grows to hold them */
+    const wrap = await p.evaluate(() => { const q = stepPanels(); q[1].title = 'After H3 is rejected (p = 0.012 ≤ 0.01667) with a much longer caption that has to wrap'; return captionLines(q[1].title, 200).length; });
+    if (wrap < 2) out += 'a long caption did not wrap. ';
+    /* the clinician view */
+    await p.evaluate(() => { setPlain(true); setTab('export'); }); await p.waitForTimeout(200);
+    if (!(await p.isVisible('[data-export="steps"]'))) out += 'button hidden in the clinician view. ';
+    const pl = await titles();
+    if (pl.join(' | ') !== 'Starting shares | After H3 is claimed | After H1 is claimed') out += `clinician captions ${JSON.stringify(pl)}. `;
+    await p.evaluate(() => { setPlain(false); setTab('export'); }); await p.waitForTimeout(200);
+    /* SVG and TikZ with the tick; beamer keeps its own -steps ending */
+    await p.check('#stepsToggle'); await p.waitForTimeout(100);
+    await p.click('[data-export="svg"]'); await p.waitForTimeout(300);
+    if (await endOf() !== '-all-steps.svg' || !/After H3 is rejected/.test(await p.evaluate(() => exportPayload))) out += 'SVG with the tick. ';
+    await p.click('[data-export="tikz"]'); await p.waitForTimeout(300);
+    const tk = await p.evaluate(() => exportPayload);
+    if (await endOf() !== '-all-steps.tex' || !/% All the steps of the test side by side/.test(tk) || !/After H3 is rejected \(p~=~0\.012~\$\\le\$~0\.01667\)/.test(tk)) out += 'TikZ with the tick. ';
+    await p.click('[data-export="beamer"]'); await p.waitForTimeout(300);
+    if (await endOf() !== '-steps.tex') out += `beamer ending ${await endOf()}. `;
+    await p.uncheck('#stepsToggle'); await p.waitForTimeout(100);
+    await p.click('[data-export="svg"]'); await p.waitForTimeout(300);
+    if (await endOf() !== '.svg') out += 'SVG without the tick. ';
+    /* the steps taken in Test mode, in the order taken: on the example graph, H2 first and then H1 */
+    await p.evaluate(() => { loadGraph(templateJSON('bretz')); ['0.004', '0.009', '0.011', '0.03'].forEach((v, i) => { G.nodes[i].p = v; }); renderAll(); setMode('test'); });
+    await p.waitForTimeout(300);
+    const stepDone = k => p.waitForFunction(k => T && T.step === k && !T.running, k, { timeout: 8000 }).catch(() => {});
+    await p.locator('[data-node]').nth(1).click(); await stepDone(1);
+    await p.locator('[data-node]').nth(0).click();
+    /* during the animation the history already holds the new step and the log does not: no error, the steps so far */
+    const during = await p.evaluate(() => { try { return String(stepPanels().length); } catch (e) { return 'threw ' + e.message; } });
+    if (during !== '2' && during !== '3') out += `steps picture during an animation: ${during}. `;
+    await stepDone(2);
+    const mine = await titles();
+    if (mine.join(' | ') !== 'Initial graph | After H2 is rejected (p = 0.009 ≤ 0.0125) | After H1 is rejected (p = 0.004 ≤ 0.01875)') out += `steps taken ${JSON.stringify(mine)}. `;
+    /* What if: H1 rejected by hand */
+    await p.evaluate(() => { T = newTest(); renderAll(); }); await p.waitForTimeout(150);
+    await p.click('[data-action="mode-whatif"]'); await p.waitForTimeout(150);
+    /* before any choice, What if has no steps (it ignores the p-values) */
+    await p.evaluate(() => setTab('export')); await p.click('[data-export="steps"]'); await p.waitForTimeout(300);
+    if ((await p.locator('#exportOut').innerText()).trim() !== 'In What if, click a hypothesis on the drawing to reject it first.') out += `What-if note "${(await p.locator('#exportOut').innerText()).trim()}". `;
+    await p.locator('[data-node]').nth(0).click(); await stepDone(1);
+    const wi = await titles();
+    if (wi.join(' | ') !== 'Initial graph | After H1 is rejected (what if)') out += `What-if captions ${JSON.stringify(wi)}. `;
+    await p.evaluate(() => setPlain(true)); await p.waitForTimeout(150);
+    const wiPl = await titles();
+    if (wiPl.join(' | ') !== 'Starting shares | If H1 succeeds') out += `What-if clinician captions ${JSON.stringify(wiPl)}. `;
+    await p.evaluate(() => { setPlain(false); setMode('design'); }); await p.waitForTimeout(200);
+    /* no steps to draw: no p-values, and p-values that reject nothing */
+    await p.evaluate(() => { G.nodes.forEach(n => { n.p = ''; }); renderAll(); setTab('export'); }); await p.waitForTimeout(150);
+    await p.click('[data-export="steps"]'); await p.waitForTimeout(300);
+    if ((await p.locator('#exportOut').innerText()).trim() !== 'Type the p-values in the Test tab first.') out += 'no p-values note. ';
+    await p.evaluate(() => { G.nodes.forEach(n => { n.p = '0.5'; }); renderAll(); }); await p.click('[data-export="steps"]'); await p.waitForTimeout(300);
+    if (!/No hypothesis is rejected with these p-values/.test(await p.locator('#exportOut').innerText())) out += 'nothing-rejected note. ';
+    /* a closed test: the button and tick hidden, one line says why; an entangled graph: hidden, no line */
+    await p.evaluate(() => { G.test.type = 'simes'; renderAll(); setTab('export'); }); await p.waitForTimeout(150);
+    if (await p.isVisible('[data-export="steps"]') || await p.isVisible('#stepsRow') || !(await p.isVisible('#stepsNote'))) out += 'closed test: button, tick or note. ';
+    if ((await p.locator('#stepsNote').innerText()).trim() !== 'Steps side by side is for the Bonferroni step-through. A closed test has no steps to draw.') out += 'closed-test line. ';
+    /* a narrow graph (a fixed sequence of four in one column): the app's own SVG and TikZ wrap the captions and make room */
+    await p.evaluate(() => { loadGraph(generatedTemplate('fixed', 4)); G.nodes.forEach((n, i) => { n.x = 100; n.y = 100 + 130 * i; n.p = '0.001'; }); G.title = 'Narrow'; renderAll(); setTab('export'); });
+    await p.waitForTimeout(150);
+    await p.check('#stepsToggle'); await p.click('[data-export="svg"]'); await p.waitForTimeout(300);
+    const nsvg = await p.evaluate(() => exportPayload);
+    const capTexts = (nsvg.match(/font-size="14" font-weight="700"/g) || []).length;
+    if (capTexts < 9) out += `narrow SVG: ${capTexts} caption lines for 5 panels (each rejection caption should take two). `;
+    if (!/>Narrow</.test(nsvg)) out += 'narrow SVG: no title. ';
+    await p.click('[data-export="tikz"]'); await p.waitForTimeout(300);
+    const ntk = await p.evaluate(() => exportPayload);
+    const rowShift = t => { const m = [...t.matchAll(/yshift=(-?[0-9.]+)cm/g)].map(x => Number(x[1])); return Math.min(0, ...m); };
+    const oneLine = await p.evaluate(() => exportTikZPanels(stepPanels().map(q => Object.assign({}, q, { title: 'x' })), { captions: true }).text);
+    if (!/text width=/.test(ntk) || !(rowShift(ntk) < rowShift(oneLine))) out += `narrow TikZ: row shift ${rowShift(ntk)} against ${rowShift(oneLine)} for one-line captions. `;
+    /* each panel at least as wide as "(p = 0.001 ≤ 0.025)", which cannot break */
+    const tw = Math.min(...[...ntk.matchAll(/text width=([0-9.]+)cm/g)].map(x => Number(x[1])));
+    if (!(tw >= 3.5)) out += `narrow TikZ: caption width ${tw} cm. `;
+    await p.uncheck('#stepsToggle');
+    /* Holm for 10, eleven panels: the PNG stays under 16 million pixels (Safari's canvas limit on an iPhone or iPad) */
+    await p.evaluate(() => { loadGraph(generatedTemplate('holm', 10)); G.nodes.forEach(n => { n.p = '0.001'; }); renderAll(); setTab('export'); });
+    await p.waitForTimeout(150);
+    await p.click('[data-export="steps"]'); await p.waitForTimeout(1500);
+    const big = await p.evaluate(() => new Promise(r => { const i = document.getElementById('pngPreview'); if (!i) return r(-1); const f = () => r(i.naturalWidth * i.naturalHeight); if (i.complete && i.naturalWidth) f(); else { i.onload = f; i.onerror = () => r(-1); } }));
+    if (!(big > 0 && big <= 16e6)) out += `Holm 10 PNG: ${big} pixels. `;
+    await p.evaluate(() => { loadGraph(entangledTemplateJSON('maurerFig2')); renderAll(); setTab('export'); }); await p.waitForTimeout(150);
+    if (await p.isVisible('[data-export="steps"]') || await p.isVisible('#stepsNote') || !(await p.isVisible('[data-export="sbs"]'))) out += 'entangled graph: buttons or note. ';
     await c.close();
     if (out) return out;
   });
