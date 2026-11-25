@@ -1270,6 +1270,27 @@ check('"At least k of m" note (1.4.17, review point 4): the Rüger-based test re
   return true;
 });
 
+check('Greek letters in hypothesis labels and group names (1.4.20): the TikZ picture and the beamer frames write them as LaTeX maths (Hβ as H$\\beta$, a Greek capital that looks like a Latin one as that letter, an accented letter as its base letter), so no Greek character reaches pdflatex; text without Greek letters is written as before', () => {
+  const labels = ['Hβ', 'Hγ1', 'Hα', 'Ζ2', 'Hέ'];
+  const o = randomGraphJSON(labels.length, { allowLeaf: true });
+  o.nodes.forEach((n, i) => { n.label = labels[i]; n.group = i < 2 ? 'δ group' : ''; n.p = '0.01'; });
+  const G = toG(o);
+  const vmv = { nodes: G.nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y, rx: C.nodeRx(n.label), ry: C.NODE_R, w: n.w, p: n.p, rejected: false, group: n.group || '', color: n.color || '' })), edges: G.edges.map(e => ({ from: e.from, to: e.to, g: e.g, bend: e.bend, text: Q.fmt(e.g) })) };
+  const lay = C.layoutEdges(vmv);
+  const tikz = C.exportTikZ(vmv, lay);
+  const beamer = C.exportBeamer([{ vm: vmv, layout: lay, caption: 'Rejected Hβ: p = 0.004 ≤ 0.0125. Passed on: +1/2 to Hγ1.', alpha: 0.025 }], 'Τitle with β');
+  for (const [name, t] of [['TikZ', tikz], ['beamer', beamer]]) {
+    const g = t.match(/[Ͱ-Ͽ]/);
+    if (g) return `${name}: a Greek character reaches LaTeX: ${(t.split('\n').find(l => /[Ͱ-Ͽ]/.test(l)) || '').slice(0, 160)}`;
+    for (const want of ['{H$\\beta$\\\\', '{H$\\gamma$1\\\\', '{H$\\alpha$\\\\', '{Z2\\\\', '{H$\\epsilon$\\\\', '$\\delta$ group']) if (!t.includes(want)) return `${name}: missing ${want}`;
+  }
+  if (!beamer.includes('\\only<1>{\\small Rejected H$\\beta$: p = 0.004 $\\le$ 0.0125. Passed on: +1/2 to H$\\gamma$1.}')) return 'beamer caption: ' + (beamer.match(/\\only<1>\{\\small.*/) || [''])[0];
+  if (!beamer.includes('\\begin{frame}{Title with $\\beta$}')) return 'beamer title: ' + (beamer.match(/\\begin\{frame\}.*/) || [''])[0];
+  if (C.texEscape('x & y % z_1 ≤ α #2 {a} ~ ^') !== 'x \\& y \\% z\\_1 $\\le$ $\\alpha$ \\#2 \\{a\\} \\textasciitilde{} \\textasciicircum{}') return 'texEscape changed for text without Greek letters: ' + C.texEscape('x & y % z_1 ≤ α #2 {a} ~ ^');
+  if (C.titleTeX('α < β | γ ≠ δ') !== '$\\alpha$ \\textless{} $\\beta$ \\textbar{} $\\gamma$ $\\neq$ $\\delta$') return 'titleTeX changed: ' + C.titleTeX('α < β | γ ≠ δ');
+  return true;
+});
+
 /* ---------- report ---------- */
 Promise.all(results.map(r => r)).then(async () => {
   // resolve promise-returning checks

@@ -3346,7 +3346,8 @@ async function step(name, fn) {
     /* a closed test: the button and tick hidden, one line says why; an entangled graph: hidden, no line */
     await p.evaluate(() => { G.test.type = 'simes'; renderAll(); setTab('export'); }); await p.waitForTimeout(150);
     if (await p.isVisible('[data-export="steps"]') || await p.isVisible('#stepsRow') || !(await p.isVisible('#stepsNote'))) out += 'closed test: button, tick or note. ';
-    if ((await p.locator('#stepsNote').innerText()).trim() !== 'Steps side by side is for the Bonferroni step-through. A closed test has no steps to draw.') out += 'closed-test line. ';
+    /* 1.4.20: the line also points to What if, where the steps picture is drawn under a closed test (check 84) */
+    if ((await p.locator('#stepsNote').innerText()).trim() !== 'Steps side by side is for the Bonferroni step-through. A closed test has no steps to draw. In the Test tab, What if draws the hypotheses you reject by hand.') out += 'closed-test line. ';
     /* a narrow graph (a fixed sequence of four in one column): the app's own SVG and TikZ wrap the captions and make room */
     await p.evaluate(() => { loadGraph(generatedTemplate('fixed', 4)); G.nodes.forEach((n, i) => { n.x = 100; n.y = 100 + 130 * i; n.p = '0.001'; }); G.title = 'Narrow'; renderAll(); setTab('export'); });
     await p.waitForTimeout(150);
@@ -3372,6 +3373,124 @@ async function step(name, fn) {
     if (!(big > 0 && big <= 16e6)) out += `Holm 10 PNG: ${big} pixels. `;
     await p.evaluate(() => { loadGraph(entangledTemplateJSON('maurerFig2')); renderAll(); setTab('export'); }); await p.waitForTimeout(150);
     if (await p.isVisible('[data-export="steps"]') || await p.isVisible('#stepsNote') || !(await p.isVisible('[data-export="sbs"]'))) out += 'entangled graph: buttons or note. ';
+    await c.close();
+    if (out) return out;
+  });
+
+  await step('Beamer frames (1.4.20): a rejected hypothesis shows the weight it was rejected at, as on the Test-mode drawing and in the steps picture. Bretz et al. (2009) Fig. 4: in the last overlay H1 is at 1/2, the weight it was rejected at (its starting weight is 1/3); the same for the steps taken in Test mode and in What if; on every template, each caption\'s level is the rejected hypothesis\'s weight times alpha', async () => {
+    const c = await b.newContext({ viewport: { width: 1400, height: 900 } }); const p = await c.newPage();
+    let out = '';
+    p.on('pageerror', e => { out += `page error: ${e.message}. `; });
+    await p.goto(FILE); await p.waitForTimeout(500);
+    await p.evaluate(() => setPlain(false, true));
+    /* each overlay of a beamer export: the hypotheses with their weights, x for rejected */
+    const overlays = tex => [...tex.matchAll(/\\only<(\d+)>\{%\n([\s\S]*?)\n\}/g)].map(m => [...m[2].matchAll(/\\node\[hyp(, rejected)?\] \(n\d+\) at \([^)]*\) \{\$H_\{(\d+)\}\$\\\\ \$([^$]*)\$\};/g)].map(x => (x[1] ? 'x' : '') + 'H' + x[2] + '=' + x[3]).join(' '));
+    const fig4 = () => { loadGraph(generatedTemplate('holm', 3)); G.alpha = 0.05; ['0.02', '0.055', '0.012'].forEach((v, i) => { G.nodes[i].p = v; }); renderAll(); };
+    const third = '\\frac{1}{3}', half = '\\frac{1}{2}';
+    /* the app's own export, from the Export tab's button */
+    await p.evaluate(fig4); await p.evaluate(() => setTab('export')); await p.waitForTimeout(150);
+    await p.click('[data-export="beamer"]'); await p.waitForTimeout(300);
+    const auto = overlays(await p.evaluate(() => exportPayload));
+    const wantAuto = [`H1=${third} H2=${third} H3=${third}`, `H1=${half} H2=${half} xH3=${third}`, `xH1=${half} H2=1 xH3=${third}`];
+    if (JSON.stringify(auto) !== JSON.stringify(wantAuto)) out += `Fig. 4 overlays ${JSON.stringify(auto)}. `;
+    /* the steps taken in Test mode (H3, then H1): the same overlays, and the drawing shows the same weights */
+    const stepDone = k => p.waitForFunction(k => T && T.step === k && !T.running, k, { timeout: 8000 }).catch(() => {});
+    await p.evaluate(() => { setMode('test'); }); await p.waitForTimeout(300);
+    await p.locator('[data-node]').nth(2).click(); await stepDone(1);
+    await p.locator('[data-node]').nth(0).click(); await stepDone(2);
+    const taken = overlays(await p.evaluate(() => exportBeamer(stepFrames(false), 'x')));
+    if (JSON.stringify(taken) !== JSON.stringify(wantAuto)) out += `Test-mode overlays ${JSON.stringify(taken)}. `;
+    const drawn = await p.evaluate(() => buildVM().nodes.filter(n => n.rejected).map(n => n.label + '=' + Q.exact(n.w)).join(' '));
+    if (drawn !== 'H1=1/2 H3=1/3') out += `Test-mode drawing ${drawn}. `;
+    /* What if: H2, then H3 rejected by hand; H3 had 1/2 when it was rejected */
+    await p.evaluate(() => { T = newTest(); renderAll(); }); await p.waitForTimeout(150);
+    await p.click('[data-action="mode-whatif"]'); await p.waitForTimeout(150);
+    await p.locator('[data-node]').nth(1).click(); await stepDone(1);
+    await p.locator('[data-node]').nth(2).click(); await stepDone(2);
+    const wi = overlays(await p.evaluate(() => exportBeamer(stepFrames(false), 'x')));
+    const wantWi = [`H1=${third} H2=${third} H3=${third}`, `H1=${half} xH2=${third} H3=${half}`, `H1=1 xH2=${third} xH3=${half}`];
+    if (JSON.stringify(wi) !== JSON.stringify(wantWi)) out += `What-if overlays ${JSON.stringify(wi)}. `;
+    await p.evaluate(() => setMode('design')); await p.waitForTimeout(150);
+    /* every template: the hypothesis rejected in an overlay has weight x alpha = the level in its caption */
+    const bad = await p.evaluate(() => {
+      const pv = ['0.004', '0.009', '0.011', '0.03', '0.02', '0.001', '0.04', '0.015'], miss = [];
+      let n = 0;
+      for (const key of Object.keys(TEMPLATES)) {
+        loadGraph(templateJSON(key)); G.nodes.forEach((h, i) => { h.p = pv[i % pv.length]; });
+        for (const f of stepFrames(false)) {
+          if (!f.data) continue;
+          const h = f.vm.nodes.find(v => v.label === f.data.label); n++;
+          if (!h || !h.rejected || Math.abs(Q.toNum(h.w) * G.alpha - f.data.level) > 1e-12) miss.push(`${key} ${f.data.label}`);
+        }
+      }
+      return n < 20 ? `only ${n} rejections` : miss.join(', ');
+    });
+    if (bad) out += `weight times alpha differs from the caption's level: ${bad}. `;
+    await c.close();
+    if (out) return out;
+  });
+
+  await step('Steps side by side in What if under a closed test (1.4.20): with Weighted Simes or the parametric test, the button and the SVG and TikZ tick show in What if (Bonferroni graph), and the picture draws the hypotheses rejected by hand with the graph\'s weights (the example graph: H2 3/4 and H3 1/4 after H1, H3 and H4 1/2 after H2), as the beamer frames do; in Design mode, after leaving What if and after the closed test has run, they are hidden and the line points to What if', async () => {
+    const c = await b.newContext({ viewport: { width: 1400, height: 900 }, acceptDownloads: true }); const p = await c.newPage();
+    let out = '';
+    p.on('pageerror', e => { out += `page error: ${e.message}. `; });
+    await p.goto(FILE); await p.waitForTimeout(500);
+    await p.evaluate(() => setPlain(false, true));
+    const line = 'Steps side by side is for the Bonferroni step-through. A closed test has no steps to draw. In the Test tab, What if draws the hypotheses you reject by hand.';
+    const seen = () => p.evaluate(() => ({ btn: !!document.querySelector('[data-export="steps"]').offsetParent, tick: !!document.getElementById('stepsRow').offsetParent, note: document.getElementById('stepsNote').offsetParent ? document.getElementById('stepsNote').textContent.trim() : '' }));
+    const hidden = async (where) => { const v = await seen(); if (v.btn || v.tick || v.note !== line) out += `${where}: ${JSON.stringify(v)}. `; };
+    const stepDone = k => p.waitForFunction(k => T && T.step === k && !T.running, k, { timeout: 8000 }).catch(() => {});
+    for (const type of ['simes', 'parametric']) {
+      await p.evaluate(type => { loadGraph(templateJSON('bretz')); ['0.004', '0.009', '0.011', '0.03'].forEach((v, i) => { G.nodes[i].p = v; }); G.test.type = type; if (type === 'parametric') G.nodes.forEach((a, i) => G.nodes.forEach((d, j) => { if (j > i) G.test.corr[a.id < d.id ? a.id + '|' + d.id : d.id + '|' + a.id] = 0.5; })); renderAll(); setTab('export'); }, type);
+      await p.waitForTimeout(150);
+      await hidden(`${type}, Design mode`);
+      await p.evaluate(() => setTab('test')); await p.waitForTimeout(150);
+      if ((await p.locator('[data-action="mode-whatif"]').innerText()).trim() !== 'What if (Bonferroni graph)') out += `${type}: What-if button text. `;
+      await p.click('[data-action="mode-whatif"]'); await p.waitForTimeout(200);
+      await p.evaluate(() => setTab('export')); await p.waitForTimeout(150);
+      const v = await seen();
+      if (!v.btn || !v.tick || v.note) out += `${type}, What if: ${JSON.stringify(v)}. `;
+      if (!v.btn) { await p.evaluate(() => setMode('design')); continue; }
+      if (type === 'simes') {
+        await p.click('[data-export="steps"]'); await p.waitForTimeout(300);
+        if ((await p.locator('#exportOut').innerText()).trim() !== 'In What if, click a hypothesis on the drawing to reject it first.') out += 'What-if note before any choice. ';
+      }
+      await p.locator('[data-node]').nth(0).click(); await stepDone(1);
+      await p.locator('[data-node]').nth(1).click(); await stepDone(2);
+      await p.click('[data-export="steps"]'); await p.waitForTimeout(700);
+      const panels = await p.evaluate(() => stepPanels().map(q => q.title + ': ' + q.vm.nodes.map(n => (n.rejected ? 'x' : '') + n.label + '=' + Q.exact(n.w)).join(' ')));
+      const want = ['Initial graph: H1=1/2 H2=1/2 H3=0 H4=0', 'After H1 is rejected (what if): xH1=1/2 H2=3/4 H3=1/4 H4=0', 'After H2 is rejected (what if): xH1=1/2 xH2=3/4 H3=1/2 H4=1/2'];
+      if (JSON.stringify(panels) !== JSON.stringify(want)) out += `${type} panels ${JSON.stringify(panels)}. `;
+      if (!(await p.isVisible('#pngPreview'))) out += `${type}: no PNG preview. `;
+      const lab = await p.locator('[data-action="download-png"]').innerText();
+      if (lab !== 'Download multiplicity-graph-all-steps.png') out += `${type}: label "${lab}". `;
+      /* the same steps as the beamer frames */
+      const bm = await p.evaluate(() => stepFrames(false).map(f => f.vm.nodes.map(n => (n.rejected ? 'x' : '') + n.label + '=' + Q.exact(n.w)).join(' ')));
+      if (JSON.stringify(bm) !== JSON.stringify(want.map(t => t.split(': ')[1]))) out += `${type}: beamer frames ${JSON.stringify(bm)}. `;
+      if (type === 'simes') {
+        await p.check('#stepsToggle');
+        await p.click('[data-export="svg"]'); await p.waitForTimeout(300);
+        const nSvg = await p.evaluate(() => (exportPayload.match(/After H\d is rejected \(what if\)/g) || []).length);
+        await p.click('[data-export="tikz"]'); await p.waitForTimeout(300);
+        const nTex = await p.evaluate(() => (exportPayload.match(/name prefix=/g) || []).length);
+        if (nSvg !== 2 || nTex !== 3) out += `SVG and TikZ with the tick: ${nSvg} what-if captions, ${nTex} panels. `;
+        await p.uncheck('#stepsToggle');
+      }
+      /* leaving What if hides them again */
+      await p.evaluate(() => setTab('test')); await p.waitForTimeout(150);
+      await p.click('[data-action="mode-p"]'); await p.waitForTimeout(200);
+      await p.evaluate(() => setTab('export')); await p.waitForTimeout(150);
+      await hidden(`${type}, after leaving What if`);
+      /* the steps picture shown last: its place is left empty, since the line under the buttons says why (1.4.20 review) */
+      if (type === 'parametric' && (await p.locator('#exportOut').innerText()).trim() !== '') out += `after leaving What if, the Export tab shows "${(await p.locator('#exportOut').innerText()).trim().slice(0, 80)}". `;
+      await p.evaluate(() => setMode('design')); await p.waitForTimeout(150);
+    }
+    /* the closed test itself has no steps */
+    await p.evaluate(() => { G.test.type = 'simes'; renderAll(); setTab('test'); }); await p.waitForTimeout(150);
+    await p.click('[data-action="run"]');
+    await p.waitForFunction(() => T && T.closed && T.done, null, { timeout: 15000 }).catch(() => {});
+    await p.evaluate(() => setTab('export')); await p.waitForTimeout(150);
+    await hidden('after the closed test ran');
     await c.close();
     if (out) return out;
   });
