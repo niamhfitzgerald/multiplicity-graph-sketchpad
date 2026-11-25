@@ -1360,13 +1360,18 @@ async function step(name, fn) {
        the 1.3.6 difference, so those two lines are listed whole.
        1.4.19: "Steps side by side (PNG)" in the Export tab for an ordinary graph with the Bonferroni step-through, in both
        views, and its tick box for the SVG and TikZ exports with Plain language off only (Niamh's approval of the A1 plan,
-       24 November). They share the export line with the 1.4.18 File name box, so those lines are listed whole. */
+       24 November). They share the export line with the 1.4.18 File name box, so those lines are listed whole.
+       1.4.21: the Export tab's tick that draws rejected hypotheses in green (#greenRow, #greenToggle), with Plain language
+       off only (Niamh's D5, 25 November); the clinician view always draws its claims in green. It shares the export lines
+       with plain language off above, so those lines are listed whole. The Graph tab's "Show descriptions on the drawing"
+       tick (#descRow, #descToggle) and the Shape buttons (#shapeRow, action:shape), in both views, on the line of the
+       1.4.18 Title box. */
     const planned = ['menu: only with 1.3.0 Advanced off: importBtn; only with Plain language on: downloadMenuBtn',
       'menu: only with Plain language off: downloadMenuBtn',
       'entangledDesign.export: only with Plain language on: #fileName, #sbsNote, export:sbs',
-      'entangledDesign.export: only with Plain language off: #fileName, #sbsNote, #sbsRow, #sbsToggle, export:sbs',
-      ...['design', 'stepStart'].flatMap(v => [`${v}.export: only with Plain language on: #fileName, export:steps`, `${v}.export: only with Plain language off: #fileName, #stepsRow, #stepsToggle, export:steps`]),
-      ...['design', 'stepStart', 'entangledDesign'].flatMap(v => [`${v}.graph: only with Plain language on: #graph-title`, `${v}.graph: only with Plain language off: #graph-title`])];
+      'entangledDesign.export: only with Plain language off: #fileName, #greenRow, #greenToggle, #sbsNote, #sbsRow, #sbsToggle, export:sbs',
+      ...['design', 'stepStart'].flatMap(v => [`${v}.export: only with Plain language on: #fileName, export:steps`, `${v}.export: only with Plain language off: #fileName, #greenRow, #greenToggle, #stepsRow, #stepsToggle, export:steps`]),
+      ...['design', 'stepStart', 'entangledDesign'].flatMap(v => [`${v}.graph: only with Plain language on: #descRow, #descToggle, #graph-title, #shapeRow, action:shape`, `${v}.graph: only with Plain language off: #descRow, #descToggle, #graph-title, #shapeRow, action:shape`])];
     let out = '';
     for (const on of [true, false]) {
       const { c, p } = await freshPage();
@@ -3491,6 +3496,227 @@ async function step(name, fn) {
     await p.waitForFunction(() => T && T.closed && T.done, null, { timeout: 15000 }).catch(() => {});
     await p.evaluate(() => setTab('export')); await p.waitForTimeout(150);
     await hidden('after the closed test ran');
+    await c.close();
+    if (out) return out;
+  });
+
+  await step('Green claims (1.4.21): in the clinician view a claimed hypothesis is drawn as a success (green fill and outline, a badge with a tick, no line through the label, a green caption), on the drawing and in its PNGs; a closed test keeps its grey there. In the statistician view the Export tab\'s tick, off by default and remembered, does the same on the drawing and in the PNG, SVG, TikZ and beamer exports, for every rejection', async () => {
+    const c = await b.newContext({ viewport: { width: 1400, height: 900 }, reducedMotion: 'reduce' }); const p = await c.newPage();
+    let out = '';
+    p.on('pageerror', e => { out += `page error: ${e.message}. `; });
+    await p.goto(FILE); await p.waitForTimeout(500);
+    await p.evaluate(() => { window.__png = []; const o = svgToPng; svgToPng = (svgStr, m) => { window.__png.push(svgStr); return o(svgStr, m); }; });
+    /* the drawing: classes, badges, lines through labels and captions of the claimed (rejected) hypotheses */
+    const drawn = () => p.evaluate(() => [...document.querySelectorAll('#world [data-node]')].map(g => ({ label: G.nodes.find(n => n.id === g.dataset.node).label, rejected: g.classList.contains('rejected'), claimed: g.classList.contains('claimed'), badge: !!g.querySelector('.okbadge'), strike: !!g.querySelector('.strike'), cap: (g.querySelector('.ncap.rej') || {}).className && g.querySelector('.ncap.rej').className.baseVal, fill: getComputedStyle(g.querySelector('.node-body')).fill })));
+    const pic = async kind => p.evaluate(async k => { window.__png = []; exportPayload = null; await showExport(k); return ['png', 'steps', 'sbs'].includes(k) ? window.__png[0] || '' : exportPayload || ''; }, kind);
+    const setup = async (plainOn, type) => {
+      await p.evaluate(({ plainOn, type }) => { setPlain(plainOn); loadGraph(templateJSON('bretz')); ['0.004', '0.009', '0.011', '0.03'].forEach((v, i) => { G.nodes[i].p = v; }); G.test.type = type; renderAll(); setTab('test'); }, { plainOn, type });
+      await p.waitForTimeout(150);
+      if (type === 'bonferroni') { await p.click('[data-action="enter-test"]'); await p.waitForTimeout(200); for (let k = 1; k <= 2; k++) { await p.click('[data-action="step"]'); await p.waitForFunction(k => T && T.step === k && !T.running && !animating, k, { timeout: 8000 }).catch(() => {}); } }
+      else { await p.click('[data-action="run"]'); await p.waitForFunction(() => T && T.closed && T.done && !ctRunning, null, { timeout: 15000 }).catch(() => {}); }
+      await p.waitForTimeout(150);
+    };
+    const greenSVG = s => /fill="#e1efdf" stroke="#2d6a39"/.test(s) && /<circle [^>]*r="9" fill="#2d6a39"/.test(s);
+    const greyStrike = s => /stroke="#9aa0a6" stroke-width="2"\/>/.test(s);
+    /* 1. Clinician view, the step-through: H1 and H2 claimed */
+    await setup(true, 'bonferroni');
+    let d = await drawn();
+    for (const n of d.filter(x => x.rejected)) if (!n.claimed || !n.badge || n.strike || !/\bok\b/.test(n.cap || '')) out += `clinician ${n.label}: ${JSON.stringify(n)}. `;
+    if (d.filter(x => x.claimed).map(x => x.label).join() !== 'H1,H2') out += `clinician claimed ${d.filter(x => x.claimed).map(x => x.label)}. `;
+    const okSoft = await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--ok-soft').trim());
+    if (d[0].fill !== 'rgb(225, 239, 223)' || okSoft.toUpperCase() !== '#E1EFDF') out += `clinician fill ${d[0].fill} (${okSoft}). `;
+    if (await p.isVisible('#greenToggle')) out += 'the tick shows in the clinician view. ';
+    await p.evaluate(() => setTab('export')); await p.waitForTimeout(100);
+    let png = await pic('png');
+    if (!greenSVG(png) || greyStrike(png)) out += 'clinician PNG not green. ';
+    let steps = await pic('steps');
+    if ((steps.match(/fill="#e1efdf"/g) || []).length !== 3) out += `clinician steps picture: ${(steps.match(/fill="#e1efdf"/g) || []).length} green hypotheses (want 3: H1 in panel 2, H1 and H2 in panel 3). `;
+    /* 2. Clinician view, weighted Simes: grey, as its words ("Rejected") */
+    await setup(true, 'simes');
+    d = await drawn();
+    if (!d.some(x => x.rejected) || d.some(x => x.claimed || x.badge)) out += `clinician closed test: ${JSON.stringify(d.filter(x => x.rejected))}. `;
+    /* 2b. Clinician view, an entangled graph (Maurer and Bretz, 2013, Fig. 2): the All view and Graphs side by side draw the claim in green */
+    await p.evaluate(() => { loadGraph(entangledTemplateJSON('maurerFig2')); G.test.type = 'bonferroni'; ['0.01', '0.022', '0.005', '0.012', '0.001'].forEach((v, i) => { G.nodes[i].p = v; }); renderAll(); setTab('test'); });
+    await p.waitForTimeout(150);
+    await p.click('[data-action="enter-test"]'); await p.waitForTimeout(200);
+    await p.click('[data-action="step"]'); await p.waitForFunction(() => T && T.step === 1 && !T.running && !animating, null, { timeout: 8000 }).catch(() => {});
+    await p.waitForTimeout(150);
+    d = await drawn();
+    if (d.filter(x => x.claimed && x.badge && !x.strike).length !== 1) out += `clinician, entangled All view: ${JSON.stringify(d.filter(x => x.rejected))}. `;
+    await p.evaluate(() => setTab('export')); await p.waitForTimeout(100);
+    const sbs = await pic('sbs');
+    if ((sbs.match(/fill="#e1efdf"/g) || []).length !== 2) out += `clinician Graphs side by side: ${(sbs.match(/fill="#e1efdf"/g) || []).length} green hypotheses (want 2, one in each graph). `;
+    /* 3. Statistician view, tick off (the default): as 1.4.20 */
+    await setup(false, 'bonferroni');
+    d = await drawn();
+    if (d.some(x => x.claimed || x.badge) || !d.filter(x => x.rejected).every(x => x.strike)) out += `statistician, tick off: ${JSON.stringify(d.filter(x => x.rejected))}. `;
+    await p.evaluate(() => setTab('export')); await p.waitForTimeout(100);
+    if (!(await p.isVisible('#greenToggle')) || await p.isChecked('#greenToggle')) out += 'the tick is missing or ticked by default. ';
+    const off = { png: await pic('png'), svg: await pic('svg'), tikz: await pic('tikz'), beamer: await pic('beamer') };
+    if (Object.values(off).some(s => /#2d6a39|e1efdf|claimgreen/i.test(s))) out += 'green in the statistician exports with the tick off. ';
+    /* 4. Statistician view, tick on: the drawing and every export; remembered in the browser */
+    await p.check('#greenToggle'); await p.waitForTimeout(150);
+    d = await drawn();
+    if (d.filter(x => x.claimed && x.badge && !x.strike).map(x => x.label).join() !== 'H1,H2') out += `statistician, tick on: ${JSON.stringify(d.filter(x => x.rejected))}. `;
+    if (await p.evaluate(() => localStorage.getItem('mgs-green')) !== '1') out += 'the tick is not remembered. ';
+    const on = { png: await pic('png'), svg: await pic('svg'), tikz: await pic('tikz'), beamer: await pic('beamer') };
+    if (!greenSVG(on.png) || !greenSVG(on.svg) || greyStrike(on.svg)) out += 'statistician PNG or SVG not green. ';
+    if ((on.tikz.match(/draw=claimgreen, fill=claimfill/g) || []).length !== 2 || !/\\definecolor\{claimgreen\}\{HTML\}\{2D6A39\}/.test(on.tikz) || /rejected\] \(n[12]\)/.test(on.tikz)) out += 'statistician TikZ not green. ';
+    /* the beamer frames: H1 green from the second overlay, H1 and H2 in the third */
+    const overlays = on.beamer.split(/\\only<\d+>\{%/).slice(1).map(f => (f.match(/draw=claimgreen/g) || []).length);
+    if (JSON.stringify(overlays) !== '[0,1,2]') out += `beamer overlays with green: ${JSON.stringify(overlays)}. `;
+    /* every rejection with the tick: a closed test too */
+    await setup(false, 'simes');
+    d = await drawn();
+    if (!d.some(x => x.rejected) || !d.filter(x => x.rejected).every(x => x.claimed && x.badge)) out += `statistician closed test with the tick: ${JSON.stringify(d.filter(x => x.rejected))}. `;
+    /* a fresh page in the same browser keeps it ticked; unticking puts the grey back */
+    const p2 = await c.newPage(); await p2.goto(FILE); await p2.waitForTimeout(500);
+    if (!(await p2.evaluate(() => greenRejected))) out += 'not ticked on a fresh page. ';
+    await p2.evaluate(() => setTab('export')); await p2.waitForTimeout(100);
+    await p2.uncheck('#greenToggle'); await p2.waitForTimeout(100);
+    if (await p2.evaluate(() => greenRejected || localStorage.getItem('mgs-green') !== '0')) out += 'unticking did not stick. ';
+    await c.close();
+    if (out) return out;
+  });
+
+  await step('Descriptions on the drawing (1.4.21): the Graph tab\'s tick, off by default and in both views, draws each description under its circle (at most two lines, cut with "…"; in full on hover and in the screen-reader label), with the test captions below it, and in the PNG, SVG, TikZ, beamer, steps and Compare pictures; it is saved in the file and the link and undone with Undo; a template switches it off', async () => {
+    const c = await b.newContext({ viewport: { width: 1400, height: 900 }, reducedMotion: 'reduce' }); const p = await c.newPage();
+    let out = '';
+    p.on('pageerror', e => { out += `page error: ${e.message}. `; });
+    await p.goto(FILE); await p.waitForTimeout(500);
+    await p.evaluate(() => { window.__png = []; const o = svgToPng; svgToPng = (svgStr, m) => { window.__png.push(svgStr); return o(svgStr, m); }; });
+    const pic = async kind => p.evaluate(async k => { window.__png = []; exportPayload = null; await showExport(k); return ['png', 'steps'].includes(k) ? window.__png[0] || '' : exportPayload || ''; }, kind);
+    const openDetIn = async (pg, id) => { const d = pg.locator('#' + id); if (!(await d.evaluate(x => x.open))) { await d.locator('summary').click(); await pg.waitForTimeout(60); } };
+    const D = ['Dose 1, primary endpoint', 'OS', 'Progression-free survival at 12 months in all patients', 'Safety <AE> & tolerability'];
+    await p.evaluate(D => { setPlain(false); loadGraph(templateJSON('bretz')); setTab('graph'); renderAll(); }, D);
+    await p.waitForTimeout(150);
+    if (!(await p.isVisible('#descToggle')) || await p.isChecked('#descToggle')) out += 'the tick is missing or ticked at the start. ';
+    /* ticked with every description empty: one line says where to add them */
+    await p.check('#descToggle'); await p.waitForTimeout(150);
+    const none = await p.locator('#descNone').count() ? (await p.locator('#descNone').innerText()).trim() : '';
+    if (none !== 'No descriptions yet. Click a hypothesis and open Description and group.') out += `empty note "${none}". `;
+    await p.evaluate(() => setPlain(true)); await p.waitForTimeout(150);
+    const noneC = await p.locator('#descNone').count() ? (await p.locator('#descNone').innerText()).trim() : '';
+    if (noneC !== 'No descriptions yet. Click a question and open Description and group.' || !(await p.isChecked('#descToggle'))) out += `clinician view: note "${noneC}". `;
+    await p.evaluate(() => setPlain(false)); await p.waitForTimeout(100);
+    /* Undo takes the tick back; then the descriptions are typed in each hypothesis's panel */
+    await p.evaluate(() => undo()); await p.waitForTimeout(150);
+    if (await p.evaluate(() => !!G.showDesc) || await p.isChecked('#descToggle')) out += 'Undo did not take the tick back. ';
+    for (let i = 0; i < 4; i++) {
+      await p.locator('[data-node]').nth(i).locator('.node-body').click(); await p.waitForTimeout(100);
+      await openDetIn(p, 'det-ndesc');
+      await p.fill('#node-desc', D[i]); await p.press('#node-desc', 'Tab'); await p.waitForTimeout(100);
+    }
+    await p.evaluate(() => setSel(null)); await p.waitForTimeout(100);
+    if (await p.locator('#world .ndesc').count()) out += 'descriptions drawn with the tick off. ';
+    const offSVG = await pic('svg'), offBeamer = await pic('beamer');
+    if (/Dose 1, primary|Progression-free/.test(offSVG)) out += 'descriptions in the SVG with the tick off. ';
+    /* beamer frames are scaled to fit only when they show descriptions (Niamh's option 3) */
+    if (/mgsPic/.test(offBeamer)) out += 'beamer frames scaled with the tick off. ';
+    await p.evaluate(() => setTab('graph')); await p.waitForTimeout(100);
+    await p.check('#descToggle'); await p.waitForTimeout(200);
+    if (await p.locator('#descNone').count()) out += 'empty note with descriptions. ';
+    /* the drawing */
+    const dr = await p.evaluate(() => [...document.querySelectorAll('#world [data-node]')].map(g => ({ lines: [...g.querySelectorAll('.ndesc')].map(t => t.textContent), ys: [...g.querySelectorAll('.ndesc')].map(t => +t.getAttribute('y')), tip: (g.querySelector(':scope > title') || {}).textContent || '', aria: g.getAttribute('aria-label') })));
+    const want = [['Dose 1, primary', 'endpoint'], ['OS'], ['Progression-free', 'survival at 12 month…'], ['Safety <AE> &', 'tolerability']];
+    if (JSON.stringify(dr.map(x => x.lines)) !== JSON.stringify(want)) out += `lines ${JSON.stringify(dr.map(x => x.lines))}. `;
+    dr.forEach((x, i) => { if (x.tip !== D[i] || !x.aria.endsWith(', ' + D[i])) out += `H${i + 1} hover "${x.tip}", label "${x.aria}". `; if (x.ys[0] <= 36) out += `H${i + 1} description at y ${x.ys[0]}. `; });
+    /* Test mode: the captions go below the description */
+    await p.evaluate(() => { ['0.004', '0.009', '0.011', '0.03'].forEach((v, i) => { G.nodes[i].p = v; }); renderAll(); setTab('test'); }); await p.waitForTimeout(100);
+    await p.click('[data-action="enter-test"]'); await p.waitForTimeout(150);
+    await p.click('[data-action="step"]'); await p.waitForFunction(() => T && T.step === 1 && !T.running && !animating, null, { timeout: 8000 }).catch(() => {});
+    const caps = await p.evaluate(() => [...document.querySelectorAll('#world [data-node]')].map(g => ({ d: Math.max(0, ...[...g.querySelectorAll('.ndesc')].map(t => +t.getAttribute('y'))), c: Math.min(...[...g.querySelectorAll('.ncap')].map(t => +t.getAttribute('y'))) })));
+    caps.forEach((x, i) => { if (!(x.c > x.d + 10)) out += `H${i + 1}: caption at ${x.c}, description at ${x.d}. `; });
+    /* the pictures */
+    await p.evaluate(() => setTab('export')); await p.waitForTimeout(100);
+    const png = await pic('png'), svg = await pic('svg'), tikz = await pic('tikz'), beamer = await pic('beamer'), steps = await pic('steps');
+    for (const [k, v] of Object.entries({ png, svg, steps })) if (!/>survival at 12 month…<\/text>/.test(v) || !/paint-order="stroke">Safety &lt;AE&gt; &amp;<\/text>/.test(v)) out += `${k} picture lacks the descriptions. `;
+    if (!/\\node\[anchor=north, font=\\scriptsize, align=center, fill=white, inner sep=1pt, text=[a-z!0-9]+\] \(n1d\)/.test(tikz) || !/Safety \\textless\{\}AE\\textgreater\{\} \\&\\\\ tolerability/.test(tikz) || !/survival at 12 month\\dots\{\}/.test(tikz)) out += 'TikZ lacks the description nodes. ';
+    if (!/below=1pt of n1d/.test(beamer) || /below=1pt of n1,/.test(beamer)) out += 'beamer captions not below the descriptions. ';
+    if (!/\\edef\\mgsPicH\{/.test(beamer) || (beamer.match(/\\resizebox\{!\}\{\\dimexpr/g) || []).length !== (beamer.match(/\\only<\d+>\{%/g) || []).length) out += 'beamer frames with descriptions are not scaled to fit. ';
+    /* the file and the link carry the tick; a Compare picture follows its own graph */
+    const json = await pic('json');
+    if (!/"showDesc": true/.test(json)) out += 'not in the file. ';
+    const back = await p.evaluate(() => { const t = encodeShare(G); const o = decodeShare(t); return { link: o.showDesc === true, file: deserializeGraph(JSON.parse(exportPayload), false, 1).G.showDesc === true }; });
+    if (!back.link || !back.file) out += `round trip ${JSON.stringify(back)}. `;
+    const cmp = await p.evaluate(() => graphPicture(serializeGraph(G)));
+    if (!/>Dose 1, primary<\/text>/.test(cmp)) out += 'the Compare picture lacks the descriptions. ';
+    /* a template starts without them */
+    await p.evaluate(() => { setMode('design'); loadGraph(templateJSON('holm')); setTab('graph'); }); await p.waitForTimeout(150);
+    if (await p.evaluate(() => !!G.showDesc) || await p.isChecked('#descToggle')) out += 'a template kept the tick. ';
+    await p.evaluate(() => { G.showDesc = true; renderAll(); document.getElementById('clearYes').click(); }); await p.waitForTimeout(150);
+    if (await p.evaluate(() => !!G.showDesc)) out += 'Clear kept the tick. ';
+    await c.close();
+    if (out) return out;
+  });
+
+  await step('Node shapes (1.4.21): the Graph tab\'s Shape buttons, Circles by default and in both views, draw the hypotheses as rounded boxes (descriptions inside), with the arrows ending on the box edge, the blue dot on the corner and the whole box a target; the PNG, SVG, TikZ, beamer, steps and Compare pictures follow; the shape is saved in the file and the link, undone with Undo, and a template goes back to circles', async () => {
+    const c = await b.newContext({ viewport: { width: 1400, height: 900 }, reducedMotion: 'reduce' }); const p = await c.newPage();
+    let out = '';
+    p.on('pageerror', e => { out += `page error: ${e.message}. `; });
+    await p.goto(FILE); await p.waitForTimeout(500);
+    await p.evaluate(() => { window.__png = []; const o = svgToPng; svgToPng = (svgStr, m) => { window.__png.push(svgStr); return o(svgStr, m); }; });
+    const pic = async kind => p.evaluate(async k => { window.__png = []; exportPayload = null; await showExport(k); return ['png', 'steps'].includes(k) ? window.__png[0] || '' : exportPayload || ''; }, kind);
+    const pressed = () => p.evaluate(() => [...document.querySelectorAll('[data-action="shape"]')].map(x => x.dataset.shape + '=' + x.getAttribute('aria-pressed')).join(' '));
+    await p.evaluate(() => { setPlain(false); loadGraph(templateJSON('bretz')); setTab('graph'); }); await p.waitForTimeout(150);
+    if (await pressed() !== 'circle=true box=false') out += `buttons at the start: ${await pressed()}. `;
+    if (await p.locator('#world [data-node] rect.node-body').count()) out += 'boxes before the button. ';
+    await p.click('[data-action="shape"][data-shape="box"]'); await p.waitForTimeout(200);
+    if (await pressed() !== 'circle=false box=true' || await p.evaluate(() => G.shape) !== 'box') out += `after Boxes: ${await pressed()}. `;
+    if (await p.locator('#world [data-node] rect.node-body').count() !== 4 || await p.locator('#world [data-node] ellipse').count()) out += 'the drawing has not got four boxes. ';
+    /* every arrow ends on the edge of its boxes: on a side, or on a rounded corner */
+    const edgeOff = await p.evaluate(() => {
+      const on = (n, q) => { const dx = Math.abs(q.x - n.x), dy = Math.abs(q.y - n.y), a = n.rx, b = n.ry, r = 8;
+        if (dx > a - r && dy > b - r) return Math.abs(Math.hypot(dx - (a - r), dy - (b - r)) - r);
+        return Math.min(Math.abs(dx - a) + (dy > b + 1e-6 ? 99 : 0), Math.abs(dy - b) + (dx > a + 1e-6 ? 99 : 0)); };
+      const vm = buildVM(); return Math.max(...layoutEdges(vm).map(e => Math.max(on(e.a, e.s), on(e.b, e.e))));
+    });
+    if (!(edgeOff < 0.01)) out += `an arrow ends ${edgeOff} px off its box. `;
+    /* descriptions go inside the box, which grows; the blue dot sits on its corner; a click near the corner selects it */
+    await p.evaluate(() => { ['Dose 1, primary endpoint', 'OS', 'Progression-free survival at 12 months', 'Safety'].forEach((d, i) => { G.nodes[i].desc = d; }); G.showDesc = true; renderAll(); fitView(); }); await p.waitForTimeout(200);
+    const inBox = await p.evaluate(() => { const g = document.querySelector('#world [data-node]'), body = g.querySelector('.node-body'), h = +body.getAttribute('height') / 2; return { h, ys: [...g.querySelectorAll('.ndesc')].map(t => +t.getAttribute('y')), w: +g.querySelector('.nweight').getAttribute('y') }; });
+    if (!(inBox.h === 40 && inBox.ys.length === 2 && inBox.ys.every(y => y > -inBox.h && y < inBox.w) && inBox.w < inBox.h)) out += `description not inside the box: ${JSON.stringify(inBox)}. `;
+    await p.locator('[data-node]').nth(0).locator('.node-body').click(); await p.waitForTimeout(150);
+    const dot = await p.evaluate(() => { const n = buildVM().nodes[0], h = document.querySelector('#world [data-node] .handle'), a = handleAt(n); return Math.abs(+h.getAttribute('cx') - a.x) + Math.abs(+h.getAttribute('cy') - a.y) + Math.abs(a.x - (n.rx + 6.5 - 14.5 + 14.5 * Math.SQRT1_2)); });
+    if (!(dot < 0.11)) out += `blue dot off the corner by ${dot}. `;
+    await p.evaluate(() => setSel(null)); await p.waitForTimeout(100);
+    const corner = await p.evaluate(() => { const n = buildVM().nodes[0], q = toClient(n.x + n.rx - 4, n.y + n.ry - 4); return { x: q.x, y: q.y, id: n.id, outsideEllipse: ((n.rx - 4) / (nodeRx(n.label) + 10)) ** 2 + ((n.ry - 4) / (NODE_R + 10)) ** 2 > 1 }; });
+    await p.mouse.click(corner.x, corner.y); await p.waitForTimeout(150);
+    if (!corner.outsideEllipse || await p.evaluate(() => sel && sel.id) !== corner.id) out += `a click in the box's corner did not select it (${JSON.stringify(corner)}). `;
+    await p.evaluate(() => setSel(null));
+    /* the pictures */
+    await p.evaluate(() => { ['0.004', '0.009', '0.011', '0.03'].forEach((v, i) => { G.nodes[i].p = v; }); renderAll(); setTab('export'); }); await p.waitForTimeout(100);
+    const boxSVG = s => (s.match(/<rect x="[-\d.]+" y="[-\d.]+" width="[\d.]+" height="[\d.]+" rx="8" fill=/g) || []).length;
+    const png = await pic('png'), svg = await pic('svg'), tikz = await pic('tikz'), beamer = await pic('beamer');
+    if (boxSVG(png) !== 4 || boxSVG(svg) !== 4 || /<ellipse/.test(svg)) out += `PNG or SVG boxes: ${boxSVG(png)}, ${boxSVG(svg)}. `;
+    if (!/hypbox\/\.style=\{rectangle, rounded corners=0\.13cm/.test(tikz) || (tikz.match(/\\node\[hypbox, minimum width=/g) || []).length !== 4 || !/\{\\scriptsize OS\}\\\\ /.test(tikz)) out += 'TikZ not boxes. ';
+    if ((beamer.match(/\\node\[hypbox/g) || []).length < 4) out += 'beamer not boxes. ';
+    await p.evaluate(() => { setMode('test'); }); await p.waitForTimeout(100);
+    await p.evaluate(() => setTab('test')); await p.click('[data-action="run"]'); await p.waitForFunction(() => T && T.done && !T.running && !animating, null, { timeout: 8000 }).catch(() => {});
+    await p.evaluate(() => setTab('export')); await p.waitForTimeout(100);
+    const steps = await pic('steps');
+    if (boxSVG(steps) < 8) out += `steps picture boxes: ${boxSVG(steps)}. `;
+    const capY = await p.evaluate(() => [...document.querySelectorAll('#world [data-node]')].map(g => ({ h: +g.querySelector('.node-body').getAttribute('height') / 2, c: Math.min(...[...g.querySelectorAll('.ncap')].map(t => +t.getAttribute('y'))) })));
+    capY.forEach((x, i) => { if (!(x.c >= x.h + 21)) out += `H${i + 1}: Test-mode caption at ${x.c}, under a box ${x.h} px from its centre to its edge (want 21 px or more below). `; });
+    await p.evaluate(() => setMode('design')); await p.waitForTimeout(100);
+    /* the file, the link, the Compare picture, Undo, a template */
+    const json = await pic('json');
+    if (!/"shape": "box"/.test(json)) out += 'not in the file. ';
+    const back = await p.evaluate(() => ({ link: deserializeGraph(decodeShare(encodeShare(G)), false, 1).G.shape, file: deserializeGraph(JSON.parse(exportPayload), false, 1).G.shape, cmp: (graphPicture(serializeGraph(G)).match(/rx="8" fill=/g) || []).length }));
+    if (back.link !== 'box' || back.file !== 'box' || back.cmp !== 4) out += `round trip ${JSON.stringify(back)}. `;
+    await p.evaluate(() => setTab('graph')); await p.waitForTimeout(100);
+    await p.click('[data-action="shape"][data-shape="circle"]'); await p.waitForTimeout(150);
+    if (await p.evaluate(() => G.shape) !== undefined || await p.locator('#world [data-node] ellipse.node-body').count() !== 4) out += 'Circles did not go back. ';
+    await p.evaluate(() => undo()); await p.waitForTimeout(150);
+    if (await p.evaluate(() => G.shape) !== 'box') out += 'Undo did not bring the boxes back. ';
+    await p.evaluate(() => { loadGraph(templateJSON('holm')); setTab('graph'); }); await p.waitForTimeout(150);
+    if (await p.evaluate(() => G.shape) === 'box' || await pressed() !== 'circle=true box=false') out += 'a template kept the boxes. ';
+    await p.evaluate(() => { G.shape = 'box'; renderAll(); document.getElementById('clearYes').click(); }); await p.waitForTimeout(150);
+    if (await p.evaluate(() => G.shape) === 'box') out += 'Clear kept the boxes. ';
+    /* the clinician view has the buttons too */
+    await p.evaluate(() => setPlain(true)); await p.waitForTimeout(150);
+    const lab = await p.evaluate(() => (document.querySelector('#shapeRow .seg') || {}).getAttribute && document.querySelector('#shapeRow .seg').getAttribute('aria-label'));
+    if (lab !== 'Shape of the questions on the drawing') out += `clinician view: "${lab}". `;
     await c.close();
     if (out) return out;
   });

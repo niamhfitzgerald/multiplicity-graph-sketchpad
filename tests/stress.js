@@ -4,7 +4,7 @@ if (!process.argv[2]) process.argv[2] = require('path').join(__dirname, '..', 's
 const src = fs.readFileSync(process.argv[2], 'utf8');
 const ctx = { console, performance, TextEncoder, TextDecoder, btoa, atob, setTimeout, clearTimeout };
 vm.createContext(ctx);
-vm.runInContext(src + '\nthis.__X = { Q, gKey, NODE_R, TEMPLATES, TEMPLATE_GEN, TEST_TYPES, pnormUpper, PRIMES, GREEK, SKETCHPAD_JSON_R, ENTANGLED_TEMPLATES };', ctx);
+vm.runInContext(src + '\nthis.__X = { Q, gKey, NODE_R, DESC_WRAP: typeof DESC_WRAP === "undefined" ? undefined : DESC_WRAP, TEMPLATES, TEMPLATE_GEN, TEST_TYPES, pnormUpper, PRIMES, GREEK, SKETCHPAD_JSON_R, ENTANGLED_TEMPLATES };', ctx);
 const C = Object.assign({}, ctx, ctx.__X);
 const { Q } = C;
 
@@ -1288,6 +1288,125 @@ check('Greek letters in hypothesis labels and group names (1.4.20): the TikZ pic
   if (!beamer.includes('\\begin{frame}{Title with $\\beta$}')) return 'beamer title: ' + (beamer.match(/\\begin\{frame\}.*/) || [''])[0];
   if (C.texEscape('x & y % z_1 ≤ α #2 {a} ~ ^') !== 'x \\& y \\% z\\_1 $\\le$ $\\alpha$ \\#2 \\{a\\} \\textasciitilde{} \\textasciicircum{}') return 'texEscape changed for text without Greek letters: ' + C.texEscape('x & y % z_1 ≤ α #2 {a} ~ ^');
   if (C.titleTeX('α < β | γ ≠ δ') !== '$\\alpha$ \\textless{} $\\beta$ \\textbar{} $\\gamma$ $\\neq$ $\\delta$') return 'titleTeX changed: ' + C.titleTeX('α < β | γ ≠ δ');
+  return true;
+});
+
+check('Descriptions on the drawing (1.4.21): descLines wraps at about 130 px, keeps at most two lines and cuts with "…"; nodeLook gives the lines and their height only when the graph shows descriptions; the setting is written only when on and round trips through the file, the link and Join; on every template, ticking it with every description empty changes no SVG or TikZ picture', () => {
+  const W = C.DESC_WRAP, wid = x => C.textWidth(x, 12);
+  if (JSON.stringify(C.descLines('')) !== '[]' || JSON.stringify(C.descLines('   ')) !== '[]') return 'empty description';
+  if (JSON.stringify(C.descLines('  OS  ')) !== '["OS"]') return 'short: ' + JSON.stringify(C.descLines('  OS  '));
+  for (let k = 0; k < 300; k++) {
+    const words = Array.from({ length: ri(1, 14) }, () => 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789,.()-<>&αβ'.split('').filter(() => rnd() < 0.15).join('') || 'x');
+    const t = words.join(rnd() < 0.2 ? '  \n ' : ' '), L = C.descLines(t);
+    if (!L.length || L.length > 2) return `lines ${L.length} for "${t}"`;
+    if (L.some(x => wid(x) > W + 1e-9)) return `too wide: ${JSON.stringify(L)}`;
+    const flat = t.replace(/\s+/g, ' ').trim();
+    if (!L.some(x => x.endsWith('…')) && L.join(' ') !== flat) return `text lost without "…": "${flat}" became ${JSON.stringify(L)}`;
+  }
+  const longWord = C.descLines('Supercalifragilisticexpialidocious-endpoint');
+  if (longWord.length !== 1 || !longWord[0].endsWith('…') || wid(longWord[0]) > W) return 'one long word: ' + JSON.stringify(longWord);
+  const o = C.templateJSON('bretz');
+  const G = toG(o);
+  G.nodes.forEach((n, i) => { n.desc = ['Dose 1, primary endpoint', 'OS', '', 'Progression-free survival at 12 months in all patients'][i]; });
+  const off = C.nodeLook(G.nodes[0], G);
+  if (off.desc.length || off.descH || off.rx !== C.nodeRx('H1') || off.ry !== C.NODE_R) return 'nodeLook with the tick off: ' + JSON.stringify(off);
+  G.showDesc = true;
+  const on = G.nodes.map(n => C.nodeLook(n, G));
+  if (JSON.stringify(on.map(x => x.desc.length)) !== '[2,1,0,2]' || JSON.stringify(on.map(x => x.descH)) !== '[36,22,0,36]') return 'nodeLook with the tick on: ' + JSON.stringify(on.map(x => [x.desc, x.descH]));
+  if (C.serializeGraph(G).showDesc !== true) return 'not written when on';
+  G.showDesc = false;
+  if ('showDesc' in JSON.parse(JSON.stringify(C.serializeGraph(G)))) return 'written when off';
+  G.showDesc = true;
+  if (C.deserializeGraph(JSON.parse(JSON.stringify(C.serializeGraph(G))), false, 1).G.showDesc !== true) return 'file round trip';
+  if (C.deserializeGraph(C.decodeShare(C.encodeShare(G)), false, 1).G.showDesc !== true) return 'link round trip';
+  G.showDesc = false;
+  if (C.deserializeGraph(C.decodeShare(C.encodeShare(G)), false, 1).G.showDesc !== false) return 'link round trip when off';
+  G.showDesc = true;
+  if (C.deserializeGraph(C.joinGraphs(G, toG(C.templateJSON('holm'))), false, 1).G.showDesc !== true) return 'Join lost the setting';
+  const pics = Gx => {
+    const vmv = { nodes: Gx.nodes.map(n => Object.assign({ id: n.id, label: n.label, x: n.x, y: n.y }, C.nodeLook(n, Gx), { w: n.w, p: n.p, rejected: false, group: n.group || '', color: n.color || '' })), edges: Gx.edges.map(e => ({ from: e.from, to: e.to, g: e.g, bend: e.bend, text: C.fmtFrac ? C.fmtFrac(e.g) : Q.exact(e.g) })) };
+    const lay = C.layoutEdges(vmv);
+    return C.exportSVG(vmv, lay, q => Q.exact(q)) + C.exportTikZ(vmv, lay);
+  };
+  for (const key of Object.keys(C.TEMPLATES)) {
+    const Gt = toG(C.templateJSON(key));
+    const a = pics(Gt);
+    Gt.showDesc = true;
+    if (pics(Gt) !== a) return `${key}: the tick with no descriptions changed a picture`;
+  }
+  /* from the review of 1.4.21: group bands make room for a description under a circle; TikZ writes the descriptions after
+     the arrows, with symbols pdflatex does not know as maths; beamer frames with descriptions keep the weight labels off
+     the level captions and take their room from the frame's height */
+  const vmOf = Gx => ({ nodes: Gx.nodes.map(n => Object.assign({ id: n.id, label: n.label, x: n.x, y: n.y }, C.nodeLook(n, Gx), { w: n.w, p: n.p, rejected: false, group: n.group || '', color: n.color || '' })), edges: Gx.edges.map(e => ({ from: e.from, to: e.to, g: e.g, bend: e.bend, text: Q.exact(e.g) })) });
+  {
+    const Gb = toG(C.templateJSON('bretz'));
+    let wide = 'M'; while (C.textWidth(wide + 'M', 12) < W - 2) wide += 'M';
+    Gb.showDesc = true; Gb.nodes.forEach(n => { n.group = 'primary'; n.desc = wide; });
+    const vb = vmOf(Gb), bx = C.groupBoxes(vb)[0];
+    if (vb.nodes.some(n => n.descW <= 2 * n.rx + 44)) return 'the wide description is not wider than the band would be without it';
+    if (vb.nodes.some(n => n.x - n.descW / 2 < bx.x || n.x + n.descW / 2 > bx.x + bx.w)) return 'a group band is narrower than a description under its circle';
+  }
+  {
+    const Gt = toG(C.templateJSON('bretz'));
+    Gt.showDesc = true; Gt.nodes.forEach(n => { n.desc = 'Mean change ≈ 5, ∞ and √'; });
+    const vt = vmOf(Gt), tikz = C.exportTikZ(vt, C.layoutEdges(vt));
+    if (!(tikz.lastIndexOf('\\draw[trans') < tikz.indexOf('(n1d)'))) return 'TikZ writes a description before the arrows, so an arrow is drawn over it';
+    if (!['$\\approx$', '$\\infty$', '$\\surd$'].every(x => tikz.includes(x)) || /[≈∞√]/.test(tikz)) return 'TikZ description symbols: ' + (tikz.match(/Mean change[^}]*/) || [''])[0];
+  }
+  {
+    const Gc = toG(C.templateJSON('bretz'));
+    Gc.showDesc = true; Gc.nodes[0].desc = 'Dose 1, primary endpoint'; Gc.nodes[1].desc = 'OS';
+    ['0.004', '0.009', '0.011', '0.03'].forEach((p, i) => { Gc.nodes[i].p = p; });
+    const vc = vmOf(Gc), cap = C.beamerCaptioned(vc);
+    const ov = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    /* with TikZ's sizes, measured in a Metropolis frame: a description line 21.4 px, a caption of two lines 45 px, a weight label 30 px tall */
+    const capZone = n => { const k = n.desc.length; return { x: n.x - 40, y: n.y + n.ry + (k ? 10 + 21.4 * k : 2), w: 80, h: 45 }; };
+    for (const e of cap.layout) for (const n of cap.vm.nodes) if (ov({ x: e.label.x - e.label.w / 2, y: e.label.y - 15, w: e.label.w, h: 30 }, capZone(n))) return `beamer: the weight label of ${e.a.label} to ${e.b.label} is under ${n.label}'s level caption`;
+    const tex = C.exportBeamer([{ vm: vc, layout: C.layoutEdges(vc), caption: 'Initial graph.', alpha: 0.025 }], '');
+    if (!tex.includes('\\edef\\mgsRoom{\\the\\dimexpr\\textheight-1.62cm-\\mgsCapH-0.5em\\relax}%')) return 'beamer: the room does not come from the frame\'s height';
+    if (!tex.includes('\\only<1>{\\small Initial graph.}%\n')) return 'beamer: a caption line does not end in %, so a space can push a long caption onto a second line';
+  }
+  return true;
+});
+
+check('Node shapes (1.4.21): on every template drawn as boxes, with and without descriptions, every arrow starts and ends on the edge of its boxes (a side or a rounded corner); borderPoint lands on the edge of random boxes in every direction; insideNode covers the whole box; the shape is written only for boxes and round trips through the file, the link and Join; the TikZ picture of boxes defines hypbox, and one of circles does not', () => {
+  const R = 8;
+  const off = (n, q) => {
+    const dx = Math.abs(q.x - n.x), dy = Math.abs(q.y - n.y), a = n.rx, b = n.ry;
+    if (dx > a - R && dy > b - R) return Math.abs(Math.hypot(dx - (a - R), dy - (b - R)) - R);
+    return Math.min(Math.abs(dx - a) + (dy > b + 1e-9 ? 1e9 : 0), Math.abs(dy - b) + (dx > a + 1e-9 ? 1e9 : 0));
+  };
+  for (let k = 0; k < 2000; k++) {
+    const n = { x: ri(-50, 50), y: ri(-50, 50), rx: ri(36, 110), ry: ri(26, 60), shape: 'box' }, ang = rnd() * 2 * Math.PI;
+    const q = C.borderPoint(n, { x: n.x + 300 * Math.cos(ang), y: n.y + 300 * Math.sin(ang) });
+    if (off(n, q) > 1e-6) return `borderPoint ${off(n, q)} off a ${2 * n.rx} x ${2 * n.ry} box at ${(ang * 180 / Math.PI).toFixed(1)} degrees`;
+    if (!C.insideNode(n, { x: n.x + (rnd() * 2 - 1) * n.rx * 0.999, y: n.y + (rnd() * 2 - 1) * n.ry * 0.999 }, 0)) return 'insideNode missed a point in the box';
+  }
+  const vmOf = Gx => ({ nodes: Gx.nodes.map(n => Object.assign({ id: n.id, label: n.label, x: n.x, y: n.y }, C.nodeLook(n, Gx), { w: n.w, p: n.p, rejected: false, group: n.group || '', color: n.color || '' })), edges: Gx.edges.map(e => ({ from: e.from, to: e.to, g: e.g, bend: e.bend, text: Q.exact(e.g) })) });
+  for (const key of Object.keys(C.TEMPLATES)) for (const desc of [false, true]) {
+    const Gt = toG(C.templateJSON(key));
+    Gt.shape = 'box'; Gt.showDesc = desc;
+    if (desc) Gt.nodes.forEach((n, i) => { n.desc = ['Dose 1, primary endpoint', 'OS', 'Progression-free survival at 12 months'][i % 3]; });
+    const vmv = vmOf(Gt), lay = C.layoutEdges(vmv);
+    for (const e of lay) {
+      const d = Math.max(off(e.a, e.s), off(e.b, e.e));
+      if (d > 1e-6) return `${key}${desc ? ' with descriptions' : ''}: the arrow ${e.a.label} to ${e.b.label} ends ${d} px off a box`;
+    }
+    if (desc && !vmv.nodes.every(n => n.shape === 'box' && n.descH === 0 && n.ry === 26 + 7 * n.desc.length && 2 * n.rx + 1e-9 >= n.descW)) return `${key}: a box does not hold its description`;
+    const tikz = C.exportTikZ(vmv, lay);
+    if (!/hypbox\/\.style=\{rectangle, rounded corners=0\.13cm/.test(tikz) || (tikz.match(/\\node\[hypbox, minimum width=/g) || []).length !== Gt.nodes.length) return `${key}: TikZ boxes`;
+    if (desc && /\(n1d\)/.test(tikz)) return `${key}: a description node under a box`;
+    const Gc = toG(C.templateJSON(key)), vc = vmOf(Gc);
+    if (/hypbox/.test(C.exportTikZ(vc, C.layoutEdges(vc)))) return `${key}: hypbox in a picture of circles`;
+  }
+  const G = toG(C.templateJSON('bretz'));
+  if ('shape' in JSON.parse(JSON.stringify(C.serializeGraph(G)))) return 'shape written for circles';
+  G.shape = 'box';
+  if (C.serializeGraph(G).shape !== 'box') return 'shape not written for boxes';
+  if (C.deserializeGraph(JSON.parse(JSON.stringify(C.serializeGraph(G))), false, 1).G.shape !== 'box') return 'file round trip';
+  if (C.deserializeGraph(C.decodeShare(C.encodeShare(G)), false, 1).G.shape !== 'box') return 'link round trip';
+  if (C.deserializeGraph(C.joinGraphs(G, toG(C.templateJSON('holm'))), false, 1).G.shape !== 'box') return 'Join lost the shape';
+  if (C.deserializeGraph(C.decodeShare(C.encodeShare(toG(C.templateJSON('holm')))), false, 1).G.shape) return 'circles came back as boxes';
   return true;
 });
 
