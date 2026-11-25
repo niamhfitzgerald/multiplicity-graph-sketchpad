@@ -1,6 +1,6 @@
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.4.18';
+const APP_VERSION = '1.4.19';
 const APP_DATE = '2026-11-24';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
@@ -1309,22 +1309,33 @@ function exportTikZ(vm, layout, opts = {}) {
    node names stay unique, and the component's name and c under each panel. opts.box: a common box across several
    pictures (the beamer overlays), so the panels keep their places from frame to frame. */
 function exportTikZPanels(panels, opts = {}) {
-  const S = TIKZ_S, gap = 0.8, labelCm = 0.55;
+  /* opts.captions (1.4.19, the steps picture): each panel's own caption (p.title) under it, wrapped to the panel's width,
+     in place of "Graph k (c = ...)"; opts.comment replaces the line that says what the picture is */
+  const S = TIKZ_S, gap = 0.8;
   const P = panelPlaces(panels, 0, 0);
   const box = opts.box || P.box;
-  const bw = (box.maxX - box.minX) / S, bh = (box.maxY - box.minY) / S + (opts.levels ? 0.6 : 0);
+  const bw0 = (box.maxX - box.minX) / S, bh = (box.maxY - box.minY) / S + (opts.levels ? 0.6 : 0);
+  /* with captions, a panel is at least as wide as the longest piece of a caption that cannot break (at 0.353 cm an em, less
+     the 0.2 cm the caption may reach past each side), the graph centred in it */
+  const bw = opts.captions ? Math.max(bw0, Math.max(0, ...panels.map(p => captionWordWidth(p.title))) / CAP_SIZE * 0.353 - 0.4) : bw0;
+  const inset = bw - bw0 > 0 ? (bw - bw0) / 2 : 0;
+  /* the caption is set in \small (at most 10 pt, so 0.353 cm an em) in a box bw + 0.4 cm wide; captionLines measures 14 px an em */
+  const capW = (bw + 0.4) / 0.353 * CAP_SIZE;
+  const capLines = opts.captions ? Math.max(1, ...panels.map(p => captionLines(p.title, capW).length)) : 1;
+  const labelCm = 0.55 + (capLines - 1) * 0.45;
   const cols = P.cols;
   const L = [];
   const bands = panels.some(p => groupBoxes(p.vm).length);
   if (!opts.inner) L.push(`% Needs: \\usepackage{tikz} and \\usetikzlibrary{arrows.meta, shapes.geometric, positioning${bands ? ', backgrounds' : ''}}`);
-  if (!opts.inner) L.push(`% The component graphs of an entangled graph drawn side by side (Maurer and Bretz, 2013, Fig. 2).`);
+  if (!opts.inner) L.push(opts.comment || `% The component graphs of an entangled graph drawn side by side (Maurer and Bretz, 2013, Fig. 2).`);
   L.push(...tikzStyles(true));
   panels.forEach((p, k) => {
     const dx = (k % cols) * (bw + gap), dy = -Math.floor(k / cols) * (bh + labelCm + gap);
-    const cx = x => ((x - box.minX) / S).toFixed(2), cy = y => (-(y - box.minY) / S).toFixed(2);
+    const cx = x => ((x - box.minX) / S + inset).toFixed(2), cy = y => (-(y - box.minY) / S).toFixed(2);
     L.push(`\\begin{scope}[xshift=${dx.toFixed(2)}cm, yshift=${dy.toFixed(2)}cm, name prefix=g${k + 1}-]`);
     L.push(...tikzBody(p.vm, p.layout, Object.assign({}, opts, { cScale: p.c }), cx, cy));
-    L.push(`\\node[font=\\small\\bfseries, anchor=north] at (${(bw / 2).toFixed(2)}, ${(-bh - 0.2).toFixed(2)}) {Graph ${k + 1}${p.c ? ` ($c = ${texNum(p.c).slice(1, -1)}$)` : ''}};`);
+    if (opts.captions) L.push(`\\node[font=\\small\\bfseries, anchor=north, text width=${(bw + 0.4).toFixed(2)}cm, align=center] at (${(bw / 2).toFixed(2)}, ${(-bh - 0.2).toFixed(2)}) {${titleTeX(p.title).replace(/\u00a0/g, '~')}};`);
+    else L.push(`\\node[font=\\small\\bfseries, anchor=north] at (${(bw / 2).toFixed(2)}, ${(-bh - 0.2).toFixed(2)}) {Graph ${k + 1}${p.c ? ` ($c = ${texNum(p.c).slice(1, -1)}$)` : ''}};`);
     L.push('\\end{scope}');
   });
   if (opts.title) { const lines = titleLines(opts.title, P.W - 2 * P.pad); if (lines.length) L.push(tikzTitle(lines)); }
@@ -1403,6 +1414,24 @@ function titleLines(title, widthPx) {
   return lines;
 }
 function titleWidth(lines) { return lines.reduce((m, l) => Math.max(m, titleTextWidth(l)), 0); }
+/* Panel captions of the steps picture (1.4.19): bold 14 px, wrapped at spaces to widthPx with the same width estimate
+   as the title; a word longer than the width keeps a line of its own */
+const CAP_SIZE = 14, CAP_LINE = 18;
+/* the widest piece of a caption between ordinary spaces (non-breaking spaces hold a piece together), in px at 14 px */
+function captionWordWidth(text) { return Math.max(0, ...String(text || '').split(/[ \t\r\n]+/).map(w => titleTextWidth(w) * CAP_SIZE / TITLE_SIZE)); }
+function captionLines(text, widthPx) {
+  const t = String(text || '').replace(/[ \t\r\n]+/g, ' ').trim();
+  if (!t) return [''];
+  const wid = line => titleTextWidth(line) * CAP_SIZE / TITLE_SIZE;
+  const lines = [];
+  let cur = '';
+  for (const w of t.split(' ')) {
+    if (cur && wid(cur + ' ' + w) > widthPx) { lines.push(cur); cur = w; }
+    else cur = cur ? cur + ' ' + w : w;
+  }
+  lines.push(cur);
+  return lines;
+}
 /* From the top of the title to the top of the graph below it */
 function titleHeight(lines) { return lines.length ? TITLE_ASCENT + (lines.length - 1) * TITLE_LINE + TITLE_GAP : 0; }
 /* The title lines as SVG text, centred on cx, the first line's top at top */
@@ -1529,18 +1558,26 @@ function componentPanels(G, st, rejected, fmt, capH) {
   });
 }
 /* The common box of a set of panels (so every panel is the same size) and where each panel goes */
-function panelPlaces(panels, gap, labelH) {
+function panelPlaces(panels, gap, labelH, minW) {
   const bs = panels.map(p => svgBounds(p.vm, p.layout));
   const box = { minX: Math.min(...bs.map(b => b.minX)), minY: Math.min(...bs.map(b => b.minY)), maxX: Math.max(...bs.map(b => b.maxX)), maxY: Math.max(...bs.map(b => b.maxY)) };
-  const pad = 24, pw = box.maxX - box.minX + 2 * pad, ph = box.maxY - box.minY + 2 * pad;
+  /* minW (1.4.19, the steps picture): a panel at least this wide, the graph centred in it (inset) */
+  const pad = 24, pw0 = box.maxX - box.minX + 2 * pad, pw = Math.max(pw0, minW || 0), inset = (pw - pw0) / 2, ph = box.maxY - box.minY + 2 * pad;
   const cols = panelColumns(panels.length), rows = Math.ceil(panels.length / cols);
   const at = panels.map((_, k) => ({ dx: (k % cols) * (pw + gap), dy: Math.floor(k / cols) * (ph + labelH + gap) }));
-  return { box, pad, pw, ph, cols, rows, at, W: cols * pw + (cols - 1) * gap, H: rows * (ph + labelH) + (rows - 1) * gap };
+  return { box, pad, pw, ph, inset, cols, rows, at, W: cols * pw + (cols - 1) * gap, H: rows * (ph + labelH) + (rows - 1) * gap };
 }
-/* One SVG with every panel: the picture of each component translated into place and its title underneath */
+/* One SVG with every panel: the picture of each component translated into place and its title underneath.
+   opts.wrap (1.4.19, the steps picture): captions wrap to the panel's width, each further line 18 px lower. Without it
+   every caption is one line, as in 1.3.6. */
 function exportSVGPanels(panels, fmt, opts = {}) {
-  const gap = 48, labelH = 28;
-  const P = panelPlaces(panels, gap, labelH);
+  const gap = 48;
+  /* with wrap, a panel is at least as wide as the longest piece of a caption that cannot break */
+  const minW = opts.wrap ? Math.max(0, ...panels.map(p => captionWordWidth(p.title))) + 16 : 0;
+  const pw0 = Math.max(panelPlaces(panels, gap, 28).pw, minW);
+  const caps = panels.map(p => (opts.wrap ? captionLines(p.title, pw0 - 16) : [p.title]));
+  const labelH = 28 + (Math.max(1, ...caps.map(c => c.length)) - 1) * CAP_LINE;
+  const P = panelPlaces(panels, gap, labelH, minW);
   /* opts.title (1.4.18): above the panels, which move down (and right, if the title is wider than the panels) */
   const lines = titleLines(opts.title, P.W - 2 * P.pad);
   const top = lines.length ? 8 + titleHeight(lines) : 0, ox = Math.max(0, (titleWidth(lines) + 48 - P.W) / 2);
@@ -1552,10 +1589,10 @@ function exportSVGPanels(panels, fmt, opts = {}) {
   if (lines.length) { o.push(svgTitle(lines, W / 2, 8)); o.push(`<g transform="translate(${ox.toFixed(1)}, ${top.toFixed(1)})">`); }
   panels.forEach((p, k) => {
     const { dx, dy } = P.at[k];
-    o.push(`<g transform="translate(${(dx + P.pad - P.box.minX).toFixed(1)}, ${(dy + P.pad - P.box.minY).toFixed(1)})">`);
+    o.push(`<g transform="translate(${(dx + P.pad + P.inset - P.box.minX).toFixed(1)}, ${(dy + P.pad - P.box.minY).toFixed(1)})">`);
     o.push(...svgBody(p.vm, p.layout, fmt, null));
     o.push('</g>');
-    o.push(`<text x="${(dx + P.pw / 2).toFixed(1)}" y="${(dy + P.ph + 18).toFixed(1)}" font-size="14" font-weight="700" text-anchor="middle" fill="${SVG_INK}">${xmlEsc(p.title)}</text>`);
+    caps[k].forEach((line, i) => o.push(`<text x="${(dx + P.pw / 2).toFixed(1)}" y="${(dy + P.ph + 18 + i * CAP_LINE).toFixed(1)}" font-size="14" font-weight="700" text-anchor="middle" fill="${SVG_INK}">${xmlEsc(line)}</text>`));
   });
   if (lines.length) o.push('</g>');
   o.push('</svg>');
