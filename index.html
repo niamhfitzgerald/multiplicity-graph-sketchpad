@@ -663,7 +663,7 @@ table.t td:first-child { white-space: nowrap; }
 <script>
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.4.18';
+const APP_VERSION = '1.4.19';
 const APP_DATE = '2026-11-24';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
@@ -1972,22 +1972,33 @@ function exportTikZ(vm, layout, opts = {}) {
    node names stay unique, and the component's name and c under each panel. opts.box: a common box across several
    pictures (the beamer overlays), so the panels keep their places from frame to frame. */
 function exportTikZPanels(panels, opts = {}) {
-  const S = TIKZ_S, gap = 0.8, labelCm = 0.55;
+  /* opts.captions (1.4.19, the steps picture): each panel's own caption (p.title) under it, wrapped to the panel's width,
+     in place of "Graph k (c = ...)"; opts.comment replaces the line that says what the picture is */
+  const S = TIKZ_S, gap = 0.8;
   const P = panelPlaces(panels, 0, 0);
   const box = opts.box || P.box;
-  const bw = (box.maxX - box.minX) / S, bh = (box.maxY - box.minY) / S + (opts.levels ? 0.6 : 0);
+  const bw0 = (box.maxX - box.minX) / S, bh = (box.maxY - box.minY) / S + (opts.levels ? 0.6 : 0);
+  /* with captions, a panel is at least as wide as the longest piece of a caption that cannot break (at 0.353 cm an em, less
+     the 0.2 cm the caption may reach past each side), the graph centred in it */
+  const bw = opts.captions ? Math.max(bw0, Math.max(0, ...panels.map(p => captionWordWidth(p.title))) / CAP_SIZE * 0.353 - 0.4) : bw0;
+  const inset = bw - bw0 > 0 ? (bw - bw0) / 2 : 0;
+  /* the caption is set in \small (at most 10 pt, so 0.353 cm an em) in a box bw + 0.4 cm wide; captionLines measures 14 px an em */
+  const capW = (bw + 0.4) / 0.353 * CAP_SIZE;
+  const capLines = opts.captions ? Math.max(1, ...panels.map(p => captionLines(p.title, capW).length)) : 1;
+  const labelCm = 0.55 + (capLines - 1) * 0.45;
   const cols = P.cols;
   const L = [];
   const bands = panels.some(p => groupBoxes(p.vm).length);
   if (!opts.inner) L.push(`% Needs: \\usepackage{tikz} and \\usetikzlibrary{arrows.meta, shapes.geometric, positioning${bands ? ', backgrounds' : ''}}`);
-  if (!opts.inner) L.push(`% The component graphs of an entangled graph drawn side by side (Maurer and Bretz, 2013, Fig. 2).`);
+  if (!opts.inner) L.push(opts.comment || `% The component graphs of an entangled graph drawn side by side (Maurer and Bretz, 2013, Fig. 2).`);
   L.push(...tikzStyles(true));
   panels.forEach((p, k) => {
     const dx = (k % cols) * (bw + gap), dy = -Math.floor(k / cols) * (bh + labelCm + gap);
-    const cx = x => ((x - box.minX) / S).toFixed(2), cy = y => (-(y - box.minY) / S).toFixed(2);
+    const cx = x => ((x - box.minX) / S + inset).toFixed(2), cy = y => (-(y - box.minY) / S).toFixed(2);
     L.push(`\\begin{scope}[xshift=${dx.toFixed(2)}cm, yshift=${dy.toFixed(2)}cm, name prefix=g${k + 1}-]`);
     L.push(...tikzBody(p.vm, p.layout, Object.assign({}, opts, { cScale: p.c }), cx, cy));
-    L.push(`\\node[font=\\small\\bfseries, anchor=north] at (${(bw / 2).toFixed(2)}, ${(-bh - 0.2).toFixed(2)}) {Graph ${k + 1}${p.c ? ` ($c = ${texNum(p.c).slice(1, -1)}$)` : ''}};`);
+    if (opts.captions) L.push(`\\node[font=\\small\\bfseries, anchor=north, text width=${(bw + 0.4).toFixed(2)}cm, align=center] at (${(bw / 2).toFixed(2)}, ${(-bh - 0.2).toFixed(2)}) {${titleTeX(p.title).replace(/\u00a0/g, '~')}};`);
+    else L.push(`\\node[font=\\small\\bfseries, anchor=north] at (${(bw / 2).toFixed(2)}, ${(-bh - 0.2).toFixed(2)}) {Graph ${k + 1}${p.c ? ` ($c = ${texNum(p.c).slice(1, -1)}$)` : ''}};`);
     L.push('\\end{scope}');
   });
   if (opts.title) { const lines = titleLines(opts.title, P.W - 2 * P.pad); if (lines.length) L.push(tikzTitle(lines)); }
@@ -2066,6 +2077,24 @@ function titleLines(title, widthPx) {
   return lines;
 }
 function titleWidth(lines) { return lines.reduce((m, l) => Math.max(m, titleTextWidth(l)), 0); }
+/* Panel captions of the steps picture (1.4.19): bold 14 px, wrapped at spaces to widthPx with the same width estimate
+   as the title; a word longer than the width keeps a line of its own */
+const CAP_SIZE = 14, CAP_LINE = 18;
+/* the widest piece of a caption between ordinary spaces (non-breaking spaces hold a piece together), in px at 14 px */
+function captionWordWidth(text) { return Math.max(0, ...String(text || '').split(/[ \t\r\n]+/).map(w => titleTextWidth(w) * CAP_SIZE / TITLE_SIZE)); }
+function captionLines(text, widthPx) {
+  const t = String(text || '').replace(/[ \t\r\n]+/g, ' ').trim();
+  if (!t) return [''];
+  const wid = line => titleTextWidth(line) * CAP_SIZE / TITLE_SIZE;
+  const lines = [];
+  let cur = '';
+  for (const w of t.split(' ')) {
+    if (cur && wid(cur + ' ' + w) > widthPx) { lines.push(cur); cur = w; }
+    else cur = cur ? cur + ' ' + w : w;
+  }
+  lines.push(cur);
+  return lines;
+}
 /* From the top of the title to the top of the graph below it */
 function titleHeight(lines) { return lines.length ? TITLE_ASCENT + (lines.length - 1) * TITLE_LINE + TITLE_GAP : 0; }
 /* The title lines as SVG text, centred on cx, the first line's top at top */
@@ -2192,18 +2221,26 @@ function componentPanels(G, st, rejected, fmt, capH) {
   });
 }
 /* The common box of a set of panels (so every panel is the same size) and where each panel goes */
-function panelPlaces(panels, gap, labelH) {
+function panelPlaces(panels, gap, labelH, minW) {
   const bs = panels.map(p => svgBounds(p.vm, p.layout));
   const box = { minX: Math.min(...bs.map(b => b.minX)), minY: Math.min(...bs.map(b => b.minY)), maxX: Math.max(...bs.map(b => b.maxX)), maxY: Math.max(...bs.map(b => b.maxY)) };
-  const pad = 24, pw = box.maxX - box.minX + 2 * pad, ph = box.maxY - box.minY + 2 * pad;
+  /* minW (1.4.19, the steps picture): a panel at least this wide, the graph centred in it (inset) */
+  const pad = 24, pw0 = box.maxX - box.minX + 2 * pad, pw = Math.max(pw0, minW || 0), inset = (pw - pw0) / 2, ph = box.maxY - box.minY + 2 * pad;
   const cols = panelColumns(panels.length), rows = Math.ceil(panels.length / cols);
   const at = panels.map((_, k) => ({ dx: (k % cols) * (pw + gap), dy: Math.floor(k / cols) * (ph + labelH + gap) }));
-  return { box, pad, pw, ph, cols, rows, at, W: cols * pw + (cols - 1) * gap, H: rows * (ph + labelH) + (rows - 1) * gap };
+  return { box, pad, pw, ph, inset, cols, rows, at, W: cols * pw + (cols - 1) * gap, H: rows * (ph + labelH) + (rows - 1) * gap };
 }
-/* One SVG with every panel: the picture of each component translated into place and its title underneath */
+/* One SVG with every panel: the picture of each component translated into place and its title underneath.
+   opts.wrap (1.4.19, the steps picture): captions wrap to the panel's width, each further line 18 px lower. Without it
+   every caption is one line, as in 1.3.6. */
 function exportSVGPanels(panels, fmt, opts = {}) {
-  const gap = 48, labelH = 28;
-  const P = panelPlaces(panels, gap, labelH);
+  const gap = 48;
+  /* with wrap, a panel is at least as wide as the longest piece of a caption that cannot break */
+  const minW = opts.wrap ? Math.max(0, ...panels.map(p => captionWordWidth(p.title))) + 16 : 0;
+  const pw0 = Math.max(panelPlaces(panels, gap, 28).pw, minW);
+  const caps = panels.map(p => (opts.wrap ? captionLines(p.title, pw0 - 16) : [p.title]));
+  const labelH = 28 + (Math.max(1, ...caps.map(c => c.length)) - 1) * CAP_LINE;
+  const P = panelPlaces(panels, gap, labelH, minW);
   /* opts.title (1.4.18): above the panels, which move down (and right, if the title is wider than the panels) */
   const lines = titleLines(opts.title, P.W - 2 * P.pad);
   const top = lines.length ? 8 + titleHeight(lines) : 0, ox = Math.max(0, (titleWidth(lines) + 48 - P.W) / 2);
@@ -2215,10 +2252,10 @@ function exportSVGPanels(panels, fmt, opts = {}) {
   if (lines.length) { o.push(svgTitle(lines, W / 2, 8)); o.push(`<g transform="translate(${ox.toFixed(1)}, ${top.toFixed(1)})">`); }
   panels.forEach((p, k) => {
     const { dx, dy } = P.at[k];
-    o.push(`<g transform="translate(${(dx + P.pad - P.box.minX).toFixed(1)}, ${(dy + P.pad - P.box.minY).toFixed(1)})">`);
+    o.push(`<g transform="translate(${(dx + P.pad + P.inset - P.box.minX).toFixed(1)}, ${(dy + P.pad - P.box.minY).toFixed(1)})">`);
     o.push(...svgBody(p.vm, p.layout, fmt, null));
     o.push('</g>');
-    o.push(`<text x="${(dx + P.pw / 2).toFixed(1)}" y="${(dy + P.ph + 18).toFixed(1)}" font-size="14" font-weight="700" text-anchor="middle" fill="${SVG_INK}">${xmlEsc(p.title)}</text>`);
+    caps[k].forEach((line, i) => o.push(`<text x="${(dx + P.pw / 2).toFixed(1)}" y="${(dy + P.ph + 18 + i * CAP_LINE).toFixed(1)}" font-size="14" font-weight="700" text-anchor="middle" fill="${SVG_INK}">${xmlEsc(line)}</text>`));
   });
   if (lines.length) o.push('</g>');
   o.push('</svg>');
@@ -6346,6 +6383,7 @@ let plain = false;    // the clinician view: everyday words (plainWords), and th
 let presenting = false;
 let allView = false;  // entangled graphs: show every component overlaid (read-only) instead of the active one
 let sideBySide = false; // entangled graphs: the SVG, TikZ and beamer exports draw the component graphs side by side (Fig. 2 style)
+let stepsSideBySide = false; // 1.4.19, an ordinary graph with the Bonferroni step-through: the SVG and TikZ exports draw all the steps side by side
 let titleOnPics = true; // the graph's title (1.4.18) above the PNG, SVG and TikZ pictures; the Export tab's tick turns it off
 let fileNameTyped = null; // the Export tab's File name box (1.4.18): what the user typed, or null to follow the title
 const hist = { past: [], future: [] };
@@ -6362,10 +6400,12 @@ const OPT = { source: 'quick', quick: 'any', values: { reg: [], rule: 'all', sco
   script: { nsim: 100000, global: true, threads: 1, start: true, file: 'optimised-graph.json' },
   /* The optimisation block of the file last opened (readOptimisationBlock), with the graph signature it belongs to */
   imported: null };
-/* Help on what correlation to enter, shown in the Power tab and in the parametric help of the Test tab */
+/* Help on what correlation to enter, shown in the Power and Optimise tabs and in the parametric help of the Test tab.
+   From 1.4.19 it sits in a closed section, "What to enter" (corrHelpSection), since the paragraph is long. */
 /* Result-text note for correlations entered as 1 and capped at 0.999999 so the matrix is positive definite (runSim and the Compare tab) */
 function corrCapText(capped) { return capped ? ` (${capped} pair${capped > 1 ? 's' : ''} entered as 1 ${capped > 1 ? 'were' : 'was'} set to 0.999999 so that the matrix is positive definite)` : ''; }
-const CORR_WHAT_TO_ENTER = 'What to enter. For two doses compared with one control, the correlation of the two z statistics is &radic;(n&#8321;n&#8322; / ((n&#8321; + n&#8320;)(n&#8322; + n&#8320;))), so 0.5 with equal group sizes (Bretz et al., 2011, p. 904; Li, Deng and Ting, 2023, section 3.4). This assumes a common variance. For unequal variances, see Pigorsch, Hothorn and Konietschke (2025, eq. 4). For the same test in the full population and in a subgroup, it is about the square root of the subgroup\'s share &gamma; of the sample (Zhao, Dmitrienko and Tamura, 2010, eq. 4). This assumes the outcome varies equally in the subgroup and in the rest of the population. With standard deviations &sigma;<sub>S</sub> in the subgroup and &sigma;<sub>C</sub> in the rest, it is &sigma;<sub>S</sub>&radic;&gamma; / &radic;(&gamma;&sigma;<sub>S</sub>&sup2; + (1 &minus; &gamma;)&sigma;<sub>C</sub>&sup2;); the subgroup and the rest are uncorrelated (Thomas, Bornkamp, Posch and K&ouml;nig, 2020, p. 58). For the same test in two populations that partly overlap, with shares &pi;&#8321; of the sample only in the first, &pi;&#8322; only in the second and &pi;&#8321;&#8322; in both, it is &pi;&#8321;&#8322; / &radic;((&pi;&#8321; + &pi;&#8321;&#8322;)(&pi;&#8322; + &pi;&#8321;&#8322;)). This also assumes a common variance and the same ratio of treated to control patients in every part (Luschei and Brannath, 2026a, eq. 4, p. 3; 2026b, p. 3). These correlations assume each test is valid on its own. If subgroup effects can differ in sign, a pooled full-population test can exceed &alpha; before any adjustment (Luschei and Brannath, 2026a). For two endpoints measured on the same patients, it is the correlation between the endpoints. For binary endpoints, use the tetrachoric correlation, not the correlation of the 0/1 outcomes (Westfall et al., 2008, p. 620).';
+const CORR_WHAT_TO_ENTER = 'For two doses compared with one control, the correlation of the two z statistics is &radic;(n&#8321;n&#8322; / ((n&#8321; + n&#8320;)(n&#8322; + n&#8320;))), so 0.5 with equal group sizes (Bretz et al., 2011, p. 904; Li, Deng and Ting, 2023, section 3.4). This assumes a common variance. For unequal variances, see Pigorsch, Hothorn and Konietschke (2025, eq. 4). For the same test in the full population and in a subgroup, it is about the square root of the subgroup\'s share &gamma; of the sample (Zhao, Dmitrienko and Tamura, 2010, eq. 4). This assumes the outcome varies equally in the subgroup and in the rest of the population. With standard deviations &sigma;<sub>S</sub> in the subgroup and &sigma;<sub>C</sub> in the rest, it is &sigma;<sub>S</sub>&radic;&gamma; / &radic;(&gamma;&sigma;<sub>S</sub>&sup2; + (1 &minus; &gamma;)&sigma;<sub>C</sub>&sup2;); the subgroup and the rest are uncorrelated (Thomas, Bornkamp, Posch and K&ouml;nig, 2020, p. 58). For the same test in two populations that partly overlap, with shares &pi;&#8321; of the sample only in the first, &pi;&#8322; only in the second and &pi;&#8321;&#8322; in both, it is &pi;&#8321;&#8322; / &radic;((&pi;&#8321; + &pi;&#8321;&#8322;)(&pi;&#8322; + &pi;&#8321;&#8322;)). This also assumes a common variance and the same ratio of treated to control patients in every part (Luschei and Brannath, 2026a, eq. 4, p. 3; 2026b, p. 3). These correlations assume each test is valid on its own. If subgroup effects can differ in sign, a pooled full-population test can exceed &alpha; before any adjustment (Luschei and Brannath, 2026a). For two endpoints measured on the same patients, it is the correlation between the endpoints. For binary endpoints, use the tetrachoric correlation, not the correlation of the 0/1 outcomes (Westfall et al., 2008, p. 620).';
+const corrHelpSection = id => det(id, 'What to enter', `<p class="small muted">${CORR_WHAT_TO_ENTER}</p>`);
 
 const fmt = q => Q.fmt(q, numMode);
 const editVal = q => (numMode === 'dec' ? Q.dec(q) : (Q.isExactShort(q) ? Q.exact(q) : Q.dec(q)));
@@ -7703,7 +7743,7 @@ function testTypeSection() {
   else {
     const prob = corrProblem();
     body += `<p class="small muted">Weighted parametric test (Xi et al., 2017, section 4.3, eq. 6). Within each block of hypotheses with known correlations, the test uses the multivariate normal distribution of the one-sided test statistics, with a separate constant for each block. Blocks are combined by Bonferroni. On an equally weighted Holm graph whose hypotheses form one block, this is the step-down Dunnett test (Koenig et al., 2025, p. 4). gMCP uses one common constant for all blocks instead (Bretz et al., 2011, eq. 3), so its results can differ slightly. It assumes that Φ⁻¹(1 − p) is multivariate normal under the null with the correlations entered here, so the p-values must be one-sided. Leave a pair blank when its correlation is unknown; known pairs must form complete blocks.</p>
-      <p class="small muted">${CORR_WHAT_TO_ENTER}</p>
+      ${corrHelpSection('det-tcorrhelp')}
       ${prob ? `<p class="${/same as Bonferroni/.test(prob) ? 'small muted' : 'err-text'}">${/same as Bonferroni/.test(prob) ? '' : '✕ '}${esc(prob)}</p>` : ''}
       ${!prob && corrSingularNote() ? `<p class="small muted" data-note="singular">${esc(corrSingularNote())}</p>` : ''}
       <div class="mx-scroll"><table class="mx"><thead><tr><th scope="col"><span class="sr-only">Correlation</span></th>${G.nodes.map(n => `<th scope="col">${esc(n.label)}</th>`).join('')}</tr></thead><tbody>${G.nodes.map((a, i) => `<tr><th scope="row">${esc(a.label)}</th>${G.nodes.map((b, j) => j <= i ? `<td style="text-align:center;color:var(--muted)">${j === i ? '1' : ''}</td>` : `<td><input id="tc-${a.id}-${b.id}" data-tcorr="${a.id < b.id ? a.id + '|' + b.id : b.id + '|' + a.id}" value="${testCorrAt(i, j) == null ? '' : esc(String(testCorrAt(i, j)))}" placeholder="?" aria-label="Correlation between ${esc(a.label)} and ${esc(b.label)}"></td>`).join('')}</tr>`).join('')}</tbody></table></div>
@@ -7994,7 +8034,7 @@ function simInputsHTML(pre) {
     <div class="mx-scroll"><table class="mx"><thead><tr><th scope="col"><span class="sr-only">Correlation</span></th>${G.nodes.map(n => `<th scope="col">${esc(n.label)}</th>`).join('')}</tr></thead><tbody>${G.nodes.map((a, i) => `<tr><th scope="row">${esc(a.label)}</th>${G.nodes.map((b, j) => j <= i ? `<td style="text-align:center;color:var(--muted)">${j === i ? '1' : ''}</td>` : `<td><input id="${pre}sc-${a.id}-${b.id}" data-corr="${pairKey(a.id, b.id)}" value="${esc(String(corrOf(a.id, b.id)))}" class="${SIM.useMatrix && corrBad(a.id, b.id) ? 'bad' : ''}" aria-label="Correlation between ${esc(a.label)} and ${esc(b.label)}" ${SIM.useMatrix ? '' : 'disabled'}></td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   return `<table class="t"><thead><tr><th scope="col">Hyp.</th><th scope="col">Power alone (%)</th><th scope="col" class="num">Mean z</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="form"><label for="${pre}sim-rho">Correlation between test statistics <span class="hint">The same value for every pair, between &minus;1 and 1</span><input class="txt" id="${pre}sim-rho" data-rho="1" value="${esc(String(SIM.rho))}" inputmode="decimal" style="max-width:8em" ${SIM.useMatrix ? 'disabled' : ''}></label></div>
-      <p class="small muted">${CORR_WHAT_TO_ENTER}</p>
+      ${corrHelpSection(pre + 'det-corrhelp')}
       ${m > 1 ? det(pre + 'det-corr', 'Set each pair separately', corrTable) : ''}
       ${!SIM.error && simCorrProblem() ? `<p class="err-text" id="${pre}simCorrMsg">✕ ${esc(simCorrProblem())}</p>` : ''}
       ${!SIM.error && !simCorrProblem() && simCorrSingularNote() ? `<p class="small muted" data-note="singular">${esc(simCorrSingularNote())}</p>` : ''}`;
@@ -8575,7 +8615,9 @@ function stepFrames(panels) {
     return { nodes, edges, all: true, n: s.ent.comps.length, c: s.ent.c };
   };
   const captionFor = (data) => data ? (plain ? plainStepText(data, G.alpha) : (data.manual ? `Rejected ${data.label} (what if).` : `Rejected ${data.label}: p = ${fmtNum(data.p)} ≤ ${fmtNum(data.level)}.`) + (data.gave.length ? ' Passed on: ' + data.gave.map(([to, q]) => `+${fmt(q)} to ${to}`).join(', ') + '.' : '')) : '';
-  const push = (s, rej, cap) => states.push({ st: s, rejected: new Map(rej), caption: cap });
+  /* rejW (1.4.19): each rejected hypothesis's weight when it was rejected, for the steps picture; the beamer frames do not use it */
+  const rejW = new Map();
+  const push = (s, rej, cap, data) => states.push({ st: s, rejected: new Map(rej), caption: cap, data: data || null, rejW: new Map(rejW) });
   push(st, rejected, 'Initial graph. Each hypothesis is tested at its level, weight × α.');
   if (mode === 'test' && T && T.closed && T.done) {
     /* A closed test has no rejection sequence: one overlay for the initial graph and one for the result. */
@@ -8594,12 +8636,13 @@ function stepFrames(panels) {
   const steps = (mode === 'test' && T && T.log.some(l => l.data)) ? T.log.filter(l => l.data) : null;
   if (steps) {
     let cur = stateFromGraph(G), k = 0;
-    for (const h of T.history) {
+    /* only the steps already in the log: during a rejection's animation the history holds one step more (1.4.19) */
+    for (const h of T.history.slice(0, steps.length)) {
       const next = T.history[T.history.indexOf(h) + 1];
       const after = next ? next.st : T.st;
       k++; rejected.set(h.id, k);
-      { const r = T.rejected.get(h.id); if (r && r.wvec) rejVec.set(h.id, r.wvec); }
-      push(after, rejected, captionFor(steps[k - 1].data));
+      { const r = T.rejected.get(h.id); if (r && r.wvec) rejVec.set(h.id, r.wvec); if (r && r.w) rejW.set(h.id, r.w); }
+      push(after, rejected, captionFor(steps[k - 1].data), steps[k - 1].data);
       cur = after;
     }
     void cur;
@@ -8608,23 +8651,50 @@ function stepFrames(panels) {
     for (;;) {
       const c = findCandidate(st, pOf, G.alpha);
       if (!c) break;
-      const before = st; st = rejectNode(st, c.id); k++; rejected.set(c.id, k);
+      const before = st; st = rejectNode(st, c.id); k++; rejected.set(c.id, k); rejW.set(c.id, before.w.get(c.id) || Q.ZERO);
       const n = nodeById(c.id);
       if (before.ent) rejVec.set(c.id, before.ent.comps.map(cs => cs.w.get(c.id) || Q.ZERO));
       const gave = flowAmounts(before, c.id).map(f => [nodeById(f.to).label, f.total]);
-      push(st, rejected, captionFor({ label: n.label, p: c.p, level: c.level, manual: false, wj: before.w.get(c.id), gave, now: st.ids.map(l => [nodeById(l).label, Q.toNum(st.w.get(l)) * G.alpha]) }));
+      const d = { label: n.label, p: c.p, level: c.level, manual: false, wj: before.w.get(c.id), gave, now: st.ids.map(l => [nodeById(l).label, Q.toNum(st.w.get(l)) * G.alpha]) };
+      push(st, rejected, captionFor(d), d);
     }
   }
   const rem = states.length > 1 ? G.nodes.filter(n => !states[states.length - 1].rejected.has(n.id)).map(n => n.label) : [];
   if (states.length > 1) states[states.length - 1].caption += rem.length ? ` Final result: ${joinWords(rem)} not rejected.` : ' Final result: all hypotheses rejected.';
-  return states.map(({ st: s, rejected: rej, caption }) => {
+  return states.map(({ st: s, rejected: rej, caption, data, rejW: rw }) => {
     const vm = s.ent ? entVM(s, rej) : {
       nodes: G.nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y, rx: nodeRx(n.label), ry: NODE_R, p: n.p, group: n.group || '', color: n.color || '', w: rej.has(n.id) ? Q.ZERO : (s.w.get(n.id) || Q.ZERO), rejected: rej.has(n.id) })),
       edges: [...s.g.entries()].filter(([, g]) => !Q.isZero(g)).map(([k, g]) => { const [a, b] = k.split('>'); const o = edgeOf(a, b); return { from: a, to: b, g, bend: o ? o.bend : null, text: fmt(g) }; })
     };
     if (!s.ent) for (const n of vm.nodes) if (n.rejected) { const r = G.nodes.find(x => x.id === n.id); n.w = r ? r.w : Q.ZERO; }
-    return Object.assign({ vm, layout: layoutEdges(vm), caption, alpha: G.alpha }, panels && s.ent ? { panels: componentPanels(G, s, rejWithVec(rej), fmt) } : {});
+    return Object.assign({ vm, layout: layoutEdges(vm), caption, alpha: G.alpha, data, rejW: rw }, panels && s.ent ? { panels: componentPanels(G, s, rejWithVec(rej), fmt) } : {});
   });
+}
+
+/* All the steps in one picture (1.4.19): the graph at the start and after each rejection, as panels with a short caption
+   under each. Captions (Niamh's choice D4): the p-value and the level in the statistician view, plain words in the clinician
+   view. The steps are those of the beamer export: the ones taken in Test mode, or else the full run on the typed p-values. */
+function stepCaption(d, pl) {
+  if (!d) return pl ? 'Starting shares' : 'Initial graph';
+  if (d.manual) return pl ? `If ${d.label} succeeds` : `After ${d.label} is rejected (what if)`;
+  /* non-breaking spaces keep "p = 0.012 ≤ 0.01667" on one line when a caption wraps */
+  return pl ? `After ${d.label} is claimed` : `After ${d.label} is rejected (p\u00a0=\u00a0${fmtNum(d.p)}\u00a0≤\u00a0${fmtNum(d.level)})`;
+}
+function stepPanels() {
+  const pl = plainWords();
+  let frames = stepFrames(false);
+  /* What if ignores the p-values: until a hypothesis is rejected by hand there are no steps to draw */
+  if (whatIfWaiting()) frames = frames.slice(0, 1);
+  /* a rejected hypothesis shows the weight it was rejected at, as on the drawing in Test mode */
+  return frames.map(f => ({ vm: Object.assign({}, f.vm, { nodes: f.vm.nodes.map(n => (n.rejected && f.rejW && f.rejW.has(n.id) ? Object.assign({}, n, { w: f.rejW.get(n.id) }) : n)) }), layout: f.layout, title: stepCaption(f.data, pl) }));
+}
+function whatIfWaiting() { return mode === 'test' && manual && !(T && T.log.some(l => l.data)); }
+/* Why there is no steps picture: nothing to test, or nothing rejected */
+function stepsMissingText() {
+  if (whatIfWaiting()) return touchWords(plainWords() ? 'Click a question on the drawing to see what happens if it succeeds.' : 'In What if, click a hypothesis on the drawing to reject it first.');
+  const anyP = G.nodes.some(n => { const v = parseP(n.p); return v != null && !Number.isNaN(v); });
+  if (!anyP) return 'Type the p-values in the Test tab first.';
+  return plainWords() ? 'No question is claimed with these p-values, so there are no steps to draw.' : 'No hypothesis is rejected with these p-values, so there are no steps to draw.';
 }
 
 /* ---------- export panel ---------- */
@@ -8635,10 +8705,12 @@ function initExportPanel() {
   <div class="export-grid">
     <button class="btn" data-export="png">Picture (PNG)</button>
     <button class="btn" data-export="sbs" hidden>Graphs side by side (PNG)</button>
+    <button class="btn" data-export="steps" hidden>Steps side by side (PNG)</button>
     <button class="btn" data-export="link">Share link</button>
     <button class="btn" data-export="json">Save as a file</button>
     <button class="btn" data-export="load">Open a saved graph</button>
   </div>
+  <p class="small muted" id="stepsNote" hidden>Steps side by side is for the Bonferroni step-through. A closed test has no steps to draw.</p>
   <label class="chk" id="ptitleRow" hidden><input type="checkbox" id="ptitleToggle" checked> Put the title on the pictures (PNG, SVG and TikZ)</label>
   <div class="adv">
   <h3>For documents and slides</h3>
@@ -8648,6 +8720,7 @@ function initExportPanel() {
     <button class="btn" data-export="tikz">LaTeX (TikZ)</button>
     <button class="btn" data-export="svg">Vector picture (SVG)</button>
   </div>
+  <label class="chk" id="stepsRow" hidden><input type="checkbox" id="stepsToggle"> Draw the steps side by side in the SVG and TikZ exports</label>
   <label class="chk" id="sbsRow" hidden><input type="checkbox" id="sbsToggle"> Draw the component graphs side by side (Maurer and Bretz 2013, Fig. 2) in the SVG, TikZ and beamer exports</label>
   <h3>For R</h3>
   <div class="export-grid">
@@ -8658,10 +8731,16 @@ function initExportPanel() {
   <p class="small muted clinician-only">LaTeX, R code and SAP text are for the statistician. Untick Plain language to see them.</p>
   <div id="exportOut" class="form" aria-live="polite"></div>`;
 }
-/* The side-by-side button, note and tick box show for an entangled graph only */
+/* The side-by-side button, note and tick box show for an entangled graph only. The steps picture, its tick box (1.4.19)
+   show for an ordinary graph with the Bonferroni step-through; for a closed test a line says why they are missing. */
 function updateExportPanel() {
   const ent = isEntangled(G), b = document.querySelector('#tab-export [data-export="sbs"]');
   if (b) b.hidden = !ent;
+  const stp = !ent && isBonf(), sb = document.querySelector('#tab-export [data-export="steps"]');
+  if (sb) sb.hidden = !stp;
+  const sr = $('stepsRow'); if (sr) sr.hidden = !stp;
+  const sn = $('stepsNote'); if (sn) sn.hidden = ent || isBonf();
+  const st = $('stepsToggle'); if (st) st.checked = stepsSideBySide;
   const r = $('sbsRow'); if (r) r.hidden = !ent;
   const n = $('sbsNote'); if (n) n.hidden = !ent;
   const t = $('sbsToggle'); if (t) t.checked = sideBySide;
@@ -8679,7 +8758,8 @@ function fileLabels() { document.querySelectorAll('#tab-export button[data-end]'
 function picTitle() { return titleOnPics ? (G.title || '') : ''; }
 /* File names (1.4.18). Up to 1.4.17 every download was multiplicity-graph with a fixed ending. Now the start of the name
    comes from the Export tab's File name box: the title as letters, digits and hyphens (at most 60 characters), or what the
-   user typed there, or multiplicity-graph. The endings stay: -components, -steps, -gMCP and the file type. */
+   user typed there, or multiplicity-graph. The endings stay: -components, -steps, -gMCP and the file type (and from
+   1.4.19 -all-steps for the steps picture). */
 const DEFAULT_FILE = 'multiplicity-graph';
 const FILE_LETTERS = { 'æ': 'ae', 'ø': 'o', 'ß': 'ss', 'œ': 'oe', 'ł': 'l', 'đ': 'd', 'ð': 'd', 'þ': 'th', 'ı': 'i' };
 function fileSlug(title) {
@@ -8732,12 +8812,16 @@ function codeBlock(title, desc, code, end, mime) {
   <div class="row-actions"><button class="btn primary" data-action="copy">Copy</button>${dl ? `<button class="btn" data-action="download" data-end="${esc(end)}" data-mime="${mime}">Download ${esc(file)}</button>` : ''}</div>`;
 }
 function currentPicture() { const vm = buildVM(); return { vm, layout: layoutEdges(vm) }; }
-function svgToPng(svgStr) {
+/* maxPx (1.4.19, the steps picture): at most this many pixels, below twice screen resolution if need be, since Safari on an
+   iPhone or iPad draws nothing on a canvas over about 16.7 million pixels. Without it, always twice screen resolution. */
+function svgToPng(svgStr, maxPx) {
   return new Promise((res, rej) => {
     const img = new Image();
     img.onload = () => {
-      const s = 2, c = document.createElement('canvas');
-      c.width = Math.ceil(img.naturalWidth * s); c.height = Math.ceil(img.naturalHeight * s);
+      const s = maxPx ? Math.min(2, Math.sqrt(maxPx / Math.max(1, img.naturalWidth * img.naturalHeight))) : 2, c = document.createElement('canvas');
+      /* capped: rounded down, so the canvas stays within maxPx */
+      const capped = maxPx && s < 2;
+      c.width = capped ? Math.floor(img.naturalWidth * s) : Math.ceil(img.naturalWidth * s); c.height = capped ? Math.floor(img.naturalHeight * s) : Math.ceil(img.naturalHeight * s);
       const ctx = c.getContext('2d');
       ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height);
       ctx.drawImage(img, 0, 0, c.width, c.height);
@@ -8815,22 +8899,28 @@ async function showExport(kind) {
   /* an entangled graph drawn as side-by-side panels: always for the "Graphs side by side" button, and for SVG, TikZ and beamer with the box ticked */
   const sbs = isEntangled(G) && (kind === 'sbs' || (sideBySide && (kind === 'svg' || kind === 'tikz' || kind === 'beamer')));
   const sbsDesc = 'Each component graph drawn on its own with the hypotheses in the same places, its name and share c underneath, in the style of Maurer and Bretz (2013), Fig. 2.';
+  /* all the steps side by side (1.4.19): for the "Steps side by side" button, and for SVG and TikZ with its box ticked;
+     only for an ordinary graph with the Bonferroni step-through, and only when at least one hypothesis is rejected */
+  const stepsWanted = !isEntangled(G) && isBonf() && (kind === 'steps' || (stepsSideBySide && (kind === 'svg' || kind === 'tikz')));
+  const stepP = stepsWanted ? stepPanels() : null, steps = !!(stepP && stepP.length > 1);
+  if (kind === 'steps' && !steps) { out.innerHTML = `<p class="muted">${stepsWanted ? stepsMissingText() : 'Steps side by side is for the Bonferroni step-through of an ordinary graph.'}</p>`; return; }
+  const stepsDesc = 'The graph at the start and after each rejection, in the order of the step-through, with the hypotheses in the same places (as in Bretz et al., 2009, Fig. 4).';
   if (kind === 'svg') {
-    exportPayload = sbs ? exportSVGPanels(currentPanels(), fmt, { title: picTitle() }) : exportSVG(vm, layout, fmt, { title: picTitle() });
-    out.innerHTML = codeBlock('SVG picture', (sbs ? sbsDesc + ' ' : '') + 'White background, no interface chrome. Scales to any size.', exportPayload, sbs ? '-components.svg' : '.svg', 'image/svg+xml');
-  } else if (kind === 'png' || kind === 'sbs') {
-    const s = sbs ? exportSVGPanels(currentPanels(), fmt, { title: picTitle() }) : exportSVG(vm, layout, fmt, { title: picTitle() });
+    exportPayload = steps ? exportSVGPanels(stepP, fmt, { title: picTitle(), wrap: true }) : sbs ? exportSVGPanels(currentPanels(), fmt, { title: picTitle() }) : exportSVG(vm, layout, fmt, { title: picTitle() });
+    out.innerHTML = codeBlock('SVG picture', (steps ? stepsDesc + ' ' : sbs ? sbsDesc + ' ' : stepsWanted ? stepsMissingText() + ' So this is the graph on its own. ' : '') + 'White background, no interface chrome. Scales to any size.', exportPayload, steps ? '-all-steps.svg' : sbs ? '-components.svg' : '.svg', 'image/svg+xml');
+  } else if (kind === 'png' || kind === 'sbs' || kind === 'steps') {
+    const s = steps ? exportSVGPanels(stepP, fmt, { title: picTitle(), wrap: true }) : sbs ? exportSVGPanels(currentPanels(), fmt, { title: picTitle() }) : exportSVG(vm, layout, fmt, { title: picTitle() });
     try {
-      const url = await svgToPng(s);
+      const url = await svgToPng(s, steps ? 16e6 : undefined);
       exportPayload = url;
-      const dl = canDownload('x.png'), end = sbs ? '-components.png' : '.png';
-      out.innerHTML = `<h3>${sbs ? 'PNG picture: the component graphs side by side' : 'PNG picture'}</h3><p class="small muted">${sbs ? sbsDesc + ' ' : ''}Twice screen resolution, white background.${dl ? '' : ' ' + touchWords('Right-click (or long-press) the picture to save or copy it.')}</p>
-        <img class="preview-img" id="pngPreview" alt="${sbs ? 'The component graphs side by side as a PNG picture' : 'The graph as a PNG picture'}" src="${url}">
+      const dl = canDownload('x.png'), end = steps ? '-all-steps.png' : sbs ? '-components.png' : '.png';
+      out.innerHTML = `<h3>${steps ? 'PNG picture: all the steps side by side' : sbs ? 'PNG picture: the component graphs side by side' : 'PNG picture'}</h3><p class="small muted">${steps ? stepsDesc + ' ' : sbs ? sbsDesc + ' ' : ''}Twice screen resolution, white background.${dl ? '' : ' ' + touchWords('Right-click (or long-press) the picture to save or copy it.')}</p>
+        <img class="preview-img" id="pngPreview" alt="${steps ? 'All the steps of the test side by side as a PNG picture' : sbs ? 'The component graphs side by side as a PNG picture' : 'The graph as a PNG picture'}" src="${url}">
         ${dl ? `<div class="row-actions"><button class="btn primary" data-action="download-png" data-end="${end}">Download ${esc(fileFor(end))}</button></div>` : ''}`;
     } catch (err) { out.innerHTML = `<p class="err-text">✕ ${esc(err.message)}</p>`; }
   } else if (kind === 'tikz') {
-    exportPayload = sbs ? exportTikZPanels(currentPanels(), { title: picTitle() }).text : exportTikZ(vm, layout, { title: picTitle() });
-    out.innerHTML = codeBlock('TikZ', (sbs ? sbsDesc + ' One scope per panel. ' : '') + 'Same positions and curvature as the canvas (1 cm = 60 px). Paste into a LaTeX or beamer document.' + (!sbs && vm.all ? ' All view: one line style per component and a key below the picture.' : ''), exportPayload, sbs ? '-components.tex' : '.tex', 'text/x-tex');
+    exportPayload = steps ? exportTikZPanels(stepP, { title: picTitle(), captions: true, comment: '% All the steps of the test side by side: the graph at the start and after each rejection.' }).text : sbs ? exportTikZPanels(currentPanels(), { title: picTitle() }).text : exportTikZ(vm, layout, { title: picTitle() });
+    out.innerHTML = codeBlock('TikZ', (steps ? stepsDesc + ' One scope per panel. ' : sbs ? sbsDesc + ' One scope per panel. ' : stepsWanted ? stepsMissingText() + ' So this is the graph on its own. ' : '') + 'Same positions and curvature as the canvas (1 cm = 60 px). Paste into a LaTeX or beamer document.' + (!sbs && vm.all ? ' All view: one line style per component and a key below the picture.' : ''), exportPayload, steps ? '-all-steps.tex' : sbs ? '-components.tex' : '.tex', 'text/x-tex');
   } else if (kind === 'graphicalmcp') {
     exportPayload = exportGraphicalMCP(G);
     out.innerHTML = codeBlock('R code for graphicalMCP', isEntangled(G) ? 'graphicalMCP has no entangled graph object. The code builds each component and gives the intersection weights of the whole procedure, with a Bonferroni closed test by hand when every hypothesis has a p-value.' : 'Initial graph, plus the test call when every hypothesis has a p-value. For the parametric test, each block of known correlations becomes a test group. For Simes within groups, read the note in the code, since graphicalMCP\'s grouped Simes test is stronger than the Sketchpad\'s.', exportPayload, '.R', 'text/plain');
@@ -10094,6 +10184,11 @@ $('tab-export').addEventListener('change', e => {
     if (exportView === 'svg' || exportView === 'tikz' || exportView === 'beamer') showExport(exportView);
     return;
   }
+  if (e.target.id === 'stepsToggle') {
+    stepsSideBySide = e.target.checked;
+    if (exportView === 'svg' || exportView === 'tikz') showExport(exportView);
+    return;
+  }
   if (e.target.id === 'fileName') {
     const v = cleanFileName(e.target.value);
     fileNameTyped = v || null; e.target.value = fileBase(); fileLabels();
@@ -10101,7 +10196,7 @@ $('tab-export').addEventListener('change', e => {
   }
   if (e.target.id === 'ptitleToggle') {
     titleOnPics = e.target.checked; store.set('mgs-ptitle', titleOnPics ? '1' : '0');
-    if (['png', 'sbs', 'svg', 'tikz'].includes(exportView)) showExport(exportView);
+    if (['png', 'sbs', 'steps', 'svg', 'tikz'].includes(exportView)) showExport(exportView);
     return;
   }
   if (e.target.id !== 'loadFile') return;
@@ -10257,7 +10352,7 @@ $('helpBtn').addEventListener('click', () => openModal('Help and shortcuts', tou
     <li><b>Compare:</b> keep a copy of the graph, change it, and the Compare tab shows both pictures, the weights and transitions that differ, the test result on the same p-values and the power on the same simulated trials.</li>
     <li><b>Optimise</b> (shown with Plain language off): say what each set of claims is worth (a gain function: quick rules, build from values, or write your own), and lock the parts of the graph that must not change. The tab then writes an R script for the multigrain package. Run it in R, open the file it saves, and the tab compares multigrain's expected gain with a fresh estimate and the starting graph.</li>
     <li><b>Matrix tab:</b> edit w and G as numbers, or import R code. In Test mode it shows the graph after each step.</li>
-    <li><b>Export:</b> picture (PNG or SVG), TikZ, beamer frames step by step, SAP or protocol text, R code for graphicalMCP or gMCP, a share link, or a saved file. The Download button, or Download a picture (PNG) in the More menu, saves the PNG picture in one press. Open a saved graph reads a saved file, a share link or code, or a multigrain result. For an entangled graph, Graphs side by side draws each component graph on its own, and a tick box does the same for the SVG, TikZ and beamer exports.</li>
+    <li><b>Export:</b> picture (PNG or SVG), TikZ, beamer frames step by step, SAP or protocol text, R code for graphicalMCP or gMCP, a share link, or a saved file. The Download button, or Download a picture (PNG) in the More menu, saves the PNG picture in one press. Open a saved graph reads a saved file, a share link or code, or a multigrain result. Steps side by side draws the graph at the start and after each rejection of the step-through, and a tick box does the same for the SVG and TikZ exports. For an entangled graph, Graphs side by side draws each component graph on its own, and a tick box does the same for the SVG, TikZ and beamer exports.</li>
     <li><b>Plain language</b> (foot of the side panel, or the More menu): everyday words for a clinical team, and only the parts they need. Untick it to see every tab, template and export.</li>
   </ul>
   <p><b>Shortcuts</b></p>

@@ -19,7 +19,7 @@ Created by Niamh Fitzgerald.
 - Compare two graphs: keep a copy, change it, and see both pictures, the weights and transitions that differ, the test result on the same p-values, and the power on the same simulated trials with the difference and its standard error.
 - Entangled graphs (Maurer and Bretz, 2013): several component graphs on the same hypotheses with weights c, edited one at a time and overlaid in an All view. Templates for the paper's Figs. 2, 4(b) and 5, parallel gatekeeping with truncated Holm (Xi and Bretz, 2019), truncated Holm for any m and at least k of m. A default-graph view of any graph as fixed sequences with weights (Burman, Sonesson and Guilbaud, 2009).
 - Optimise with multigrain (Spiers et al., 2026): a gain function window (quick rules, elicitation from scores, or typed), locks for fixed parts and a complete R script for the package. An import of the result, with a fresh estimate of the expected gain.
-- Export a PNG, SVG, TikZ, beamer step-by-step frames, R code for graphicalMCP and gMCP, SAP or protocol text with tables, a JSON file or a share link.
+- Export a PNG, SVG, TikZ, a picture of all the steps side by side, beamer step-by-step frames, R code for graphicalMCP and gMCP, SAP or protocol text with tables, a JSON file or a share link.
 - Plain-language mode for discussing a design with clinicians, and a presentation mode.
 
 ## Repository Layout
@@ -85,7 +85,7 @@ The built-in self-test (More menu, or the "Self-test" button in the footer) runs
 
 ## Citation
 
-Fitzgerald N (2026). Multiplicity Graph Sketchpad, version 1.4.18. Newcastle University and GSK. https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad. See `CITATION.cff`.
+Fitzgerald N (2026). Multiplicity Graph Sketchpad, version 1.4.19. Newcastle University and GSK. https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad. See `CITATION.cff`.
 
 ## Licence
 
