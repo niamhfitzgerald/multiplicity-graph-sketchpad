@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.21 (2026-11-25)
+
+Claimed hypotheses drawn as successes, descriptions on the drawing, and boxes as well as circles. No result the app shows has changed.
+
+- Green claims: with Plain language ticked and the Bonferroni test, a claimed question is drawn in light green with a green outline, and a tick in a green circle at its top right. Its caption is green. The PNG pictures show the same. In the statistician view a tick in the Export tab, "Draw rejected hypotheses in green, with a tick, on the drawing and in the pictures", does the same for every rejection, with any test, on the drawing and in the PNG, SVG, TikZ and beamer exports. It is off at first and the browser remembers it. A closed test in the clinician view stays grey, as before.
+- Descriptions on the drawing: a tick in the Graph tab, "Show descriptions on the drawing", in both views. Each description shows under its circle, or inside its box, on up to two lines, cut short with "…" when longer. The whole description is in the hover text and the screen-reader label. Arrows and weight labels are kept off it, and group bands, Fit and the picture edges make room for it. An arrow that leaves a circle downwards runs under its description, behind a white edge. In Test mode, the level and p-value captions move down below it. The tick is saved with the graph, in share links, kept copies and undo. Loading a template or Clear turns it off.
+- Shapes: "Shape: Circles | Boxes" in the Graph tab, in both views, for the whole graph. Boxes are rounded rectangles, wider for long labels and for descriptions. Arrows end at the box edge, and the ring, the blue dot and the badges sit at its top right corner. Every picture and export follows the shape, with a `hypbox` style in TikZ. The shape is saved with the graph, in share links, kept copies and undo. Loading a template or Clear goes back to circles.
+- Beamer: in a frame with descriptions shown, the arrows and weight labels are also kept off the level captions. LaTeX measures the frame and scales it down to fit the slide, 4:3 or wider, when it would not fit. Frames without descriptions are as before.
+- In the statistician view, with circles, descriptions off and the green tick off, every picture and export is as in 1.4.20.
+- User guide: the shape, the descriptions and green rejections.
+- Tests: 3 new browser checks (87); the clinician-view check lists the new controls as planned differences. 2 new stress checks (62). Self-tests: 163.
+
 ## 1.4.20 (2026-11-25)
 
 Three points left from the review of 1.4.19. No result the app shows has changed.
