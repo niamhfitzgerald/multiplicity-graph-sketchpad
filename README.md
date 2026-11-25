@@ -13,14 +13,14 @@ Created by Niamh Fitzgerald.
 ## What It Does
 
 - Draw a graph on a canvas (double-click to add a hypothesis, drag the blue dot to connect two), or build it from a matrix, R code (`c()`, `matrix()`, `rbind()`) or a template. The templates are Bonferroni-Holm, fixed sequence, fallback, parallel gatekeeping, improved parallel gatekeeping, successive procedures, weighted Holm, improved fallback I and II, cycle and truncated Holm, and published examples. The published examples are two doses with two or three endpoints, three doses with two endpoints, efficacy and safety for three treatments, and non-inferiority then superiority (Hung and Wang, 2010).
-- Live validation with one-click fixes. Symbolic weights such as ε, γ and δ. Groups, colours and descriptions.
+- Live validation with one-click fixes. Symbolic weights such as ε, γ and δ. Groups, colours and descriptions, which can be shown on the drawing. Hypotheses drawn as circles or rounded boxes.
 - Test with p-values. Step through the Bonferroni procedure one rejection at a time, in any order, with the weight moving along the arrows. See what it would take to reject a hypothesis. Run closed tests with weighted Simes, Simes within groups, or parametric tests with known correlations. See the adjusted p-values.
 - Power by simulation, with runs kept for comparison and the matching graphicalMCP code.
 - Compare two graphs: keep a copy, change it, and see both pictures, the weights and transitions that differ, the test result on the same p-values, and the power on the same simulated trials with the difference and its standard error.
 - Entangled graphs (Maurer and Bretz, 2013): several component graphs on the same hypotheses with weights c, edited one at a time and overlaid in an All view. Templates for the paper's Figs. 2, 4(b) and 5, parallel gatekeeping with truncated Holm (Xi and Bretz, 2019), truncated Holm for any m and at least k of m. A default-graph view of any graph as fixed sequences with weights (Burman, Sonesson and Guilbaud, 2009).
 - Optimise with multigrain (Spiers et al., 2026): a gain function window (quick rules, elicitation from scores, or typed), locks for fixed parts and a complete R script for the package. An import of the result, with a fresh estimate of the expected gain.
 - Export a PNG, SVG, TikZ, a picture of all the steps side by side, beamer step-by-step frames, R code for graphicalMCP and gMCP, SAP or protocol text with tables, a JSON file or a share link.
-- Plain-language mode for discussing a design with clinicians, and a presentation mode.
+- Plain-language mode for discussing a design with clinicians, with claimed questions drawn in green, and a presentation mode.
 
 ## Repository Layout
 
@@ -85,7 +85,7 @@ The built-in self-test (More menu, or the "Self-test" button in the footer) runs
 
 ## Citation
 
-Fitzgerald N (2026). Multiplicity Graph Sketchpad, version 1.4.20. Newcastle University and GSK. https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad. See `CITATION.cff`.
+Fitzgerald N (2026). Multiplicity Graph Sketchpad, version 1.4.21. Newcastle University and GSK. https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad. See `CITATION.cff`.
 
 ## Licence
 
