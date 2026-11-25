@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.19 (2026-11-24)
+
+All the steps of the test in one picture, and a shorter correlation help. No result the app shows has changed.
+
+- Steps side by side: a new button in the Export tab, "Steps side by side (PNG)", in both views. It draws the graph at the start and after each rejection, with the hypotheses in the same places, as in Bretz et al. (2009), Figure 4. Under each picture is a caption with the p-value and the level it was compared with. With Plain language ticked, the caption is in plain words ("After H3 is claimed"). It follows the steps taken in Test mode, or else the automatic run on the p-values, or in What if the hypotheses rejected by hand. A tick draws the same in the SVG and TikZ exports. Files end in `-all-steps`. The button is there for the Bonferroni test only (a closed test has no steps; a line says so) and not for an entangled graph. When there are no steps to draw, a note says why.
+- Correlation help: the paragraph on what correlation to enter (Power, Optimise and the parametric test) is now in a closed section, "What to enter", under the box. The text is unchanged.
+- Help: the Export line names the new button and its tick.
+- User guide: the steps picture and the What to enter section.
+- Tests: 2 new browser checks (82). Self-tests: 163. Stress checks: 59.
+
 ## 1.4.18 (2026-11-24)
 
 A title for the graph, and a name for the downloaded files. No result the app shows has changed.
