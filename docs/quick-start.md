@@ -1,6 +1,6 @@
 # Multiplicity Graph Sketchpad: Quick Start
 
-Niamh Fitzgerald · version 1.4.23
+Niamh Fitzgerald · version 1.4.24
 
 Six steps from opening the page to a tested graph. The [user guide](user-guide.md) has the details.
 

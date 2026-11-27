@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.4.24 (2026-11-27)
+
+Five small fixes left by earlier reviews. No test result has changed.
+
+- Beamer frames: the last caption says "Final result" only once the test has finished. Part way through a step-through, or in What if, it ends "Still open: …" instead. Up to 1.4.23 a frame after one step could say a hypothesis was not rejected when a later step rejects it. With a closed test (Simes, Simes within groups or parametric), before Run test, the frame shows the initial graph and the line under the button says to run the test; up to 1.4.23 it followed the Bonferroni graph.
+- TikZ: Greek letters in symbolic weights are written as LaTeX symbols, so η, or α typed as `alpha_`, no longer stops pdflatex. Greek Extended letters (for example ἀ) in labels and titles become their base letter, and ϱ and ϖ get their LaTeX names.
+- Rejected hypotheses: their label, weight and description are a darker grey, at least 4.5 to 1 against their fill in every theme, in the pictures and in TikZ (up to 1.4.23 as low as 2.4 to 1). The dashed outline and the line through the label are as before. In TikZ a rejected hypothesis also has the pictures' light grey fill, so its text stays clear on a coloured band.
+- Long labels: a circle or box widens to fit its label. Up to 1.4.23 a hypothesis was at most 220 px wide, and a label of more than about 25 characters ran past its edge.
+- TikZ bands: with descriptions shown, a group's band is sized by LaTeX to hold the descriptions, which in TikZ are wider than on the drawing. Such a picture needs the `fit` library, and its comment line says so. In side-by-side and steps pictures the panels move a little further apart, so the bands do not meet. Pictures without such a band are as before.
+- Tests: 5 new browser checks (90 to 94) and 1 new self-test. Stress checks: 62. Self-tests: 164.
+
 ## 1.4.23 (2026-11-27)
 
 A one-page quick start, and a link to it from Help. No result the app shows has changed.
