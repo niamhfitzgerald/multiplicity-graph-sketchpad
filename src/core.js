@@ -1,6 +1,6 @@
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.4.24';
+const APP_VERSION = '1.4.25';
 const APP_DATE = '2026-11-27';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
@@ -196,13 +196,35 @@ function weightFromText(G, txt) {
 
 /* ---------- Graph model ---------- */
 const NODE_R = 36;
-function textWidth(s, size) {
+/* Widths of letters outside the Latin alphabet, as a share of the font size (1.4.25). Measured in bold on the drawing's
+   font and on the pictures' Helvetica, in Chromium with the fonts of Claude's workspace and of a Mac, and the larger taken
+   with a small margin: Chinese and Japanese characters and full-width forms are square in every font (1.0), Korean
+   syllables 0.87 to 0.92 (0.95), Greek 0.58 to 0.62 lowercase and 0.68 to 0.71 uppercase (0.63, 0.72), Cyrillic 0.63 to
+   0.65 lowercase and 0.75 to 0.77 uppercase (0.66, 0.78). Up to 1.4.24 every one counted as an average letter (0.54), so
+   such labels ran past their shape. A combining dakuten or handakuten, and a Hangul vowel or final consonant written as a
+   separate jamo, add nothing: they are drawn with the character before them. Returns null for any other character. */
+const CJK_WIDE = /[\u2E80-\u9FFF\uF900-\uFAFF\uFE30-\uFE4F\uFF01-\uFF60\uFFE0-\uFFE6\u{20000}-\u{3FFFF}]/u;
+const HANGUL = /[\u1100-\u115F\uAC00-\uD7AF]/;
+function scriptWidth(ch) {
+  const c = ch.codePointAt(0);
+  if (c < 0x370) return null;
+  if ((c >= 0x3099 && c <= 0x309A) || (c >= 0x1160 && c <= 0x11FF)) return 0;
+  const upper = ch !== ch.toLowerCase();
+  if ((c <= 0x3FF) || (c >= 0x1F00 && c <= 0x1FFF)) return upper ? 0.72 : 0.63;
+  if (c >= 0x400 && c <= 0x52F) return upper ? 0.78 : 0.66;
+  if (HANGUL.test(ch)) return 0.95;
+  if (CJK_WIDE.test(ch)) return 1;
+  return null;
+}
+/* scripts false: the 1.4.24 estimate, every character outside these classes an average letter. Arrow labels use it, so no
+   arrow label moves (1.4.25) */
+function textWidth(s, size, scripts = true) {
   let w = 0;
   for (const ch of String(s)) {
     if (/[ilj.,:;|!'1 ]/.test(ch)) w += 0.32;
     else if (/[mwMW]/.test(ch)) w += 0.86;
     else if (/[A-Z0-9]/.test(ch)) w += 0.64;
-    else w += 0.54;
+    else { const k = scripts && ch.codePointAt(0) >= 0x370 ? scriptWidth(ch) : null; w += k == null ? 0.54 : k; }
   }
   return w * size;
 }
@@ -218,26 +240,54 @@ function nodeRx(label) {
   /* Above 1.4.23's limit (110) the ellipse is flat, so a long label's top corners must sit inside it too (1.4.24). The
      label's box reaches about 17 px above the centre in Chromium and 19 px with other browsers' fonts; at 19 px the ellipse
      is sqrt(1 - (19/36)^2) = 0.85 of its full width */
+  /* Chinese, Japanese and Korean text stands taller: its box reaches about 21 px above the centre in Firefox and in WebKit's
+     pictures, so a circle holding such a label always keeps its top corners inside, allowing 23 px (1.4.25) */
+  if (CJK_WIDE.test(label) || HANGUL.test(label)) return Math.max(rx, w / 2 / Math.sqrt(1 - (23 / NODE_R) ** 2) + 4);
   return rx <= 110 ? rx : Math.max(rx, w / 2 / Math.sqrt(1 - (19 / NODE_R) ** 2) + 4);
 }
 /* Descriptions on the drawing (1.4.21): with the graph's showDesc ticked, each description is drawn in 12 px text under its
    circle, wrapped at about 130 px (about 20 characters) and cut with "…" after two lines. */
 const DESC_SIZE = 12, DESC_LINE = 14, DESC_WRAP = 130, DESC_GAP = 8, DESC_MAX = 2;
+/* The pieces a description may break between (1.4.25): words, and in Chinese, Japanese and Korean text each character, as
+   those languages are written without spaces. Closing punctuation stays with the character before it and opening
+   punctuation with the one after, so no line starts with "。" or ends with "「". A combining mark (such as a decomposed
+   dakuten) and a Hangul vowel or final consonant written as a separate jamo stay with the character before them. gap: the
+   space before a piece ('' inside a word). Text with no such characters gives one piece per word, as up to 1.4.24. */
+const CJK_OPEN = /[「『（〔【〈《〖〘〚（［｛]/, CJK_CLOSE = /[、。，．！？：；」』）〕】〉》〗〙〛）］｝・ー々〜]/, JOINS_PREV = /[\p{M}\u1160-\u11FF]/u;
+function descPieces(t) {
+  const out = [];
+  t.split(' ').forEach(word => {
+    const segs = [], wide = c => CJK_WIDE.test(c) || HANGUL.test(c);
+    let lastCh = '';
+    for (const ch of word) {
+      if (!segs.length) segs.push(ch);
+      else if (CJK_OPEN.test(lastCh) || CJK_CLOSE.test(ch) || JOINS_PREV.test(ch)) segs[segs.length - 1] += ch;
+      else if (wide(ch) || wide(lastCh)) segs.push(ch);
+      else segs[segs.length - 1] += ch;
+      if (!JOINS_PREV.test(ch)) lastCh = ch;
+    }
+    segs.forEach((text, i) => out.push({ text, gap: i ? '' : ' ' }));
+  });
+  if (out.length) out[0].gap = '';
+  return out;
+}
 function descLines(desc) {
   const t = String(desc || '').replace(/\s+/g, ' ').trim();
   if (!t) return [];
   const wid = x => textWidth(x, DESC_SIZE);
-  /* a line that is too wide loses characters from its end until it fits with "…" */
-  const cut = x => { let y = x; while (y && wid(y + '…') > DESC_WRAP) y = y.slice(0, -1); return y.replace(/[\s,;:.]+$/, '') + '…'; };
-  const lines = [];
+  /* a line that is too wide loses characters from its end until it fits with "…": a whole character each time, with any
+     combining marks after it and both halves of a character outside the Basic Multilingual Plane */
+  const dropLast = y => { const z = y.replace(/[\p{M}\u1160-\u11FF]+$/u, ''); return z.slice(0, /[\uDC00-\uDFFF]$/.test(z) ? -2 : -1); };
+  const cut = x => { let y = x; while (y && wid(y + '…') > DESC_WRAP) y = dropLast(y); return y.replace(/[\s,;:.]+$/, '') + '…'; };
+  const lines = [], gaps = [];
   let cur = '';
-  for (const w of t.split(' ')) {
-    if (cur && wid(cur + ' ' + w) > DESC_WRAP) { lines.push(cur); cur = w; }
-    else cur = cur ? cur + ' ' + w : w;
+  for (const { text: w, gap } of descPieces(t)) {
+    if (cur && wid(cur + gap + w) > DESC_WRAP) { lines.push(cur); gaps.push(gap); cur = w; }
+    else cur = cur ? cur + gap + w : w;
   }
   lines.push(cur);
   const out = lines.slice(0, DESC_MAX).map(x => (wid(x) > DESC_WRAP ? cut(x) : x));
-  if (lines.length > DESC_MAX && !out[DESC_MAX - 1].endsWith('…')) out[DESC_MAX - 1] = cut(out[DESC_MAX - 1] + ' ' + lines[DESC_MAX]);
+  if (lines.length > DESC_MAX && !out[DESC_MAX - 1].endsWith('…')) out[DESC_MAX - 1] = cut(out[DESC_MAX - 1] + gaps[DESC_MAX - 1] + lines[DESC_MAX]);
   return out;
 }
 /* How a hypothesis is drawn (1.4.21): its half-width rx and half-height ry, as up to 1.4.20, and with the graph's showDesc
@@ -931,22 +981,55 @@ function textOnColor(hex) {
   return (L + 0.05) / 0.05 > 1.05 / (L + 0.05) ? '#1b1f23' : '#ffffff';
 }
 
+/* ---------- Room for wide hypotheses (1.4.25) ---------- */
+/* Arrange and the imports keep their gap as the least distance between centres, and widen it only where two hypotheses
+   would come closer than ROOM_CLEAR px edge to edge (enough for an arrow and its weight). So a graph whose hypotheses fit
+   is laid out as up to 1.4.24, when the gap did not depend on how wide the hypotheses were and wide ones overlapped. A
+   hypothesis's extent: its half-width (a description under a circle counts) and how far it reaches above and below its
+   centre. Rows stay the 1.4.24 distance apart. */
+const ROOM_CLEAR = 40;
+function nodeExtent(n, Gx) { const k = nodeLook(n, Gx); return { hw: Math.max(k.rx, k.descW / 2), up: k.ry, down: k.ry + k.descH }; }
+/* One step between centres for every row, so rows and columns stay even: the gap, or the widest pair of neighbours in a
+   row plus the clear space. A widened step is a whole number of pixels with 1 px more, as the places are rounded */
+function rowStep(rows, ext, gap) {
+  let s = gap;
+  for (const row of rows) for (let k = 1; k < row.length; k++) s = Math.max(s, ext[row[k - 1]].hw + ext[row[k]].hw + ROOM_CLEAR);
+  return s > gap ? Math.ceil(s) + 1 : gap;
+}
+/* The least radius, from r0 up, at which every two hypotheses on a circle (unit: their places on the unit circle) are the
+   clear space apart across or down, that is, their bounding boxes do not come closer than ROOM_CLEAR */
+function circleRadius(unit, ext, r0) {
+  let r = r0;
+  for (let i = 0; i < unit.length; i++) for (let j = i + 1; j < unit.length; j++) {
+    const dx = Math.abs(unit[i].x - unit[j].x), dy = Math.abs(unit[i].y - unit[j].y);
+    const [a, b] = unit[i].y <= unit[j].y ? [i, j] : [j, i];
+    const needX = ext[i].hw + ext[j].hw + ROOM_CLEAR, needY = ext[a].down + ext[b].up + ROOM_CLEAR;
+    r = Math.max(r, Math.min(dx > 1e-9 ? needX / dx : Infinity, dy > 1e-9 ? needY / dy : Infinity));
+  }
+  /* 1 px more when widened, as the places are rounded */
+  return r > r0 ? r + 1 : r0;
+}
+
 /* ---------- Arrange: snap the whole graph into a fixed shape ---------- */
-/* Returns new {x, y} per node (same order), centred on (cx, cy). */
-function arrangePositions(G, shape, gap, cx, cy) {
+/* Returns new {x, y} per node (same order), centred on (cx, cy). room false: the 1.4.24 spacing, for the menu's small
+   pictures of each shape. */
+function arrangePositions(G, shape, gap, cx, cy, room = true) {
   const m = G.nodes.length;
   if (!m) return [];
   const vgap = Math.round(gap * 0.85);
+  const ext = room ? G.nodes.map(n => nodeExtent(n, G)) : null;
   let pos;
   const rowsOf = rows => {
-    const out = new Array(m);
-    rows.forEach((row, r) => row.forEach((i, k) => { out[i] = { x: (k - (row.length - 1) / 2) * gap, y: r * vgap }; }));
+    const out = new Array(m), step = room ? rowStep(rows, ext, gap) : gap;
+    rows.forEach((row, r) => row.forEach((i, k) => { out[i] = { x: (k - (row.length - 1) / 2) * step, y: r * vgap }; }));
     return out;
   };
   const idx = G.nodes.map((_, i) => i);
   if (shape === 'circle' && m >= 3) {
-    const r = Math.max(gap * 0.6, gap / (2 * Math.sin(Math.PI / m)));
-    pos = idx.map(i => { const a = -Math.PI / 2 + 2 * Math.PI * i / m; return { x: r * Math.cos(a), y: r * Math.sin(a) }; });
+    const ang = i => -Math.PI / 2 + 2 * Math.PI * i / m;
+    const r0 = Math.max(gap * 0.6, gap / (2 * Math.sin(Math.PI / m)));
+    const r = room ? circleRadius(idx.map(i => ({ x: Math.cos(ang(i)), y: Math.sin(ang(i)) })), ext, r0) : r0;
+    pos = idx.map(i => { const a = ang(i); return { x: r * Math.cos(a), y: r * Math.sin(a) }; });
   } else if (shape === 'circle' || shape === 'line') {
     pos = rowsOf([idx]);
   } else if (shape === 'grid') {
@@ -1075,7 +1158,7 @@ function layoutEdges(vm, ts = LABEL_TS) {
     return false;
   });
   for (const e of ordered) {
-    const w = textWidth(e.text, 12.5) + 14, h = 21;
+    const w = textWidth(e.text, 12.5, false) + 14, h = 21;
     let chosen = null, fallback = null;
     for (const t of ts) {
       const p = pointAt(e, t);
@@ -2732,7 +2815,7 @@ function defaultGraphJSON(parsed, positions, alpha) {
 /* Picture of a default graph in the style of Maurer and Bretz (2013), Fig. 4(a), p. 1748: one column per sequence,
    its weight on top, the hypotheses from the most important (top) to the least important (bottom). */
 function defaultGraphSVG(G, dg, fmt, maxCols = 24) {
-  const ink = '#1b1f23', grey = '#9aa0a6', font = 'Helvetica, Arial, sans-serif';
+  const ink = '#1b1f23', font = 'Helvetica, Arial, sans-serif';
   const lab = id => (G.nodes.find(n => n.id === id) || {}).label || '?';
   const seqs = dg.seqs.slice(0, maxCols), colW = 96, rowH = 62, r = 22, top = 34;
   const rows = Math.max(...seqs.map(s => s.order.length), 1);
@@ -2749,7 +2832,8 @@ function defaultGraphSVG(G, dg, fmt, maxCols = 24) {
       o.push(`<circle cx="${cx}" cy="${cy}" r="${r}" fill="${n && n.color ? n.color : '#ffffff'}" stroke="${ink}" stroke-width="1.6"/>`);
       o.push(svgLabelText(lab(id), cx, cy + 5, 15, `text-anchor="middle" font-weight="700" fill="${n && n.color ? textOnColor(n.color) : ink}"`));
       if (j < s.order.length - 1) o.push(`<line x1="${cx}" y1="${cy + r}" x2="${cx}" y2="${cy + rowH - r}" stroke="${ink}" stroke-width="1.6" marker-end="url(#dgah)"/>`);
-      else if (s.partial) o.push(`<text x="${cx}" y="${cy + r + 14}" font-size="11" text-anchor="middle" fill="${grey}">* lost</text>`);
+      /* the "* lost" note in the pictures' muted text colour, 6.4 to 1 on white (1.4.25; up to 1.4.24 #9aa0a6, 2.6 to 1) */
+      else if (s.partial) o.push(`<text x="${cx}" y="${cy + r + 14}" font-size="11" text-anchor="middle" fill="${SVG_MUTED}">* lost</text>`);
     });
   });
   o.push('</svg>');
@@ -2757,6 +2841,21 @@ function defaultGraphSVG(G, dg, fmt, maxCols = 24) {
 }
 
 /* ---------- Template generators (any number of hypotheses) ---------- */
+/* Places for an imported graph (Import from R, the default-graph text, a file from multigrain without places): up to 3 in
+   a row and up to 8 in two rows, 240 px apart and 200 px between the rows, more on a circle. labels: the hypotheses'
+   names; a long name widens the step, or the circle, so no two come closer than ROOM_CLEAR (1.4.25). Imported
+   hypotheses are circles with no description shown. */
+function importPositions(m, labels) {
+  const ext = Array.from({ length: m }, (_, i) => { const l = labels && labels[i] ? String(labels[i]) : 'H' + (i + 1); return { hw: nodeRx(l), up: NODE_R, down: NODE_R }; });
+  if (m > 8) {
+    const ang = i => -Math.PI / 2 + 2 * Math.PI * i / m, idx = Array.from({ length: m }, (_, i) => i);
+    const r = circleRadius(idx.map(i => ({ x: Math.cos(ang(i)), y: Math.sin(ang(i)) })), ext, 110 + 32 * m);
+    return idx.map(i => ({ x: Math.round(r * Math.cos(ang(i))), y: Math.round(r * Math.sin(ang(i))) }));
+  }
+  const cols = m <= 3 ? m : Math.ceil(m / 2), idx = Array.from({ length: m }, (_, i) => i);
+  const step = rowStep([idx.slice(0, cols), idx.slice(cols)], ext, 240);
+  return idx.map(i => (i < cols ? { x: i * step, y: 0 } : { x: (i - cols) * step, y: 200 }));
+}
 function circlePositions(m) {
   if (m <= 2) return Array.from({ length: m }, (_, i) => ({ x: i * 260, y: 0 }));
   const r = 110 + 32 * m;
@@ -3002,7 +3101,7 @@ function fromExchangeFormat(o, positionsFor, colorFor) {
   const num = (v, what) => { const q = typeof v === 'number' ? Q.fromNumber(v) : Q.parse(v); if (!q) throw new Error(`Could not read ${what} "${v}".`); return q; };
   const names = o.hypotheses.map((h, i) => (h && h.name != null ? String(h.name) : 'H' + (i + 1)));
   const groups = [...new Set(o.hypotheses.map(h => (h && h.group ? String(h.group) : '')).filter(Boolean))];
-  const pos = positionsFor(m);
+  const pos = positionsFor(m, names);
   /* multigrain sets weights and transitions between 1e-4 and 1e-3 to exactly 0.001 after pruning (its R/post_optim_processing.R);
      the Sketchpad shows those as ε (= 1/1000 by default), the number on hover and in the Graph tab */
   const fromMg = /^multigrain/i.test(String(o.source || ''));

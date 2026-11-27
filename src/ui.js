@@ -263,7 +263,7 @@ function setColors(ids, c) {
 }
 function shapeIcon(shape) {
   const fake = { nodes: Array.from({ length: 5 }, (_, i) => ({ id: 'i' + i, w: i < 2 ? Q.ONE : Q.ZERO })), edges: [[0, 2], [1, 3], [2, 4], [3, 4]].map(([a, b]) => ({ from: 'i' + a, to: 'i' + b, g: Q.ONE })) };
-  const pts = arrangePositions(fake, shape, 100, 0, 0);
+  const pts = arrangePositions(fake, shape, 100, 0, 0, false);
   const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
   const w = Math.max(1, Math.max(...xs) - Math.min(...xs)), h = Math.max(1, Math.max(...ys) - Math.min(...ys));
   const sc = Math.min(52 / w, 22 / h, 0.5);
@@ -927,7 +927,8 @@ function renderMatrixEntangled(el) {
   const ids = G.nodes.map(n => n.id), labels = G.nodes.map(n => n.label);
   const st = inTest ? T.st : null;
   const live = id => !cur || st.ids.includes(id);
-  const cellTxt = (txt, muted) => `<td style="text-align:center;padding:6px 8px;${muted ? 'color:var(--rej)' : ''}">${txt}</td>`;
+  /* a rejected hypothesis's dash in --rej-ink, 4.5 to 1 or more in every theme (1.4.25; up to 1.4.24 --rej, 3.1 to 1 in cream) */
+  const cellTxt = (txt, muted) => `<td style="text-align:center;padding:6px 8px;${muted ? 'color:var(--rej-ink)' : ''}">${txt}</td>`;
   let cs = Q.ZERO; for (const v of G.ent.c) cs = Q.add(cs, v);
   const css = sumStatus(cs);
   const cRow = `<h3>Component weights c</h3><div class="mx-scroll"><table class="mx"><thead><tr><th scope="col"><span class="sr-only">Component weights</span></th>${G.ent.comps.map((_, k) => `<th scope="col">${compName(k)}</th>`).join('')}<th>Sum</th></tr></thead><tbody><tr><th scope="row">c</th>${G.ent.comps.map((_, k) => `<td><input id="mc-${k}" data-mc="${k}" value="${esc(weightText(G.ent.c[k], (G.ent.cexpr || [])[k]))}" aria-label="Component weight c${k + 1}" ${dis} ${ro}></td>`).join('')}<td class="sum ${css.cls}">${esc(fmt(cs))} ${css.text}</td></tr></tbody></table></div>`;
@@ -980,7 +981,8 @@ function renderMatrixPanel() {
     if (mode === 'test' && T && mxView === 'current') {
       const ids = G.nodes.map(n => n.id), labels = G.nodes.map(n => n.label);
       const live = id => T.st.ids.includes(id);
-      const cellTxt = (txt, muted) => `<td style="text-align:center;padding:6px 8px;${muted ? 'color:var(--rej)' : ''}">${txt}</td>`;
+      /* the dash of a rejected hypothesis in --rej-ink (1.4.25), as in the entangled view */
+      const cellTxt = (txt, muted) => `<td style="text-align:center;padding:6px 8px;${muted ? 'color:var(--rej-ink)' : ''}">${txt}</td>`;
       let tw = Q.ZERO; for (const id of T.st.ids) tw = Q.add(tw, T.st.w.get(id));
       el.innerHTML = `<h2>Matrix view</h2>
         <div class="seg small" role="group" aria-label="Which graph"><button data-action="mx-current" aria-pressed="true">Current graph</button><button data-action="mx-initial" aria-pressed="false">Initial graph</button></div>
@@ -1085,20 +1087,14 @@ function doImportDefaultGraph() {
   const msg = $('imp-dg-msg');
   try {
     const parsed = parseDefaultGraph($('imp-dg').value);
-    loadGraph(defaultGraphJSON(parsed, autoPositions(parsed.names.length), G.alpha));
+    loadGraph(defaultGraphJSON(parsed, autoPositions(parsed.names.length, parsed.names), G.alpha));
     msg.innerHTML = `<p class="ok-text">✓ Built an entangled graph with ${parsed.names.length} hypotheses and ${parsed.seqs.length} component graph${parsed.seqs.length === 1 ? '' : 's'}, one per sequence.</p>`;
   } catch (err) {
     msg.innerHTML = `<p class="err-text" role="alert">✕ ${esc(err.message)}</p>`;
   }
 }
-function autoPositions(m) {
-  if (m > 8) return circlePositions(m);
-  const pos = [];
-  if (m <= 3) { for (let i = 0; i < m; i++) pos.push({ x: i * 240, y: 0 }); return pos; }
-  const cols = Math.ceil(m / 2);
-  for (let i = 0; i < m; i++) pos.push(i < cols ? { x: i * 240, y: 0 } : { x: (i - cols) * 240, y: 200 });
-  return pos;
-}
+/* places for an imported graph; with labels, long names get room (importPositions in core.js, 1.4.25) */
+function autoPositions(m, labels) { return importPositions(m, labels); }
 function doImport() {
   const msg = $('imp-msg');
   try {
@@ -1118,7 +1114,7 @@ function doImport() {
       if (names.length !== m) throw new Error(`${names.length} names given for ${m} hypotheses.`);
     }
     if (!names) names = wv.values.map((_, i) => 'H' + (i + 1));
-    const pos = autoPositions(m);
+    const pos = autoPositions(m, names);
     const o = {
       alpha: G.alpha, note: '',
       nodes: names.map((nm, i) => ({ id: String(i), label: nm || 'H' + (i + 1), weight: Q.exact(wv.values[i]), x: pos[i].x, y: pos[i].y, p: '' })),
@@ -1141,7 +1137,7 @@ function doImportEntangled() {
     if (!$('imp-ent').value.trim()) throw new Error('Paste the gMCP code first.');
     const r = parseEntangledR($('imp-ent').value);
     const diag = r.comps.some(cs => cs.rows.some((row, i) => row[i] !== '0'));
-    const pos = autoPositions(r.m);
+    const pos = autoPositions(r.m, r.names);
     const o = entangledJSON({
       alpha: G.alpha, note: '',
       nodes: r.names.map((nm, i) => [nm || 'H' + (i + 1), pos[i].x, pos[i].y]),
@@ -1668,7 +1664,7 @@ function renderTestPanel() {
     if (badP.length) h += `<p class="err-text">✕ ${badP.map(n => esc(n.label)).join(', ')}: a p-value must be a number between 0 and 1.</p>`;
     const missing = G.nodes.filter(n => parseP(n.p) == null);
     if (!manual && missing.length && missing.length < G.nodes.length) h += `<p class="small muted">No p-value yet for ${missing.map(n => esc(n.label)).join(', ')}; ${missing.length > 1 ? 'they' : 'it'} ${pl ? 'cannot be claimed' : 'will not be rejected'}.</p>`;
-    if (isBonf() && !manual) h += pl ? '<p class="small muted">A question is claimed when its p-value is no bigger than its share at the time.</p>' : '<p class="small muted">A hypothesis is rejected when its p-value is at or below its level (Bretz et al., 2009, Algorithm 1).</p>';
+    if (isBonf() && !manual) h += pl ? '<p class="small muted">A question is claimed when its p-value is no bigger than its share at the time.</p>' : '<p class="small muted">A hypothesis is rejected when its p-value is at or below its level (Bretz et al., 2009, Algorithm 1, p. 591).</p>';
     if (!inTest) {
       const can = G.nodes.length && !errs && G.nodes.some(n => { const p = parseP(n.p); return p != null && !Number.isNaN(p); });
       h += `<div class="row-actions"><button class="btn primary" data-action="run" ${can ? '' : 'disabled'}>Run test</button>${isBonf() ? `<button class="btn" data-action="enter-test" ${G.nodes.length && !errs ? '' : 'disabled'}>Step through it</button><button class="btn" data-action="mode-whatif" ${G.nodes.length && !errs ? '' : 'disabled'}>What if (no p-values)</button>` : `<button class="btn" data-action="mode-whatif" ${G.nodes.length && !errs ? '' : 'disabled'}>What if (Bonferroni graph)</button>`}</div>`;
@@ -2408,7 +2404,7 @@ function stepFrames(panels) {
     }
   }
   const rem = states.length > 1 ? G.nodes.filter(n => !states[states.length - 1].rejected.has(n.id)).map(n => n.label) : [];
-  /* "Final result" only once the procedure has stopped (Bretz et al., 2009, Algorithm 1): after the automatic run, or after a
+  /* "Final result" only once the procedure has stopped (Bretz et al., 2009, Algorithm 1, p. 591, steps 2 and 4): after the automatic run, or after a
      step-through that has finished. Part way through a step-through, or in What if (rejections chosen by hand, nothing
      tested), the last caption names the hypotheses still open (1.4.24) */
   const finished = !steps || (T.done && !manual);
