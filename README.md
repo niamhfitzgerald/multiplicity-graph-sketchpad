@@ -6,6 +6,8 @@ Everything runs in the browser. Nothing you enter is sent anywhere. Apart from i
 
 **Use it online:** https://niamhfitzgerald.github.io/multiplicity-graph-sketchpad/
 
+**New to it?** Start with the one-page [quick start](docs/quick-start.md).
+
 Or download `index.html` and open it in any modern browser. It works offline.
 
 Created by Niamh Fitzgerald.
@@ -39,7 +41,7 @@ Created by Niamh Fitzgerald.
 | `tests/view-capture.js`, `tests/make-views-snapshot.js`, `tests/views-1.3.0.json` | Clinician-view checks: the tabs, templates, menu items, sections and buttons that 1.3.0 showed with Advanced features off and on. With Plain language on the page must show the first; off, the second. |
 | `tests/multigrain-constraints-check.R`, `tests/multigrain-dry-run.R` | Checks of the Optimise tab against multigrain's own validation code; run by the stress test when R and multigrain (or `MULTIGRAIN_R`, a clone of the package source) are available. |
 | `R/` | Validation scripts against graphicalMCP and gMCP, and `sketchpad_json()` for writing the app's exchange format from a multigrain result. |
-| `docs/` | User guide, change log and `preview.png` (the picture shown when the link is shared). |
+| `docs/` | User guide, quick start (with its two screenshots), change log and `preview.png` (the picture shown when the link is shared). |
 | `.github/workflows/checks.yml` | The checks GitHub runs on every pull request and every change to `main`. |
 
 ## Building and Testing
@@ -85,7 +87,7 @@ The built-in self-test (More menu, or the "Self-test" button in the footer) runs
 
 ## Citation
 
-Fitzgerald N (2026). Multiplicity Graph Sketchpad, version 1.4.22. Newcastle University and GSK. https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad. See `CITATION.cff`.
+Fitzgerald N (2026). Multiplicity Graph Sketchpad, version 1.4.23. Newcastle University and GSK. https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad. See `CITATION.cff`.
 
 ## Licence
 
