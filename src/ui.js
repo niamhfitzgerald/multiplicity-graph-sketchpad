@@ -2389,6 +2389,11 @@ function stepFrames(panels) {
       cur = after;
     }
     void cur;
+  } else if (!isBonf()) {
+    /* A closed test that has not been run (Design mode, or Test mode before Run test): no frames follow the Bonferroni graph,
+       since the result is the closed test's (1.4.24). Run test adds the frame with the result (the branch above). */
+    /* What if explores the Bonferroni graph, so its first frame keeps that caption */
+    if (!(mode === 'test' && manual)) states[0].caption = `Initial graph (weights). Tested as a closed test with ${TEST_TYPES[testType()]} tests for every intersection hypothesis.`;
   } else {
     let k = 0;
     for (;;) {
@@ -2403,7 +2408,11 @@ function stepFrames(panels) {
     }
   }
   const rem = states.length > 1 ? G.nodes.filter(n => !states[states.length - 1].rejected.has(n.id)).map(n => n.label) : [];
-  if (states.length > 1) states[states.length - 1].caption += rem.length ? ` Final result: ${joinWords(rem)} not rejected.` : ' Final result: all hypotheses rejected.';
+  /* "Final result" only once the procedure has stopped (Bretz et al., 2009, Algorithm 1): after the automatic run, or after a
+     step-through that has finished. Part way through a step-through, or in What if (rejections chosen by hand, nothing
+     tested), the last caption names the hypotheses still open (1.4.24) */
+  const finished = !steps || (T.done && !manual);
+  if (states.length > 1) states[states.length - 1].caption += finished ? (rem.length ? ` Final result: ${joinWords(rem)} not rejected.` : ' Final result: all hypotheses rejected.') : (rem.length ? ` Still open: ${joinWords(rem)}.` : ' All hypotheses rejected.');
   return states.map(({ st: s, rejected: rej, caption, data, rejW: rw }) => {
     const vm = s.ent ? entVM(s, rej) : {
       nodes: G.nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y, ...nodeLook(n, G), p: n.p, group: n.group || '', color: n.color || '', w: rej.has(n.id) ? Q.ZERO : (s.w.get(n.id) || Q.ZERO), rejected: rej.has(n.id), claimed: green && rej.has(n.id) })),
@@ -2696,7 +2705,7 @@ async function showExport(kind) {
   } else if (kind === 'beamer') {
     const frames = stepFrames(sbs);
     exportPayload = exportBeamer(frames, G.title || 'Graphical multiple testing procedure');
-    out.innerHTML = codeBlock('Beamer frame, one overlay per rejection', `${sbs ? sbsDesc + ' Every overlay is the panel set at that step, with each component graph\'s own level under its hypotheses. ' : ''}${frames.length} overlay${frames.length === 1 ? '' : 's'}: the initial graph${frames.length > 1 ? ` and ${frames.length - 1} rejection${frames.length > 2 ? 's' : ''}` : ''}. ${mode === 'test' && T && T.closed ? 'A closed test has no rejection order, so the second overlay shows the final result.' : mode === 'test' && T && T.step ? 'Follows the steps you have taken in Test mode.' : 'Follows the automatic run of the Bonferroni graph on the entered p-values.'} ${G.title ? 'The frame title is the graph\'s title. ' : ''}Works with the Metropolis theme. Add the \\usetikzlibrary line to the preamble.`, exportPayload, sbs ? '-components-steps.tex' : '-steps.tex', 'text/x-tex');
+    out.innerHTML = codeBlock('Beamer frame, one overlay per rejection', `${sbs ? sbsDesc + ' Every overlay is the panel set at that step, with each component graph\'s own level under its hypotheses. ' : ''}${frames.length} overlay${frames.length === 1 ? '' : 's'}: the initial graph${frames.length > 1 ? ` and ${frames.length - 1} rejection${frames.length > 2 ? 's' : ''}` : ''}. ${mode === 'test' && T && T.closed && T.done ? 'A closed test has no rejection order, so the second overlay shows the final result.' : mode === 'test' && T && T.step && !T.closed ? 'Follows the steps you have taken in Test mode.' : !isBonf() ? (mode === 'test' && manual ? touchWords('What if has no steps yet. Click a hypothesis on the drawing to reject it.') : mode === 'test' && T && T.closed && !T.done ? 'The closed test is still running. Export again when it has finished to add a frame with its result.' : 'A closed test has no rejection order. Run the test in the Test tab to add a frame with its result.') : 'Follows the automatic run of the Bonferroni graph on the entered p-values.'} ${G.title ? 'The frame title is the graph\'s title. ' : ''}Works with the Metropolis theme. Add the \\usetikzlibrary line to the preamble.`, exportPayload, sbs ? '-components-steps.tex' : '-steps.tex', 'text/x-tex');
   } else if (kind === 'sap') {
     const sap = sapText(G);
     const textAll = sapPlainText(sap) + '\n\n' + sap.tables.map(tableToTSV).join('\n\n') + '\n\n' + sapRefsText(sap);

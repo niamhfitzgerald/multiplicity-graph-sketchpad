@@ -35,7 +35,7 @@
   --ink: #1F2B34; --muted: #55606A; --accent: #1C5A88; --accent-ink: #FFFFFF; --accent-soft: #D5E4F0;
   --edge: #2C3B48; --node: #FFFFFF; --node-stroke: #2C3B48; --label-bg: #FFFFFF;
   --err: #B42318; --err-soft: #FBE4E0; --warn: #855000; --warn-soft: #FBEECB; --ok: #2D6A39; --ok-soft: #E1EFDF;
-  --rej: #8B9299; --rej-fill: #ECE6D3; --grid: rgba(44, 59, 72, .17); --flow: #C2410C;
+  --rej: #8B9299; --rej-ink: #63686D; --rej-fill: #ECE6D3; --grid: rgba(44, 59, 72, .17); --flow: #C2410C;
   --f-ui: "Atkinson Hyperlegible", "Segoe UI", system-ui, -apple-system, sans-serif;
   --f-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --radius: 8px;
@@ -46,7 +46,7 @@
     --ink: #E4E8EC; --muted: #A2ACB6; --accent: #7DB6E6; --accent-ink: #0D1922; --accent-soft: #1E3346;
     --edge: #C6CFD8; --node: #212830; --node-stroke: #C6CFD8; --label-bg: #1B2128;
     --err: #F28B82; --err-soft: #3A1F1C; --warn: #F0BE62; --warn-soft: #372A12; --ok: #8DCF98; --ok-soft: #1B3020;
-    --rej: #6F7883; --rej-fill: #1D2228; --grid: rgba(198, 207, 216, .12); --flow: #F59E5B; color-scheme: dark;
+    --rej: #6F7883; --rej-ink: #818992; --rej-fill: #1D2228; --grid: rgba(198, 207, 216, .12); --flow: #F59E5B; color-scheme: dark;
   }
 }
 :root[data-theme="dark"]:not([data-skin="cream"]):not([data-skin="white"]), :root[data-skin="dark"] {
@@ -54,7 +54,7 @@
   --ink: #E4E8EC; --muted: #A2ACB6; --accent: #7DB6E6; --accent-ink: #0D1922; --accent-soft: #1E3346;
   --edge: #C6CFD8; --node: #212830; --node-stroke: #C6CFD8; --label-bg: #1B2128;
   --err: #F28B82; --err-soft: #3A1F1C; --warn: #F0BE62; --warn-soft: #372A12; --ok: #8DCF98; --ok-soft: #1B3020;
-  --rej: #6F7883; --rej-fill: #1D2228; --grid: rgba(198, 207, 216, .12); --flow: #F59E5B; color-scheme: dark;
+  --rej: #6F7883; --rej-ink: #818992; --rej-fill: #1D2228; --grid: rgba(198, 207, 216, .12); --flow: #F59E5B; color-scheme: dark;
 }
 :root[data-skin="white"] {
   --bg: #F3F4F6; --canvas: #FFFFFF; --surface: #FFFFFF; --surface-2: #ECEEF1; --line: #D8DCE2; --line-strong: #ADB4BE;
@@ -187,13 +187,15 @@ body.present .comp-bar, .comp-bar[hidden] { display: none; }
 .ncap.rej { fill: var(--ink); font-weight: 700; }
 /* A description under its circle (1.4.21), when the graph shows descriptions */
 .ndesc { font-size: 12px; fill: var(--muted); text-anchor: middle; pointer-events: none; paint-order: stroke; stroke: var(--canvas); stroke-width: 3px; stroke-linejoin: round; }
-.node.rejected .ndesc { fill: var(--rej); }
+.node.rejected .ndesc { fill: var(--rej-ink); }
 .node.rejected.claimed .ndesc { fill: var(--muted); }
 /* inside a box (1.4.21) the description needs no edge round its letters */
 .node.box .ndesc { stroke: none; }
 #shapeRow { align-items: center; }
 .node.rejected .node-body { fill: var(--rej-fill); stroke: var(--rej); stroke-dasharray: 4 3; }
-.node.rejected .nlabel, .node.rejected .nweight { fill: var(--rej); }
+/* the text of a rejected hypothesis (1.4.24): --rej-ink, 4.5 to 1 or more on its fill and on the drawing in every theme
+   (WCAG 2.2, 1.4.3; up to 1.4.23 it was --rej, 2.5 to 1 in cream); the outline and the line through the label keep --rej */
+.node.rejected .nlabel, .node.rejected .nweight { fill: var(--rej-ink); }
 .strike { stroke: var(--rej); stroke-width: 2.2; stroke-linecap: round; }
 /* A rejected hypothesis drawn as a success (1.4.21): light green fill, a solid green outline, the label and weight in ink,
    and a green badge with a tick (.okbadge) in place of the line through the label. Keyboard focus still shows. */
