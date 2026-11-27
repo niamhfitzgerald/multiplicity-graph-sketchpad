@@ -2765,7 +2765,7 @@ async function step(name, fn) {
       if (!fsm.existsSync(fp)) return f + ' is missing beside the page';
       files[f] = 'data:image/png;base64,' + fsm.readFileSync(fp).toString('base64');
     }
-    /* what each icon draws at 32 px: the page's blue near the top edge, and white lines (the two circles and the arrow) */
+    /* what each icon draws at 32 px: the page's blue near the top edge, and white lines (from 1.4.22 the three hypotheses and their arrows) */
     const px = await ev(async files => {
       const res = {};
       const all = [...document.head.querySelectorAll('link[rel="icon"]')].filter(l => l.href.startsWith('data:')).map(l => [l.type, l.href]).concat(Object.entries(files));
@@ -3718,6 +3718,84 @@ async function step(name, fn) {
     const lab = await p.evaluate(() => (document.querySelector('#shapeRow .seg') || {}).getAttribute && document.querySelector('#shapeRow .seg').getAttribute('aria-label'));
     if (lab !== 'Shape of the questions on the drawing') out += `clinician view: "${lab}". `;
     await c.close();
+    if (out) return out;
+  });
+
+  await step('Tab icon and logo (1.4.22): three hypotheses with arrows going round. The four icons (the SVG and the 32 px PNG written into the page, favicon.png and apple-touch-icon.png) each draw the same picture as the SVG at their own size, white at the three hypotheses and blue in the middle of the triangle; the top-bar logo has the same shapes as the icon, with the hypotheses in the page blue and the arrows in the text colour, in the cream and the dark page colours', async () => {
+    const fsm = require('fs'), dir = path.dirname(FILE.replace('file://', '')), files = {};
+    for (const f of ['favicon.png', 'apple-touch-icon.png']) {
+      const fp = path.join(dir, f);
+      if (!fsm.existsSync(fp)) return f + ' is missing beside the page';
+      files[f] = 'data:image/png;base64,' + fsm.readFileSync(fp).toString('base64');
+    }
+    /* each icon against the SVG drawn at the icon's own size (32, 64 or 180 px), both on the blue, so the square corners of
+       apple-touch-icon.png match: the mean colour difference; then, drawn at 32 px, the colour at the hypotheses and in the middle */
+    const r = await ev(async files => {
+      const links = [...document.head.querySelectorAll('link[rel="icon"]')].filter(l => l.href.startsWith('data:'));
+      const svgLink = links.find(l => l.type === 'image/svg+xml'), pngLink = links.find(l => l.type === 'image/png');
+      if (!svgLink || !pngLink) return { missing: links.map(l => l.type) };
+      const load = src => new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = src; });
+      const draw = (im, n) => { const cv = document.createElement('canvas'); cv.width = cv.height = n; const g = cv.getContext('2d'); g.fillStyle = '#1C5A88'; g.fillRect(0, 0, n, n); if (im) g.drawImage(im, 0, 0, n, n); return g.getImageData(0, 0, n, n).data; };
+      const svgIm = await load(svgLink.href);
+      /* the icon's shapes and the hypotheses' centres, read from the SVG itself (units of its 32 by 32 box) */
+      const svgText = decodeURIComponent(svgLink.href.slice(svgLink.href.indexOf(',') + 1));
+      const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+      const shapes = [...doc.documentElement.children].filter(e => e.tagName !== 'rect').map(e => [e.tagName, ...['d', 'cx', 'cy', 'r', 'stroke-width'].map(a => e.getAttribute(a))].join('|'));
+      const nodes = [...doc.querySelectorAll('circle')].map(c => [+c.getAttribute('cx'), +c.getAttribute('cy')]);
+      const cx = nodes.reduce((a, q) => a + q[0], 0) / nodes.length, cy = nodes.reduce((a, q) => a + q[1], 0) / nodes.length;
+      const out = { nodes, shapes, icons: {} };
+      for (const [name, src, n] of [['image/svg+xml', svgLink.href, 32], ['image/png', pngLink.href, 32], ['favicon.png', files['favicon.png'], 64], ['apple-touch-icon.png', files['apple-touch-icon.png'], 180]]) {
+        const im = await load(src);
+        if (!im) { out.icons[name] = { err: 'does not load' }; continue; }
+        if (n !== 32 && (im.naturalWidth !== n || im.naturalHeight !== n)) { out.icons[name] = { err: `is ${im.naturalWidth} x ${im.naturalHeight}, not ${n} x ${n}` }; continue; }
+        const d = draw(im, n), ref = draw(svgIm, n);
+        let diff = 0;
+        for (let k = 0; k < d.length; k += 4) diff += Math.abs(d[k] - ref[k]) + Math.abs(d[k + 1] - ref[k + 1]) + Math.abs(d[k + 2] - ref[k + 2]);
+        const s = draw(im, 32), px = (x, y) => { const k = (Math.floor(y) * 32 + Math.floor(x)) * 4; return [s[k], s[k + 1], s[k + 2]]; };
+        out.icons[name] = { diff: diff / (n * n * 3), at: nodes.map(q => px(q[0], q[1])), mid: px(cx, cy) };
+      }
+      return out;
+    }, files);
+    if (r.missing) return 'icons written into the page: ' + r.missing.join(', ');
+    let out = '';
+    if (r.nodes.length !== 3) return `the SVG icon has ${r.nodes.length} hypotheses, not 3`;
+    if (r.shapes.length !== 9) out += `the SVG icon has ${r.shapes.length} shapes besides its square, not 9 (three hypotheses, three arrow lines, three arrowheads). `;
+    const white = c => c[0] > 230 && c[1] > 230 && c[2] > 230;
+    const blue = c => Math.abs(c[0] - 0x1C) <= 8 && Math.abs(c[1] - 0x5A) <= 8 && Math.abs(c[2] - 0x88) <= 8;
+    for (const [name, v] of Object.entries(r.icons)) {
+      if (v.err) { out += `${name} ${v.err}. `; continue; }
+      /* the right files give under 0.9 in Chromium, WebKit and Firefox; a whole arrow left out, or one pointing the wrong way,
+         gives 1.8 or more */
+      if (!(v.diff < 1.2)) out += `${name}: differs from the SVG icon by ${v.diff.toFixed(2)} on average. `;
+      v.at.forEach((c, i) => { if (!white(c)) out += `${name}: hypothesis ${i + 1} is ${c}, not white. `; });
+      if (!blue(v.mid)) out += `${name}: the middle of the triangle is ${v.mid}, not the blue #1C5A88. `;
+    }
+    /* the top-bar logo, in the cream and the dark page colours */
+    for (const skin of ['cream', 'dark']) {
+      const l = await ev(skin => {
+        const was = document.documentElement.dataset.skin; document.documentElement.dataset.skin = skin;
+        const svg = document.querySelector('.topbar .brand svg');
+        const probe = document.createElement('span'); document.body.appendChild(probe);
+        const colour = v => { probe.style.color = `var(${v})`; return getComputedStyle(probe).color; };
+        const res = svg ? {
+          box: [svg.getAttribute('width'), svg.getAttribute('height'), svg.getAttribute('viewBox'), svg.getAttribute('aria-hidden')],
+          shapes: [...svg.children].map(e => [e.tagName, ...['d', 'cx', 'cy', 'r', 'stroke-width'].map(a => e.getAttribute(a))].join('|')),
+          circles: [...svg.querySelectorAll('circle')].map(c => getComputedStyle(c).fill),
+          shafts: [...svg.querySelectorAll('path[stroke-width]')].map(q => getComputedStyle(q).stroke),
+          heads: [...svg.querySelectorAll('path:not([stroke-width])')].map(q => getComputedStyle(q).fill),
+          accent: colour('--accent'), ink: colour('--ink')
+        } : null;
+        probe.remove();
+        if (was === undefined) delete document.documentElement.dataset.skin; else document.documentElement.dataset.skin = was;
+        return res;
+      }, skin);
+      if (!l) { out += 'no logo in the top bar. '; break; }
+      if (l.box.join(' ') !== '30 30 0 0 32 32 true') out += `${skin}: the logo's box is ${l.box.join(' ')}. `;
+      if (l.shapes.join(' ; ') !== r.shapes.join(' ; ')) { out += `${skin}: the logo's shapes are not the icon's (${l.shapes.length} shapes; the first that differs is ${l.shapes.find((x, i) => x !== r.shapes[i]) || 'one missing'}). `; }
+      if (l.circles.length !== 3 || l.shafts.length !== 3 || l.heads.length !== 3) out += `${skin}: the logo has ${l.circles.length} hypotheses, ${l.shafts.length} arrow lines and ${l.heads.length} arrowheads. `;
+      l.circles.forEach((c, i) => { if (c !== l.accent) out += `${skin}: logo hypothesis ${i + 1} is ${c}, not the page blue ${l.accent}. `; });
+      l.shafts.concat(l.heads).forEach((c, i) => { if (c !== l.ink) out += `${skin}: logo arrow part ${i + 1} is ${c}, not the text colour ${l.ink}. `; });
+    }
     if (out) return out;
   });
 
