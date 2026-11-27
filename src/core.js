@@ -1,13 +1,15 @@
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.4.22';
-const APP_DATE = '2026-11-26';
+const APP_VERSION = '1.4.23';
+const APP_DATE = '2026-11-27';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
 /* The author's LinkedIn profile; the header byline and About link to it. */
 const AUTHOR_URL = 'https://www.linkedin.com/in/niamh-fitzgerald-59481422a';
 /* The author's ORCID iD; About links to it, and CITATION.cff lists it. */
 const AUTHOR_ORCID = 'https://orcid.org/0009-0006-2866-2892';
+/* The one-page quick start (docs/quick-start.md) as GitHub Pages shows it; the Help dialog links to it. */
+const QUICK_START_URL = 'https://niamhfitzgerald.github.io/multiplicity-graph-sketchpad/docs/quick-start.html';
 /* =====================================================================
    CORE: exact rational arithmetic, graph model, the sequentially
    rejective update (Bretz et al., 2009), parsers, exporters, self-test.

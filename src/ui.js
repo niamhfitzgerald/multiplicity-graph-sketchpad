@@ -4104,6 +4104,7 @@ document.querySelector('.tabs').addEventListener('keydown', e => {
   if (j != null) { e.preventDefault(); setTab(TABS[j]); $('tabbtn-' + TABS[j]).focus(); }
 });
 $('helpBtn').addEventListener('click', () => openModal('Help and shortcuts', touchWords(`
+  <p><b>New here?</b> The one-page <a class="ext" href="${esc(QUICK_START_URL)}" target="_blank" rel="noopener">quick start</a> takes you from opening the page to a tested graph. It opens on the web, in a new tab.</p>
   <p><b>The basics</b></p>
   <ul class="tips">
     <li><b>Start:</b> pick a template, or double-click empty space to add a hypothesis.</li>
