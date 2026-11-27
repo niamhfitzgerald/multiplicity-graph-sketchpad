@@ -40,7 +40,7 @@
   --ink: #1F2B34; --muted: #55606A; --accent: #1C5A88; --accent-ink: #FFFFFF; --accent-soft: #D5E4F0;
   --edge: #2C3B48; --node: #FFFFFF; --node-stroke: #2C3B48; --label-bg: #FFFFFF;
   --err: #B42318; --err-soft: #FBE4E0; --warn: #855000; --warn-soft: #FBEECB; --ok: #2D6A39; --ok-soft: #E1EFDF;
-  --rej: #8B9299; --rej-fill: #ECE6D3; --grid: rgba(44, 59, 72, .17); --flow: #C2410C;
+  --rej: #8B9299; --rej-ink: #63686D; --rej-fill: #ECE6D3; --grid: rgba(44, 59, 72, .17); --flow: #C2410C;
   --f-ui: "Atkinson Hyperlegible", "Segoe UI", system-ui, -apple-system, sans-serif;
   --f-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --radius: 8px;
@@ -51,7 +51,7 @@
     --ink: #E4E8EC; --muted: #A2ACB6; --accent: #7DB6E6; --accent-ink: #0D1922; --accent-soft: #1E3346;
     --edge: #C6CFD8; --node: #212830; --node-stroke: #C6CFD8; --label-bg: #1B2128;
     --err: #F28B82; --err-soft: #3A1F1C; --warn: #F0BE62; --warn-soft: #372A12; --ok: #8DCF98; --ok-soft: #1B3020;
-    --rej: #6F7883; --rej-fill: #1D2228; --grid: rgba(198, 207, 216, .12); --flow: #F59E5B; color-scheme: dark;
+    --rej: #6F7883; --rej-ink: #818992; --rej-fill: #1D2228; --grid: rgba(198, 207, 216, .12); --flow: #F59E5B; color-scheme: dark;
   }
 }
 :root[data-theme="dark"]:not([data-skin="cream"]):not([data-skin="white"]), :root[data-skin="dark"] {
@@ -59,7 +59,7 @@
   --ink: #E4E8EC; --muted: #A2ACB6; --accent: #7DB6E6; --accent-ink: #0D1922; --accent-soft: #1E3346;
   --edge: #C6CFD8; --node: #212830; --node-stroke: #C6CFD8; --label-bg: #1B2128;
   --err: #F28B82; --err-soft: #3A1F1C; --warn: #F0BE62; --warn-soft: #372A12; --ok: #8DCF98; --ok-soft: #1B3020;
-  --rej: #6F7883; --rej-fill: #1D2228; --grid: rgba(198, 207, 216, .12); --flow: #F59E5B; color-scheme: dark;
+  --rej: #6F7883; --rej-ink: #818992; --rej-fill: #1D2228; --grid: rgba(198, 207, 216, .12); --flow: #F59E5B; color-scheme: dark;
 }
 :root[data-skin="white"] {
   --bg: #F3F4F6; --canvas: #FFFFFF; --surface: #FFFFFF; --surface-2: #ECEEF1; --line: #D8DCE2; --line-strong: #ADB4BE;
@@ -192,13 +192,15 @@ body.present .comp-bar, .comp-bar[hidden] { display: none; }
 .ncap.rej { fill: var(--ink); font-weight: 700; }
 /* A description under its circle (1.4.21), when the graph shows descriptions */
 .ndesc { font-size: 12px; fill: var(--muted); text-anchor: middle; pointer-events: none; paint-order: stroke; stroke: var(--canvas); stroke-width: 3px; stroke-linejoin: round; }
-.node.rejected .ndesc { fill: var(--rej); }
+.node.rejected .ndesc { fill: var(--rej-ink); }
 .node.rejected.claimed .ndesc { fill: var(--muted); }
 /* inside a box (1.4.21) the description needs no edge round its letters */
 .node.box .ndesc { stroke: none; }
 #shapeRow { align-items: center; }
 .node.rejected .node-body { fill: var(--rej-fill); stroke: var(--rej); stroke-dasharray: 4 3; }
-.node.rejected .nlabel, .node.rejected .nweight { fill: var(--rej); }
+/* the text of a rejected hypothesis (1.4.24): --rej-ink, 4.5 to 1 or more on its fill and on the drawing in every theme
+   (WCAG 2.2, 1.4.3; up to 1.4.23 it was --rej, 2.5 to 1 in cream); the outline and the line through the label keep --rej */
+.node.rejected .nlabel, .node.rejected .nweight { fill: var(--rej-ink); }
 .strike { stroke: var(--rej); stroke-width: 2.2; stroke-linecap: round; }
 /* A rejected hypothesis drawn as a success (1.4.21): light green fill, a solid green outline, the label and weight in ink,
    and a green badge with a tick (.okbadge) in place of the line through the label. Keyboard focus still shows. */
@@ -679,7 +681,7 @@ table.t td:first-child { white-space: nowrap; }
 <script>
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.4.23';
+const APP_VERSION = '1.4.24';
 const APP_DATE = '2026-11-27';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
@@ -831,7 +833,12 @@ function evalExpr(src, vars) {
 function exprDisplay(src) { return normaliseExpr(src).replace(/-/g, '−').replace(/\*/g, '·'); }
 function exprTeX(src) {
   const names = { 'ε': '\\epsilon', 'γ': '\\gamma', 'δ': '\\delta', 'ν': '\\nu', 'τ': '\\tau', 'ω': '\\omega', 'θ': '\\theta', 'λ': '\\lambda', 'β': '\\beta', 'ρ': '\\rho', 'φ': '\\phi', 'ψ': '\\psi', 'κ': '\\kappa', 'μ': '\\mu', 'σ': '\\sigma' };
-  return '$' + normaliseExpr(src).replace(/[Ͱ-Ͽ]/g, c => names[c] || c).replace(/\*/g, '\\cdot ') + '$';
+  /* Any other Greek letter (1.4.24; up to 1.4.23 it stopped pdflatex, among them α typed as alpha_ and η typed straight in):
+     its LaTeX name from the title's table, a capital that looks like a Latin one as that letter, anything else as ?. A name
+     followed by a letter, once mapped, gets a space, so \eta x and ηο are not read as \etax and \etao. */
+  const one = c => { if (names[c]) return names[c]; const b = c.normalize('NFD')[0]; return TITLE_GREEK[b] ? '\\' + TITLE_GREEK[b] : TITLE_GREEK_LATIN[b] || '?'; };
+  const t = [...normaliseExpr(src)].map(c => (/[Ͱ-Ͽ]/.test(c) ? one(c) : c));
+  return '$' + t.map((x, i) => (/^\\[A-Za-z]+$/.test(x) && /^[A-Za-z]/.test(t[i + 1] || '') ? x + ' ' : x)).join('').replace(/\*/g, '\\cdot ') + '$';
 }
 /* Default value for a new variable: epsilon is tiny, anything else is 1/2 */
 function defaultVarValue(name) { return name === 'ε' ? Q.make(1n, 1000n) : Q.make(1n, 2n); }
@@ -888,7 +895,11 @@ function labelParts(label) {
 function nodeRx(label) {
   const lp = labelParts(label);
   const w = lp ? textWidth(lp.base, 17) + textWidth(lp.sub, 12) : textWidth(label, 15);
-  return Math.min(110, Math.max(NODE_R, w / 2 + 14));
+  const rx = Math.max(NODE_R, w / 2 + 14);
+  /* Above 1.4.23's limit (110) the ellipse is flat, so a long label's top corners must sit inside it too (1.4.24). The
+     label's box reaches about 17 px above the centre in Chromium and 19 px with other browsers' fonts; at 19 px the ellipse
+     is sqrt(1 - (19/36)^2) = 0.85 of its full width */
+  return rx <= 110 ? rx : Math.max(rx, w / 2 / Math.sqrt(1 - (19 / NODE_R) ** 2) + 4);
 }
 /* Descriptions on the drawing (1.4.21): with the graph's showDesc ticked, each description is drawn in 12 px text under its
    circle, wrapped at about 130 px (about 20 characters) and cut with "…" after two lines. */
@@ -921,7 +932,7 @@ function nodeLook(n, Gx) {
   if (Gx && Gx.shape === 'box') {
     const lp = labelParts(n.label);
     const lw = lp ? textWidth(lp.base, 17) + textWidth(lp.sub, 12) : textWidth(n.label, 15);
-    return { rx: Math.min(110, Math.max(NODE_R, Math.max(lw, descW) / 2 + BOX_PAD)), ry: BOX_RY + desc.length * DESC_LINE / 2, shape: 'box', desc, descH: 0, descW };
+    return { rx: Math.max(NODE_R, Math.max(lw, descW) / 2 + BOX_PAD), ry: BOX_RY + desc.length * DESC_LINE / 2, shape: 'box', desc, descH: 0, descW };
   }
   return { rx: nodeRx(n.label), ry: NODE_R, desc, descH: desc.length ? DESC_GAP + desc.length * DESC_LINE : 0, descW };
 }
@@ -1942,7 +1953,7 @@ function exportGMCP(G) {
 function texEscape(s) {
   const t = String(s).replace(/\\/g, '\\textbackslash{}').replace(/([#$%&_{}])/g, '\\$1').replace(/~/g, '\\textasciitilde{}').replace(/\^/g, '\\textasciicircum{}');
   const sym = { '\u03b1': '$\\alpha$', '\u2264': '$\\le$', '\u2265': '$\\ge$', '\u00d7': '$\\times$', '\u2192': '$\\to$', '\u2013': '--', '\u2014': '---', '\u2713': '$\\checkmark$', '\u2715': '$\\times$', '\u1d62': '$_i$' };
-  return t.replace(/[\u03b1\u2264\u2265\u00d7\u2192\u2013\u2014\u2713\u2715\u1d62]/g, c => sym[c]).replace(/[\u0370-\u03ff]/g, greekTeX);
+  return t.replace(/[\u03b1\u2264\u2265\u00d7\u2192\u2013\u2014\u2713\u2715\u1d62]/g, c => sym[c]).replace(/[\u0370-\u03ff\u1f00-\u1fff]/g, greekTeX);
 }
 function texLabel(label) {
   const lp = labelParts(label);
@@ -1957,7 +1968,10 @@ function texNum(q) {
 }
 /* vm nodes carry x, y, rx, ry, label, w (Q), rejected; layout from layoutEdges */
 /* Bounding boxes of the groups (primary, secondary, ...) for shaded bands behind the nodes */
-function groupBoxes(vm, pad = 22) {
+const BAND_PAD = 22;
+/* A band whose hypotheses carry descriptions (1.4.24): TikZ sizes it round them with the fit library (tikzBody) */
+function bandHasDesc(vm, b) { return vm.nodes.some(n => n.group === b.group && n.desc && n.desc.length); }
+function groupBoxes(vm, pad = BAND_PAD) {
   const groups = [...new Set(vm.nodes.map(n => n.group).filter(Boolean))];
   return groups.map(g => {
     const ns = vm.nodes.filter(n => n.group === g);
@@ -1977,7 +1991,9 @@ function tikzStyles(withComp, withBox) {
   L.push('  hypwide/.style={ellipse, draw, thick, inner sep=1pt, outer sep=0pt, align=center, font=\\small},');
   /* boxes (1.4.21): written only when the picture has them, so a picture of circles is as before */
   if (withBox) L.push(`  hypbox/.style={rectangle, rounded corners=${(BOX_CORNER / TIKZ_S).toFixed(2)}cm, draw, thick, inner sep=1pt, outer sep=0pt, align=center, font=\\small},`);
-  L.push('  rejected/.style={draw=gray, dashed, text=gray},');
+  /* the text of a rejected hypothesis in black!60 on a light fill, as in the pictures (1.4.24): 5.2 to 1 on black!5 wherever
+     it sits, a coloured band included (up to 1.4.23 gray on no fill, 4.0 to 1 on white and less on a band) */
+  L.push('  rejected/.style={draw=gray, dashed, text=black!60, fill=black!5},');
   L.push('  trans/.style={-{Stealth[length=2.2mm]}, semithick},');
   L.push('  wt/.style={fill=white, draw, rounded corners=1pt, inner sep=1.5pt, font=\\scriptsize}' + (withComp ? ',' : ''));
   if (withComp) {
@@ -2001,13 +2017,19 @@ function tikzBody(vm, layout, opts, cx, cy) {
   /* rejected hypotheses drawn as successes (1.4.21): green outline and fill, and a badge with a tick after the arrows */
   const claimed = vm.nodes.filter(n => n.rejected && n.claimed);
   if (claimed.length) L.push('\\definecolor{claimgreen}{HTML}{2D6A39}', '\\definecolor{claimfill}{HTML}{E1EFDF}');
-  if (boxes.length) {
+  /* Bands round hypotheses with descriptions are drawn at the end (1.4.24), sized by LaTeX: TikZ's \scriptsize text is about
+     1.4 times as wide as the drawing's, so up to 1.4.23 a long description line could pass the band's edge. Every other
+     band is written here, as before. */
+  const anyFit = boxes.some(b => bandHasDesc(vm, b));
+  /* a fixed band, as up to 1.4.23 */
+  const plainBand = (b, i) => {
+    if (b.color) L.push(`\\definecolor{band${String.fromCharCode(65 + i)}}{HTML}{${b.color.slice(1).toUpperCase()}}`);
+    const col = b.color ? `band${String.fromCharCode(65 + i)}!35` : 'gray!12';
+    L.push(`\\draw[fill=${col}, draw=${b.color ? `band${String.fromCharCode(65 + i)}!70` : 'gray!40'}, rounded corners=6pt] (${cx(b.x)}, ${cy(b.y)}) rectangle (${cx(b.x + b.w)}, ${cy(b.y + b.h)}) node[anchor=north west, inner sep=4pt, font=\\scriptsize\\scshape, text=black!70] at (${cx(b.x)}, ${cy(b.y)}) {${texEscape(b.group)}};`);
+  };
+  if (boxes.length && !anyFit) {
     L.push('\\begin{scope}[on background layer]');
-    boxes.forEach((b, i) => {
-      if (b.color) L.push(`\\definecolor{band${String.fromCharCode(65 + i)}}{HTML}{${b.color.slice(1).toUpperCase()}}`);
-      const col = b.color ? `band${String.fromCharCode(65 + i)}!35` : 'gray!12';
-      L.push(`\\draw[fill=${col}, draw=${b.color ? `band${String.fromCharCode(65 + i)}!70` : 'gray!40'}, rounded corners=6pt] (${cx(b.x)}, ${cy(b.y)}) rectangle (${cx(b.x + b.w)}, ${cy(b.y + b.h)}) node[anchor=north west, inner sep=4pt, font=\\scriptsize\\scshape, text=black!70] at (${cx(b.x)}, ${cy(b.y)}) {${texEscape(b.group)}};`);
-    });
+    boxes.forEach(plainBand);
     L.push('\\end{scope}');
   }
   for (const n of vm.nodes) {
@@ -2035,7 +2057,7 @@ function tikzBody(vm, layout, opts, cx, cy) {
   /* the description under each circle (1.4.21), named nKd so the beamer level caption can go below it. Written after the
      arrows, with white behind it as behind the level captions, so an arrow leaving the circle downwards runs under the
      text. descTeX, since pdflatex's default font prints < and > as other characters. */
-  for (const n of vm.nodes) if (n.shape !== 'box' && n.desc && n.desc.length) L.push(`\\node[anchor=north, font=\\scriptsize, align=center, fill=white, inner sep=1pt, text=${n.rejected && !n.claimed ? 'gray' : 'black!70'}] (${id(n)}d) at (${cx(n.x)}, ${cy(n.y + n.ry + DESC_GAP)}) {${n.desc.map(descTeX).join('\\\\ ')}};`);
+  for (const n of vm.nodes) if (n.shape !== 'box' && n.desc && n.desc.length) L.push(`\\node[anchor=north, font=\\scriptsize, align=center, fill=white, inner sep=1pt, text=${n.rejected && !n.claimed ? 'black!60' : 'black!70'}] (${id(n)}d) at (${cx(n.x)}, ${cy(n.y + n.ry + DESC_GAP)}) {${n.desc.map(descTeX).join('\\\\ ')}};`);
   for (const n of claimed) {
     const b = okBadgeAt(n), pt = ([x, y]) => `(${cx(b.x + x)}, ${cy(b.y + y)})`;
     L.push(`\\fill[claimgreen, draw=white, line width=0.6pt] ${pt([0, 0])} circle (0.15);`);
@@ -2053,9 +2075,30 @@ function tikzBody(vm, layout, opts, cx, cy) {
     for (const n of vm.nodes) {
       const lv = opts.cScale ? Q.toNum(Q.mul(n.w, opts.cScale)) * opts.alpha : Q.toNum(n.w) * opts.alpha;
       const under = n.shape !== 'box' && n.desc && n.desc.length ? id(n) + 'd' : id(n);
-      if (n.rejected) L.push(`\\node[below=1pt of ${under}, font=\\scriptsize, text=${n.claimed ? 'claimgreen' : 'gray'}, fill=white, inner sep=1pt] {rejected};`);
-      else L.push(`\\node[below=1pt of ${under}, font=\\scriptsize, align=center, fill=white, inner sep=1pt] {level $${fmtNum(lv)}$${n.p != null && Number.isFinite(parseP(n.p)) ? `\\\\ $p = ${fmtNum(parseP(n.p))}$` : ''}};`);
+      /* named (nKc) in a band sized by LaTeX, so the band holds it too */
+      const nm = boxes.some(b => b.group === n.group && bandHasDesc(vm, b)) ? ` (${id(n)}c)` : '';
+      if (n.rejected) L.push(`\\node[below=1pt of ${under}, font=\\scriptsize, text=${n.claimed ? 'claimgreen' : 'black!60'}, fill=white, inner sep=1pt]${nm} {rejected};`);
+      else L.push(`\\node[below=1pt of ${under}, font=\\scriptsize, align=center, fill=white, inner sep=1pt]${nm} {level $${fmtNum(lv)}$${n.p != null && Number.isFinite(parseP(n.p)) ? `\\\\ $p = ${fmtNum(parseP(n.p))}$` : ''}};`);
     }
+  }
+  /* The bands round hypotheses with descriptions (1.4.24), on the background layer: a fit node round the band's inner box
+     (the drawing's band less its padding), the hypotheses, their descriptions and level captions, padded as on the drawing.
+     It is the drawing's band when everything fits inside, and grows to hold TikZ's text when not. */
+  /* every band of such a picture is written here, in the original order, so a band sized by LaTeX does not cover a fixed
+     band, or its name, drawn before it */
+  if (anyFit) {
+    L.push('\\begin{scope}[on background layer]');
+    boxes.forEach((b, i) => {
+      if (!bandHasDesc(vm, b)) { plainBand(b, i); return; }
+      const ch = String.fromCharCode(65 + i), P = BAND_PAD;
+      if (b.color) L.push(`\\definecolor{band${ch}}{HTML}{${b.color.slice(1).toUpperCase()}}`);
+      const col = b.color ? `band${ch}!35` : 'gray!12';
+      const ns = vm.nodes.filter(n => n.group === b.group);
+      const pts = [`(${cx(b.x + P)}, ${cy(b.y + P)})`, `(${cx(b.x + b.w - P)}, ${cy(b.y + b.h - P)})`, ...ns.map(n => `(${id(n)})`), ...ns.filter(n => n.shape !== 'box' && n.desc && n.desc.length).map(n => `(${id(n)}d)`), ...(opts.levels && opts.alpha != null ? ns.map(n => `(${id(n)}c)`) : [])];
+      L.push(`\\node[fit={${pts.join(' ')}}, inner sep=${(P / S).toFixed(3)}cm, fill=${col}, draw=${b.color ? `band${ch}!70` : 'gray!40'}, rounded corners=6pt] (band${ch}) {};`);
+      L.push(`\\node[anchor=north west, inner sep=4pt, font=\\scriptsize\\scshape, text=black!70] at (band${ch}.north west) {${texEscape(b.group)}};`);
+    });
+    L.push('\\end{scope}');
   }
   return L;
 }
@@ -2066,7 +2109,7 @@ function exportTikZ(vm, layout, opts = {}) {
   const cx = x => ((x - x0) / S).toFixed(2), cy = y => (-(y - y0) / S).toFixed(2);
   const L = [];
   const boxes = opts.bands === false ? [] : groupBoxes(vm);
-  if (!opts.inner) L.push(`% Needs: \\usepackage{tikz} and \\usetikzlibrary{arrows.meta, shapes.geometric${boxes.length ? ', backgrounds' : ''}}`);
+  if (!opts.inner) L.push(`% Needs: \\usepackage{tikz} and \\usetikzlibrary{arrows.meta, shapes.geometric${boxes.length ? ', backgrounds' : ''}${boxes.some(b => bandHasDesc(vm, b)) ? ', fit' : ''}}`);
   L.push(...tikzStyles(!!vm.all, vm.nodes.some(n => n.shape === 'box')));
   L.push(...tikzBody(vm, layout, opts, cx, cy));
   /* opts.title (1.4.18): a node above the picture, wrapped as in the SVG picture */
@@ -2080,7 +2123,12 @@ function exportTikZ(vm, layout, opts = {}) {
 function exportTikZPanels(panels, opts = {}) {
   /* opts.captions (1.4.19, the steps picture): each panel's own caption (p.title) under it, wrapped to the panel's width,
      in place of "Graph k (c = ...)"; opts.comment replaces the line that says what the picture is */
-  const S = TIKZ_S, gap = 0.8;
+  const S = TIKZ_S;
+  /* With bands sized by LaTeX (1.4.24) a band may reach up to a quarter of its widest description further out on each side
+     than on the drawing (TikZ's text is about 1.4 times as wide), so the gap between panels grows by that much on both
+     sides, and neighbouring bands stay apart. Without them the gap is 0.8 cm, as before. */
+  const fitW = Math.max(0, ...panels.flatMap(p => groupBoxes(p.vm).filter(b => bandHasDesc(p.vm, b)).flatMap(b => p.vm.nodes.filter(n => n.group === b.group).map(n => n.descW || 0))));
+  const gap = 0.8 + (fitW ? 2 * 0.25 * fitW / S : 0);
   const P = panelPlaces(panels, 0, 0);
   const box = opts.box || P.box;
   const bw0 = (box.maxX - box.minX) / S, bh = (box.maxY - box.minY) / S + (opts.levels ? 0.6 : 0);
@@ -2094,8 +2142,8 @@ function exportTikZPanels(panels, opts = {}) {
   const labelCm = 0.55 + (capLines - 1) * 0.45;
   const cols = P.cols;
   const L = [];
-  const bands = panels.some(p => groupBoxes(p.vm).length);
-  if (!opts.inner) L.push(`% Needs: \\usepackage{tikz} and \\usetikzlibrary{arrows.meta, shapes.geometric, positioning${bands ? ', backgrounds' : ''}}`);
+  const bands = panels.some(p => groupBoxes(p.vm).length), fit = panels.some(p => groupBoxes(p.vm).some(b => bandHasDesc(p.vm, b)));
+  if (!opts.inner) L.push(`% Needs: \\usepackage{tikz} and \\usetikzlibrary{arrows.meta, shapes.geometric, positioning${bands ? ', backgrounds' : ''}${fit ? ', fit' : ''}}`);
   if (!opts.inner) L.push(opts.comment || `% The component graphs of an entangled graph drawn side by side (Maurer and Bretz, 2013, Fig. 2).`);
   L.push(...tikzStyles(true, panels.some(p => p.vm.nodes.some(n => n.shape === 'box'))));
   panels.forEach((p, k) => {
@@ -2128,7 +2176,9 @@ function beamerCaptioned(vm) {
 }
 function exportBeamer(frames, title) {
   const L = [];
-  L.push('% Needs in the preamble: \\usepackage{tikz} \\usetikzlibrary{arrows.meta, shapes.geometric, positioning, backgrounds}');
+  /* the fit library (1.4.24) only when a band holds hypotheses with descriptions */
+  const fit = frames.some(f => (f.panels ? f.panels.map(p => p.vm) : [f.vm]).some(v => groupBoxes(v).some(b => bandHasDesc(v, b))));
+  L.push(`% Needs in the preamble: \\usepackage{tikz} \\usetikzlibrary{arrows.meta, shapes.geometric, positioning, backgrounds${fit ? ', fit' : ''}}`);
   L.push('% One overlay per step: use the arrow keys in the PDF viewer to step through the rejections.');
   L.push(`\\begin{frame}{${titleTeX(title)}}`);
   L.push('\\centering');
@@ -2260,17 +2310,18 @@ function svgTitle(lines, cx, top) {
    as its base letter, and Greek capitals that look like Latin ones as those letters. < > | and the backslash get their
    text commands, since pdflatex's default fonts print the characters as other symbols. Used for the TikZ title and the
    beamer frame title. */
-const TITLE_GREEK = { 'α': 'alpha', 'β': 'beta', 'γ': 'gamma', 'δ': 'delta', 'ε': 'epsilon', 'ζ': 'zeta', 'η': 'eta', 'θ': 'theta', 'ι': 'iota', 'κ': 'kappa', 'λ': 'lambda', 'μ': 'mu', 'ν': 'nu', 'ξ': 'xi', 'π': 'pi', 'ρ': 'rho', 'ς': 'varsigma', 'σ': 'sigma', 'τ': 'tau', 'υ': 'upsilon', 'φ': 'phi', 'χ': 'chi', 'ψ': 'psi', 'ω': 'omega', 'ϵ': 'epsilon', 'ϑ': 'vartheta', 'ϕ': 'phi', 'Γ': 'Gamma', 'Δ': 'Delta', 'Θ': 'Theta', 'Λ': 'Lambda', 'Ξ': 'Xi', 'Π': 'Pi', 'Σ': 'Sigma', 'Υ': 'Upsilon', 'Φ': 'Phi', 'Ψ': 'Psi', 'Ω': 'Omega' };
+const TITLE_GREEK = { 'α': 'alpha', 'β': 'beta', 'γ': 'gamma', 'δ': 'delta', 'ε': 'epsilon', 'ζ': 'zeta', 'η': 'eta', 'θ': 'theta', 'ι': 'iota', 'κ': 'kappa', 'λ': 'lambda', 'μ': 'mu', 'ν': 'nu', 'ξ': 'xi', 'π': 'pi', 'ρ': 'rho', 'ς': 'varsigma', 'σ': 'sigma', 'τ': 'tau', 'υ': 'upsilon', 'φ': 'phi', 'χ': 'chi', 'ψ': 'psi', 'ω': 'omega', 'ϵ': 'epsilon', 'ϑ': 'vartheta', 'ϕ': 'phi', 'ϱ': 'varrho', 'ϖ': 'varpi', 'Γ': 'Gamma', 'Δ': 'Delta', 'Θ': 'Theta', 'Λ': 'Lambda', 'Ξ': 'Xi', 'Π': 'Pi', 'Σ': 'Sigma', 'Υ': 'Upsilon', 'Φ': 'Phi', 'Ψ': 'Psi', 'Ω': 'Omega' };
 const TITLE_GREEK_LATIN = { 'Α': 'A', 'Β': 'B', 'Ε': 'E', 'Ζ': 'Z', 'Η': 'H', 'Ι': 'I', 'Κ': 'K', 'Μ': 'M', 'Ν': 'N', 'Ο': 'O', 'Ρ': 'P', 'Τ': 'T', 'Χ': 'X', 'ο': 'o' };
 const TITLE_TEX = { '\\': '\\textbackslash{}', '{': '\\{', '}': '\\}', '#': '\\#', '$': '\\$', '%': '\\%', '&': '\\&', '_': '\\_', '~': '\\textasciitilde{}', '^': '\\textasciicircum{}', '<': '\\textless{}', '>': '\\textgreater{}', '|': '\\textbar{}', '≤': '$\\le$', '≥': '$\\ge$', '≠': '$\\neq$', '−': '$-$', '×': '$\\times$', '→': '$\\to$', '–': '--', '—': '---', '✓': '$\\checkmark$', '✕': '$\\times$', 'ᵢ': '$_i$' };
 /* One Greek character as LaTeX: the letter as maths, an accented letter as its base letter, a capital that looks like a
-   Latin one as that letter, anything else left out (1.4.18 for the title; from 1.4.20 also for texEscape) */
+   Latin one as that letter, anything else left out (1.4.18 for the title; from 1.4.20 also for texEscape). From 1.4.24 also
+   Greek Extended letters (U+1F00 to U+1FFF, for example ἀ or ά written as U+1F71), as their base letter, and ϱ and ϖ. */
 function greekTeX(ch) {
   const c = ch.normalize('NFD')[0];
   return TITLE_GREEK[c] ? `$\\${TITLE_GREEK[c]}$` : TITLE_GREEK_LATIN[c] || '';
 }
 function titleTeX(line) {
-  return String(line).replace(/[\\{}#$%&_~^<>|≤≥≠−×→–—✓✕ᵢ\u0370-\u03ff]/g, ch => TITLE_TEX[ch] || greekTeX(ch));
+  return String(line).replace(/[\\{}#$%&_~^<>|≤≥≠−×→–—✓✕ᵢ\u0370-\u03ff\u1f00-\u1fff]/g, ch => TITLE_TEX[ch] || greekTeX(ch));
 }
 /* A description in TikZ (1.4.21): as the title, and a few more symbols that stop pdflatex's default set-up; … as \dots */
 const DESC_TEX = { '≈': '$\\approx$', '∞': '$\\infty$', '√': '$\\surd$', '∼': '$\\sim$', '≪': '$\\ll$', '≫': '$\\gg$', '′': '$^\\prime$', '″': '$^{\\prime\\prime}$', '…': '\\dots{}' };
@@ -2295,6 +2346,9 @@ function svgBounds(vm, layout) {
   return { key, minX: Math.min(...pts.map(p => p[0])), minY: Math.min(...pts.map(p => p[1])), maxX: Math.max(...pts.map(p => p[0])), maxY: Math.max(...pts.map(p => p[1])) };
 }
 const SVG_INK = '#1b1f23', SVG_GREY = '#9aa0a6', SVG_FONT = 'Helvetica, Arial, sans-serif';
+/* The text of a rejected hypothesis in a picture (1.4.24): 4.5 to 1 on its fill #f1f2f3 (WCAG 2.2, 1.4.3; up to 1.4.23 it
+   was SVG_GREY, 2.4 to 1). The outline and the line through the label keep SVG_GREY. */
+const SVG_REJ_INK = '#6b6f74';
 const SVG_DASH = ['', ' stroke-dasharray="9 5"', ' stroke-dasharray="2.5 4" stroke-linecap="round"', ' stroke-dasharray="10 4 2.5 4"'];
 const SVG_LDASH = ['', ' stroke-dasharray="4 3"', ' stroke-dasharray="1.5 3"', ' stroke-dasharray="5 3 1.5 3"'];
 /* The elements of a picture (no <svg> wrapper, no background). vm.all: the All view, one line style per
@@ -2317,14 +2371,14 @@ function svgBody(vm, layout, fmt, key) {
   for (const n of vm.nodes) {
     /* n.claimed (1.4.21): a rejected hypothesis drawn as a success, green with a tick (svgClaimed) */
     if (n.rejected && n.claimed) { o.push(...svgClaimed(n, fmt)); continue; }
-    const col = n.rejected ? grey : (n.color ? textOnColor(n.color) : ink), ty = nodeTextY(n);
+    const col = n.rejected ? grey : (n.color ? textOnColor(n.color) : ink), txt = n.rejected ? SVG_REJ_INK : col, ty = nodeTextY(n);
     o.push(svgShape(n, `fill="${n.rejected ? '#f1f2f3' : (n.color || '#ffffff')}" stroke="${col}" stroke-width="1.8"${n.rejected ? ' stroke-dasharray="4 3"' : ''}`));
-    o.push(svgLabelText(n.label, n.x.toFixed(1), (n.y + ty.label).toFixed(1), 17, `text-anchor="middle" font-weight="700" fill="${col}"`));
+    o.push(svgLabelText(n.label, n.x.toFixed(1), (n.y + ty.label).toFixed(1), 17, `text-anchor="middle" font-weight="700" fill="${txt}"`));
     const wt = n.wvec ? `(${n.wvec.map(q => fmt(q)).join(', ')})` : n.wexpr && !n.rejected ? exprDisplay(n.wexpr) : fmt(n.w);
-    o.push(`<text x="${n.x.toFixed(1)}" y="${(n.y + ty.weight).toFixed(1)}" font-size="${n.wvec && wt.length > 7 ? 11 : 13}" text-anchor="middle" fill="${col}">${xmlEsc(wt)}</text>`);
+    o.push(`<text x="${n.x.toFixed(1)}" y="${(n.y + ty.weight).toFixed(1)}" font-size="${n.wvec && wt.length > 7 ? 11 : 13}" text-anchor="middle" fill="${txt}">${xmlEsc(wt)}</text>`);
     if (n.rejected) o.push(`<line x1="${(n.x - n.rx * 0.62).toFixed(1)}" y1="${(n.y + ty.label - 5).toFixed(1)}" x2="${(n.x + n.rx * 0.62).toFixed(1)}" y2="${(n.y + ty.label - 5).toFixed(1)}" stroke="${grey}" stroke-width="2"/>`);
     /* inside a coloured box the description takes the label's colour */
-    o.push(...svgDesc(n, n.rejected ? grey : n.shape === 'box' && n.color ? col : SVG_MUTED));
+    o.push(...svgDesc(n, n.rejected ? SVG_REJ_INK : n.shape === 'box' && n.color ? col : SVG_MUTED));
   }
   if (key) {
     for (let k = 0; k < vm.n; k++) {
@@ -3591,6 +3645,22 @@ function runAllSelfTests() {
     const G = { nodes: [{ id: 'a', w: Q.parse('1/2') }, { id: 'b', w: Q.parse('3/4') }], edges: [], diag: {} };
     applyFix(G, { act: 'normW' });
     return Q.exact(Q.add(G.nodes[0].w, G.nodes[1].w)) === '1' || 'sum not 1';
+  });
+  check('Greek letters in symbolic weights reach TikZ as LaTeX names (1.4.24): every Greek letter a weight accepts, η and alpha_ among them; the 15 letters known before as before', () => {
+    for (let c = 0x370; c <= 0x3ff; c++) {
+      const ch = String.fromCharCode(c);
+      if (!/\p{L}/u.test(ch)) continue;
+      let ok = true; try { tokenizeExpr('2*' + ch + 'x'); } catch (e) { ok = false; }
+      if (!ok) continue;
+      /* followed by a Latin letter, and by a Greek letter that is written as a Latin one (ο) */
+      for (const t of [exprTeX('2*' + ch + 'x'), exprTeX('2*' + ch + 'ο')]) {
+        if (/[\u0370-\u03ff]/.test(t)) return `${ch} (U+${c.toString(16).toUpperCase()}) reaches LaTeX: ${t}`;
+        if (Object.values(TITLE_GREEK).some(nm => t.includes('\\' + nm + 'x') || t.includes('\\' + nm + 'o'))) return `${ch}: no space before the next letter: ${t}`;
+      }
+    }
+    const want = { 'ηο': '$\\eta o$', 'εΟ': '$\\epsilon O$', 'η': '$\\eta$', '1/2*alpha_': '$1/2\\cdot \\alpha$', '(1-gamma)*eps': '$(1-\\gamma)\\cdot \\epsilon$', 'nu*(1-tau)': '$\\nu\\cdot (1-\\tau)$', 'ϱ+Ω': '$\\varrho+\\Omega$' };
+    for (const [k, v] of Object.entries(want)) if (exprTeX(k) !== v) return `${k} gave ${exprTeX(k)}, not ${v}`;
+    return true;
   });
   return res;
 }
@@ -8882,6 +8952,11 @@ function stepFrames(panels) {
       cur = after;
     }
     void cur;
+  } else if (!isBonf()) {
+    /* A closed test that has not been run (Design mode, or Test mode before Run test): no frames follow the Bonferroni graph,
+       since the result is the closed test's (1.4.24). Run test adds the frame with the result (the branch above). */
+    /* What if explores the Bonferroni graph, so its first frame keeps that caption */
+    if (!(mode === 'test' && manual)) states[0].caption = `Initial graph (weights). Tested as a closed test with ${TEST_TYPES[testType()]} tests for every intersection hypothesis.`;
   } else {
     let k = 0;
     for (;;) {
@@ -8896,7 +8971,11 @@ function stepFrames(panels) {
     }
   }
   const rem = states.length > 1 ? G.nodes.filter(n => !states[states.length - 1].rejected.has(n.id)).map(n => n.label) : [];
-  if (states.length > 1) states[states.length - 1].caption += rem.length ? ` Final result: ${joinWords(rem)} not rejected.` : ' Final result: all hypotheses rejected.';
+  /* "Final result" only once the procedure has stopped (Bretz et al., 2009, Algorithm 1): after the automatic run, or after a
+     step-through that has finished. Part way through a step-through, or in What if (rejections chosen by hand, nothing
+     tested), the last caption names the hypotheses still open (1.4.24) */
+  const finished = !steps || (T.done && !manual);
+  if (states.length > 1) states[states.length - 1].caption += finished ? (rem.length ? ` Final result: ${joinWords(rem)} not rejected.` : ' Final result: all hypotheses rejected.') : (rem.length ? ` Still open: ${joinWords(rem)}.` : ' All hypotheses rejected.');
   return states.map(({ st: s, rejected: rej, caption, data, rejW: rw }) => {
     const vm = s.ent ? entVM(s, rej) : {
       nodes: G.nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y, ...nodeLook(n, G), p: n.p, group: n.group || '', color: n.color || '', w: rej.has(n.id) ? Q.ZERO : (s.w.get(n.id) || Q.ZERO), rejected: rej.has(n.id), claimed: green && rej.has(n.id) })),
@@ -9189,7 +9268,7 @@ async function showExport(kind) {
   } else if (kind === 'beamer') {
     const frames = stepFrames(sbs);
     exportPayload = exportBeamer(frames, G.title || 'Graphical multiple testing procedure');
-    out.innerHTML = codeBlock('Beamer frame, one overlay per rejection', `${sbs ? sbsDesc + ' Every overlay is the panel set at that step, with each component graph\'s own level under its hypotheses. ' : ''}${frames.length} overlay${frames.length === 1 ? '' : 's'}: the initial graph${frames.length > 1 ? ` and ${frames.length - 1} rejection${frames.length > 2 ? 's' : ''}` : ''}. ${mode === 'test' && T && T.closed ? 'A closed test has no rejection order, so the second overlay shows the final result.' : mode === 'test' && T && T.step ? 'Follows the steps you have taken in Test mode.' : 'Follows the automatic run of the Bonferroni graph on the entered p-values.'} ${G.title ? 'The frame title is the graph\'s title. ' : ''}Works with the Metropolis theme. Add the \\usetikzlibrary line to the preamble.`, exportPayload, sbs ? '-components-steps.tex' : '-steps.tex', 'text/x-tex');
+    out.innerHTML = codeBlock('Beamer frame, one overlay per rejection', `${sbs ? sbsDesc + ' Every overlay is the panel set at that step, with each component graph\'s own level under its hypotheses. ' : ''}${frames.length} overlay${frames.length === 1 ? '' : 's'}: the initial graph${frames.length > 1 ? ` and ${frames.length - 1} rejection${frames.length > 2 ? 's' : ''}` : ''}. ${mode === 'test' && T && T.closed && T.done ? 'A closed test has no rejection order, so the second overlay shows the final result.' : mode === 'test' && T && T.step && !T.closed ? 'Follows the steps you have taken in Test mode.' : !isBonf() ? (mode === 'test' && manual ? touchWords('What if has no steps yet. Click a hypothesis on the drawing to reject it.') : mode === 'test' && T && T.closed && !T.done ? 'The closed test is still running. Export again when it has finished to add a frame with its result.' : 'A closed test has no rejection order. Run the test in the Test tab to add a frame with its result.') : 'Follows the automatic run of the Bonferroni graph on the entered p-values.'} ${G.title ? 'The frame title is the graph\'s title. ' : ''}Works with the Metropolis theme. Add the \\usetikzlibrary line to the preamble.`, exportPayload, sbs ? '-components-steps.tex' : '-steps.tex', 'text/x-tex');
   } else if (kind === 'sap') {
     const sap = sapText(G);
     const textAll = sapPlainText(sap) + '\n\n' + sap.tables.map(tableToTSV).join('\n\n') + '\n\n' + sapRefsText(sap);
