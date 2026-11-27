@@ -1,6 +1,6 @@
 # Multiplicity Graph Sketchpad User Guide
 
-Niamh Fitzgerald · version 1.4.24
+Niamh Fitzgerald · version 1.4.25
 
 The Sketchpad draws, tests and explains graphical multiple testing procedures (Bretz et al., 2009) in the browser. Nothing you enter leaves your computer. This guide covers how to use the Sketchpad.
 
@@ -28,8 +28,8 @@ Start from a template or from an empty canvas. The template picker in the toolba
 - **Fit:** the Fit button fits the whole graph in view. The view also refits by itself when the window changes width, unless you have zoomed or moved it. It always refits when the side panel moves below the drawing or back, for example when you turn a tablet. In presentation mode it also always refits when you turn a phone or tablet. On a phone, and on a narrow drawing such as an iPad held sideways, the hint box sits under the toolbar and the graph is fitted below it.
 - **Description and group:** each hypothesis has optional fields such as "dose 1, primary endpoint" and "primary". They feed the plain-language text, the SAP text and the group bands on the canvas.
 - **Title:** type a title in the box at the top of the Graph tab. It shows above the graph on the drawing and in the pictures, and it is the frame title of the beamer frames. It is saved with the graph, in share links and in kept copies. Loading a template clears it.
-- **Shape:** under the Title box, choose **Circles** or **Boxes**. Boxes are rounded rectangles. Both shapes widen to fit a long label. The shape is for the whole graph, on the drawing and in every picture and export. It is saved with the graph, in share links and in kept copies. Loading a template or Clear goes back to circles.
-- **Descriptions on the drawing:** tick **Show descriptions on the drawing**, under the shape buttons, to show each description under its circle or inside its box. It shows on the drawing and in every picture and export. A description shows on up to two lines of about 20 characters each; a longer one is cut short with "…". To read all of it, point at the hypothesis, or select it and open Description and group. The setting is saved with the graph, in share links and in kept copies. Loading a template or Clear turns it off.
+- **Shape:** under the Title box, choose **Circles** or **Boxes**. Boxes are rounded rectangles. Both shapes widen to fit a long label, in Latin, Greek, Cyrillic, Chinese, Japanese or Korean letters. The shape is for the whole graph, on the drawing and in every picture and export. It is saved with the graph, in share links and in kept copies. Loading a template or Clear goes back to circles.
+- **Descriptions on the drawing:** tick **Show descriptions on the drawing**, under the shape buttons, to show each description under its circle or inside its box. It shows on the drawing and in every picture and export. A description shows on up to two lines of about 20 characters each. In Chinese, Japanese or Korean a line holds about 10 characters and may break between any two. A longer description is cut short with "…". To read all of it, point at the hypothesis, or select it and open Description and group. The setting is saved with the graph, in share links and in kept copies. Loading a template or Clear turns it off.
 
 Alpha is set in the toolbar (default 0.025). Next to it, say whether your p-values are one-sided or two-sided; the SAP text repeats the choice, and the parametric test accepts one-sided p-values only.
 
@@ -58,7 +58,7 @@ An entangled graph is several graphs on the same hypotheses, each with a weight 
 
 The bar under the canvas checks the graph as you edit. Red messages are errors (weights outside 0 to 1, a total above 1, a non-zero diagonal, a row of transitions above 1) and block testing. Amber messages are warnings (weights or rows below 1) and do not. Most messages have a one-click fix, such as "Rescale so they sum to 1".
 
-- **Arrange (top right of the canvas):** snap every hypothesis into a circle, two rows, a line, a grid, a column, or the order of testing. Choose the spacing and whether to straighten bent arrows. Undo puts them back.
+- **Arrange (top right of the canvas):** snap every hypothesis into a circle, two rows, a line, a grid, a column, or the order of testing. Choose the spacing and whether to straighten bent arrows. Hypotheses with long labels or descriptions get more space: neighbours in a row, and every two on a circle, are at least 40 px apart. Undo puts them back.
 - **Colour:** select a hypothesis and pick a swatch or any colour. "Use this colour for every hypothesis" applies it to the whole graph.
 - **Groups:** hypotheses with the same group are drawn inside a shaded band with the group name, on the canvas and in the picture exports.
 - **More menu:** hints on the canvas, snap to grid, decimals instead of fractions, the colour theme, Download a picture (PNG), import, the self-test, Clear graph, and About (version, how to cite, licence, limitations and references). The version number in the footer opens About too.
@@ -131,7 +131,7 @@ When the graph or a setting changes after a comparison, a notice asks you to run
 
 ## Import
 
-- **R code or plain numbers:** More menu, "Import from R or a matrix". Paste a weight vector such as `c(1/2, 1/2, 0, 0)` and a matrix such as `matrix(c(...), nrow = 4, byrow = TRUE)`, or plain numbers with one matrix row per line. Names are optional.
+- **R code or plain numbers:** More menu, "Import from R or a matrix". Paste a weight vector such as `c(1/2, 1/2, 0, 0)` and a matrix such as `matrix(c(...), nrow = 4, byrow = TRUE)`, or plain numbers with one matrix row per line. Names are optional; long names get more space between the hypotheses.
 - **From multigrain:** the easiest way is the Optimise tab, whose script writes the file itself. By hand: in R, run `source("multigrain-to-sketchpad.R")` and then `sketchpad_json(g, names = ..., labels = ..., groups = ..., file = "graph.json")`, where `g` is a `graph_optimise()` result. Add `inputs = list(power_nominal = ..., corr_matrix = ..., nsim = ...)` and `start = list(hyp_weight = ..., trans_matrix = ...)` to carry the inputs and the starting graph. Open the file in the Sketchpad under Export, "Open a saved graph". Labels become descriptions and groups get matching colours.
 - **Saved files and share links:** the same "Open a saved graph" box takes a JSON file saved by the Sketchpad, a share link, or a share code.
 

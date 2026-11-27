@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.4.25 (2026-11-27)
+
+The five points the 1.4.24 review left. No result the app shows has changed.
+
+- Labels in other scripts: Greek, Cyrillic, Chinese, Japanese and Korean labels fit inside their circle or box. Up to 1.4.24 every such letter counted as an average Latin letter, so a Cyrillic, Chinese or Japanese label could run past its shape. Labels in Latin letters are the same size as before, and arrow labels sit where they did.
+- Descriptions in Chinese, Japanese and Korean wrap between characters onto their two lines. Up to 1.4.24 such a description, with no spaces, stayed on one long line.
+- Arrange: hypotheses with long labels or descriptions get more space. Neighbours in a row, and every two on a circle, are at least 40 px apart. Up to 1.4.24 the gap did not depend on how wide the hypotheses were, so wide ones overlapped. Graphs whose hypotheses fit are arranged as before. The one exception is the Compact gap with descriptions shown, which now spreads a little: Circle in either shape, and with boxes also Line, Grid, Two rows and Layers. The space between rows is as before.
+- Import from R, the gMCP entangled import, the default-graph text and files from multigrain without places: long names get the same room.
+- Matrix tab: in Test mode, the dash for a rejected hypothesis is darker, at least 4.5 to 1 in every theme (up to 1.4.24 as low as 3.1 to 1).
+- Default-graph picture: the "* lost" note is darker, 6.4 to 1 on white (up to 1.4.24, 2.6 to 1).
+- Test tab: the Bonferroni line gives the page of Algorithm 1 in Bretz et al. (2009), p. 591.
+- Tests: 4 new browser checks (95 to 98) and 2 new stress checks. Stress checks: 64. Self-tests: 164.
+
 ## 1.4.24 (2026-11-27)
 
 Five small fixes left by earlier reviews. No test result has changed.
