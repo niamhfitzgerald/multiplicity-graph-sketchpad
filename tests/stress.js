@@ -1410,6 +1410,118 @@ check('Node shapes (1.4.21): on every template drawn as boxes, with and without 
   return true;
 });
 
+check('Non-Latin widths (1.4.25): text in Latin letters, digits and Latin-1 letters keeps its 1.4.24 width, and its circle its 1.4.24 size (20,000 random strings), and a description in such text wraps exactly as in 1.4.24 (5,000 random descriptions); arrow labels keep the 1.4.24 estimate whatever their letters; Greek, Cyrillic, Chinese, Japanese and Korean letters count wider than an average letter', () => {
+  /* frozen copies of the 1.4.24 textWidth() and descLines() */
+  const tw24 = (s, size) => { let w = 0; for (const ch of String(s)) { if (/[ilj.,:;|!'1 ]/.test(ch)) w += 0.32; else if (/[mwMW]/.test(ch)) w += 0.86; else if (/[A-Z0-9]/.test(ch)) w += 0.64; else w += 0.54; } return w * size; };
+  const dl24 = desc => {
+    const t = String(desc || '').replace(/\s+/g, ' ').trim(); if (!t) return [];
+    const wid = x => tw24(x, 12), cut = x => { let y = x; while (y && wid(y + '…') > 130) y = y.slice(0, -1); return y.replace(/[\s,;:.]+$/, '') + '…'; };
+    const lines = []; let cur = '';
+    for (const w of t.split(' ')) { if (cur && wid(cur + ' ' + w) > 130) { lines.push(cur); cur = w; } else cur = cur ? cur + ' ' + w : w; }
+    lines.push(cur);
+    const out = lines.slice(0, 2).map(x => (wid(x) > 130 ? cut(x) : x));
+    if (lines.length > 2 && !out[1].endsWith('…')) out[1] = cut(out[1] + ' ' + lines[2]);
+    return out;
+  };
+  const rnd = C.mulberry32(20261127);
+  const latin = ' abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:;!?()-_/+=*&%\'"éèüöäßñçøåÉÜÖ';
+  const pick = (alpha, n) => Array.from({ length: n }, () => alpha[Math.floor(rnd() * alpha.length)]).join('');
+  const rx24 = label => { const lp = C.labelParts(label); const w = lp ? tw24(lp.base, 17) + tw24(lp.sub, 12) : tw24(label, 15); const rx = Math.max(36, w / 2 + 14); return rx <= 110 ? rx : Math.max(rx, w / 2 / Math.sqrt(1 - (19 / 36) ** 2) + 4); };
+  for (let k = 0; k < 20000; k++) {
+    const s = pick(latin, 1 + Math.floor(rnd() * 60));
+    for (const size of [12, 12.5, 15, 17]) if (C.textWidth(s, size) !== tw24(s, size)) return `width of "${s}" at ${size}`;
+    if (C.nodeRx(s) !== rx24(s)) return `circle for "${s}": ${C.nodeRx(s)} against ${rx24(s)}`;
+  }
+  for (const s of ['H1', 'H12', 'H_3', 'Hb2', 'H1,NI']) if (C.nodeRx(s) !== rx24(s)) return `circle for "${s}"`;
+  for (let k = 0; k < 5000; k++) {
+    const s = pick(latin + '      ', 1 + Math.floor(rnd() * 140));
+    if (JSON.stringify(C.descLines(s)) !== JSON.stringify(dl24(s))) return `description "${s}": ${JSON.stringify(C.descLines(s))} against ${JSON.stringify(dl24(s))}`;
+  }
+  for (const s of ['ε/2', '1 − ε', 'γ', 'Общая', '总生存期', 'αβγ/δ']) if (C.textWidth(s, 12.5, false) !== tw24(s, 12.5)) return `arrow label "${s}"`;
+  for (const [ch, want] of [['α', 0.63], ['Σ', 0.72], ['ж', 0.66], ['Ж', 0.78], ['总', 1], ['あ', 1], ['カ', 1], ['한', 0.95], ['Ａ', 1]]) if (Math.abs(C.textWidth(ch, 10) - want * 10) > 1e-9) return `"${ch}" counts ${C.textWidth(ch, 10) / 10}, not ${want}`;
+  return true;
+});
+
+check('Room for wide hypotheses (1.4.25): every template (ordinary, entangled and generated for 2 to 12), in every Arrange shape at every gap, in circles and boxes, gets exactly the places of the 1.4.24 code (a frozen copy); an import of 1 to 40 hypotheses with no names, H1 to Hm, or short names gets the 1.4.24 places; with long names the places are whole pixels, neighbours in a row are at least 40 px apart and on a circle every two are 40 px apart across or down; a decomposed dakuten stays with its character and adds no width', () => {
+  /* frozen copy of the 1.4.24 arrangePositions() */
+  const arrange24 = function (G, shape, gap, cx, cy) {
+    const m = G.nodes.length;
+    if (!m) return [];
+    const vgap = Math.round(gap * 0.85);
+    let pos;
+    const rowsOf = rows => {
+      const out = new Array(m);
+      rows.forEach((row, r) => row.forEach((i, k) => { out[i] = { x: (k - (row.length - 1) / 2) * gap, y: r * vgap }; }));
+      return out;
+    };
+    const idx = G.nodes.map((_, i) => i);
+    if (shape === 'circle' && m >= 3) {
+      const r = Math.max(gap * 0.6, gap / (2 * Math.sin(Math.PI / m)));
+      pos = idx.map(i => { const a = -Math.PI / 2 + 2 * Math.PI * i / m; return { x: r * Math.cos(a), y: r * Math.sin(a) }; });
+    } else if (shape === 'circle' || shape === 'line') {
+      pos = rowsOf([idx]);
+    } else if (shape === 'grid') {
+      const cols = Math.ceil(Math.sqrt(m));
+      const rows = []; for (let i = 0; i < m; i += cols) rows.push(idx.slice(i, i + cols));
+      pos = rowsOf(rows);
+    } else if (shape === 'tworows') {
+      const cols = Math.ceil(m / 2);
+      pos = rowsOf([idx.slice(0, cols), idx.slice(cols)].filter(r => r.length));
+    } else if (shape === 'column') {
+      pos = idx.map(i => ({ x: 0, y: i * vgap }));
+    } else if (shape === 'layers') {
+      /* Rows by how many transitions away from a hypothesis that starts with weight */
+      const ids = G.nodes.map(n => n.id);
+      let starts = idx.filter(i => Q.cmp(G.nodes[i].w, Q.ZERO) > 0);
+      if (!starts.length) starts = idx.filter(i => !G.edges.some(e => e.to === ids[i]));
+      if (!starts.length) starts = [0];
+      const depth = new Array(m).fill(-1);
+      const queue = [...starts];
+      starts.forEach(i => { depth[i] = 0; });
+      while (queue.length) {
+        const i = queue.shift();
+        for (const e of G.edges) {
+          if (e.from !== ids[i] || Q.isZero(e.g)) continue;
+          const j = ids.indexOf(e.to);
+          if (depth[j] < 0) { depth[j] = depth[i] + 1; queue.push(j); }
+        }
+      }
+      const maxD = Math.max(0, ...depth);
+      idx.forEach(i => { if (depth[i] < 0) depth[i] = maxD + 1; });
+      const rows = [];
+      idx.forEach(i => { (rows[depth[i]] = rows[depth[i]] || []).push(i); });
+      pos = rowsOf(rows.filter(Boolean));
+    } else pos = rowsOf([idx]);
+    const mx = pos.reduce((a, p) => a + p.x, 0) / m, my = pos.reduce((a, p) => a + p.y, 0) / m;
+    return pos.map(p => ({ x: Math.round(p.x - mx + cx), y: Math.round(p.y - my + cy) }));
+  };
+  const auto24 = m => { if (m > 8) return C.circlePositions(m); const pos = []; if (m <= 3) { for (let i = 0; i < m; i++) pos.push({ x: i * 240, y: 0 }); return pos; } const cols = Math.ceil(m / 2); for (let i = 0; i < m; i++) pos.push(i < cols ? { x: i * 240, y: 0 } : { x: (i - cols) * 240, y: 200 }); return pos; };
+  const graphs = [...Object.keys(C.TEMPLATES).map(k => C.templateJSON(k)), ...Object.keys(C.ENTANGLED_TEMPLATES || {}).map(k => C.entangledTemplateJSON(k))];
+  for (const k of Object.keys(C.TEMPLATE_GEN || {})) for (let m = 2; m <= 12; m++) { try { graphs.push(C.generatedTemplate(k, m)); } catch (e) { /* not every generator takes every m */ } }
+  if (graphs.length < 40) return `only ${graphs.length} graphs`;
+  for (const o of graphs) for (const shape of ['circle', 'line', 'grid', 'tworows', 'column', 'layers']) for (const gap of [170, 230, 300]) for (const box of [false, true]) {
+    const G = C.deserializeGraph(JSON.parse(JSON.stringify(o)), false, 1).G; if (box) G.shape = 'box';
+    if (JSON.stringify(C.arrangePositions(G, shape, gap, 0, 0)) !== JSON.stringify(arrange24(G, shape, gap, 0, 0))) return `${G.nodes.map(n => n.label).join(',')}: ${shape} at ${gap}${box ? ', boxes' : ''} moved`;
+  }
+  for (let m = 1; m <= 40; m++) for (const names of [undefined, Array.from({ length: m }, (_, i) => 'H' + (i + 1)), Array.from({ length: m }, (_, i) => ['OS', 'PFS', 'ORR', 'QoL'][i % 4] + (i + 1))]) {
+    if (JSON.stringify(C.importPositions(m, names)) !== JSON.stringify(auto24(m))) return `import of ${m} with ${names ? names[0] + '…' : 'no names'}`;
+  }
+  const long = ['Overall survival in the full population', 'Progression-free survival at month 12', 'Objective response rate at week 24', 'Quality of life'];
+  for (const m of [2, 3, 4, 7, 8, 9, 15, 40]) {
+    const names = Array.from({ length: m }, (_, i) => long[i % 4] + ' ' + (i + 1)), pos = C.importPositions(m, names), hw = names.map(n => C.nodeRx(n));
+    if (pos.some(p => !Number.isInteger(p.x) || !Number.isInteger(p.y))) return `import of ${m} long names: places are not whole pixels`;
+    for (let i = 0; i < m; i++) for (let j = i + 1; j < m; j++) {
+      const across = Math.abs(pos[i].x - pos[j].x) - hw[i] - hw[j], down = Math.abs(pos[i].y - pos[j].y) - 72;
+      if (m <= 8 ? (pos[i].y === pos[j].y && across < 40) : Math.max(across, down) < 39.5) return `import of ${m} long names: ${i + 1} and ${j + 1} are ${Math.max(across, down).toFixed(1)} px apart`;
+    }
+  }
+  const dak = 'が'.normalize('NFD');
+  if (C.textWidth(dak, 10) !== C.textWidth('か', 10)) return 'a decomposed dakuten adds width';
+  if (C.textWidth('한국어'.normalize('NFD'), 10) !== C.textWidth('한국어', 10)) return 'decomposed Korean is wider than composed';
+  if (C.descLines('あああああああああ' + dak + 'いいいいいいいいいい').some(l => /^\u3099/.test(l))) return 'a line starts with a lone dakuten';
+  return true;
+});
+
 /* ---------- report ---------- */
 Promise.all(results.map(r => r)).then(async () => {
   // resolve promise-returning checks

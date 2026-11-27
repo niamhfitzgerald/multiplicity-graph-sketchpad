@@ -1286,14 +1286,18 @@ async function step(name, fn) {
     await c.close();
     /* planned exceptions: (1) the Plain language box left the Test tab heading for the switch at the foot of the panel
        (1.3.2); (2) presentation mode now shows the last step's own sentence ("Rejected H3: ...") before the "Stopped"
-       caption, which 1.3.0 never showed (1.3.5), so that one caption is taken out before the comparison */
-    const noLabel = v => typeof v === 'string' ? v.replace(/^Test the graph\nPlain language\n/, 'Test the graph\n') : v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, noLabel(x)])) : v;
+       caption, which 1.3.0 never showed (1.3.5), so that one caption is taken out before the comparison; (3) the Bonferroni
+       line under the Test tab table gives the page of Algorithm 1 (Bretz et al., 2009, p. 591), which 1.3.0 did not (1.4.25) */
+    const noLabel = v => typeof v === 'string' ? v.replace(/^Test the graph\nPlain language\n/, 'Test the graph\n').replace('(Bretz et al., 2009, Algorithm 1, p. 591)', '(Bretz et al., 2009, Algorithm 1)') : v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, noLabel(x)])) : v;
     const gc = got.present && got.present.captions;
     if (gc && gc.length === want.present.captions.length + 1 && /^Rejected H3: p = 0\.011 ≤ 1\/2 × 0\.025 = 0\.0125\. Passed on: \+1\/2 to H4\.$/.test(gc[gc.length - 2])) gc.splice(gc.length - 2, 1);
     for (const k of Object.keys(want)) {
       const a = JSON.stringify(noLabel(want[k])), g = JSON.stringify(noLabel(got[k]));
       if (a !== g) { let i = 0; while (i < a.length && a[i] === g[i]) i++; return `${k} differs at ${i}: 1.3.0 "${a.slice(Math.max(0, i - 40), i + 60)}" now "${(g || '').slice(Math.max(0, i - 40), i + 60)}"`; }
     }
+    /* planned difference (3): wherever 1.3.0 cited Algorithm 1 under the table, the page is there now */
+    const cites = JSON.stringify(want).split('(Bretz et al., 2009, Algorithm 1)').length - 1, pages = JSON.stringify(got).split('(Bretz et al., 2009, Algorithm 1, p. 591)').length - 1;
+    if (!cites || pages !== cites) return `1.3.0 cites Algorithm 1 ${cites} times under the Test tab table; ${pages} now give p. 591`;
   });
   await step('Plain language on: no "rejected", "level", α, ≤, "hypothesis", "weight" or other statistician words in the clinician set-up (Test tab, drawing, Graph tab, status line, dots); the sums are behind "Show the sums"; What-if buttons read "Wait…" while a share moves; "step 2 of 3" while Run test runs; the description tip; the last step\'s sentence shows before "Finished" in presentation mode', async () => {
     const { c, p } = await freshPage();
@@ -3868,7 +3872,7 @@ async function step(name, fn) {
     if (out) return out;
   });
 
-  await step('Beamer captions (1.4.24): "Final result" only once the procedure has stopped (Bretz et al., 2009, Algorithm 1). Bonferroni-Holm, p = 0.001, 0.01, 0.02: after one step the last caption ends "Still open: H2 and H3.", after Run to the end "Final result: all hypotheses rejected."; What if, H1 rejected by hand: "Still open: H2 and H3."; Weighted Simes, p = 0.01, 0.012, 0.015, not yet run: the initial graph only, captioned as a closed test, and a line to run the test, not the Bonferroni run; after Run test the result frame rejects H1, H2 and H3', async () => {
+  await step('Beamer captions (1.4.24): "Final result" only once the procedure has stopped (Bretz et al., 2009, Algorithm 1, p. 591). Bonferroni-Holm, p = 0.001, 0.01, 0.02: after one step the last caption ends "Still open: H2 and H3.", after Run to the end "Final result: all hypotheses rejected."; What if, H1 rejected by hand: "Still open: H2 and H3."; Weighted Simes, p = 0.01, 0.012, 0.015, not yet run: the initial graph only, captioned as a closed test, and a line to run the test, not the Bonferroni run; after Run test the result frame rejects H1, H2 and H3', async () => {
     const ctx = await b.newContext({ viewport: { width: 1400, height: 900 } });
     ctx.setDefaultTimeout(8000);
     let out = '';
@@ -4115,6 +4119,208 @@ async function step(name, fn) {
       }
       fsm.rmSync(dir, { recursive: true, force: true });
     }
+    if (out) return out;
+  });
+
+  await step('Matrix tab grey (1.4.25): in Test mode, with Current graph, the dash of a rejected hypothesis reaches 4.5 to 1 (WCAG 2.2, 1.4.3) on the panel in the cream, white and dark themes, in the ordinary and the entangled Matrix view; up to 1.4.24 it was --rej, 3.1 to 1 in cream', async () => {
+    const ctx = await b.newContext({ viewport: { width: 1400, height: 900 } });
+    ctx.setDefaultTimeout(8000);
+    let out = '';
+    try {
+      const p2 = await ctx.newPage();
+      p2.on('pageerror', e => errors.push('pageerror (Matrix grey): ' + e.message));
+      await p2.goto(FILE); await p2.waitForTimeout(700);
+      for (const kind of ['ordinary', 'entangled']) {
+        await p2.evaluate(kind => { loadGraph(kind === 'entangled' ? entangledTemplateJSON('maurerFig2') : templateJSON('holm')); G.nodes.forEach((n, i) => { n.p = i ? '0.9' : '0.0001'; }); renderAll(); setTab('test'); }, kind);
+        await p2.click('#tab-test [data-action="run"]');
+        await p2.waitForFunction(() => T && T.done && !T.running && document.querySelectorAll('#world .node.rejected').length >= 1, null, { timeout: 20000 });
+        for (const skin of ['cream', 'white', 'dark']) {
+          await p2.evaluate(skin => { document.documentElement.dataset.skin = skin; setTab('matrix'); mxView = 'current'; renderMatrixPanel(); }, skin); await p2.waitForTimeout(400);
+          const r = await p2.evaluate(() => {
+            const rgb = c => (c.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+            const lum = c => { const [r, g, b] = rgb(c).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+            const con = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+            const bgOf = el => { let bg = 'rgba(0, 0, 0, 0)'; while (el && /rgba\(.*, 0\)|transparent/.test(bg)) { bg = getComputedStyle(el).backgroundColor; el = el.parentElement; } return bg; };
+            const dashes = [...document.querySelectorAll('#mx-dyn td')].filter(t => t.textContent.trim() === '–');
+            return { n: dashes.length, worst: Math.min(...dashes.map(t => con(getComputedStyle(t).color, bgOf(t)))), fg: dashes.length ? getComputedStyle(dashes[0]).color : '', bg: dashes.length ? bgOf(dashes[0]) : '' };
+          });
+          if (!r.n) out += `${kind}, ${skin}: no dash for a rejected hypothesis. `;
+          else if (!(r.worst >= 4.5)) out += `${kind}, ${skin}: the dash is ${r.worst.toFixed(2)} to 1 (${r.fg} on ${r.bg}). `;
+        }
+        await p2.evaluate(() => { document.documentElement.dataset.skin = 'cream'; setMode('design'); });
+      }
+    } finally { await ctx.close(); }
+    if (out) return out;
+  });
+
+  await step('Default-graph picture (1.4.25): the "* lost" note under a sequence that ends early (Maurer and Bretz, 2013, Fig. 2, with ε) reaches 4.5 to 1 (WCAG 2.2, 1.4.3) on the picture\'s white; up to 1.4.24 it was #9aa0a6, 2.6 to 1', async () => {
+    const ctx = await b.newContext({ viewport: { width: 1400, height: 900 } });
+    ctx.setDefaultTimeout(8000);
+    let out = '';
+    try {
+      const p2 = await ctx.newPage();
+      p2.on('pageerror', e => errors.push('pageerror (lost note): ' + e.message));
+      await p2.goto(FILE); await p2.waitForTimeout(700);
+      const r = await p2.evaluate(() => {
+        loadGraph(entangledTemplateJSON('maurerFig2')); setTab('matrix'); $('det-default').open = true; renderDefaultGraph();
+        const lum = h => { const v = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(c => c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
+        const con = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+        const svg = document.querySelector('#dg-body svg');
+        if (!svg) return { err: 'no default-graph picture' };
+        const bg = (svg.querySelector('rect') || {}).getAttribute ? svg.querySelector('rect').getAttribute('fill') : '';
+        const notes = [...svg.querySelectorAll('text')].filter(t => t.textContent === '* lost').map(t => t.getAttribute('fill'));
+        return { bg, notes, worst: Math.min(...notes.map(f => con(f, bg))) };
+      });
+      if (r.err) return r.err;
+      if (r.bg.toLowerCase() !== '#ffffff') out += `the picture's background is ${r.bg}, not white. `;
+      if (!r.notes.length) out += 'no "* lost" note in the picture of Fig. 2. ';
+      else if (!(r.worst >= 4.5)) out += `the "* lost" note is ${r.worst.toFixed(2)} to 1 (${r.notes[0]} on ${r.bg}). `;
+    } finally { await ctx.close(); }
+    if (out) return out;
+  });
+
+  await step('Non-Latin labels (1.4.25): labels in Greek, Cyrillic, Chinese, Japanese and Korean, lowercase and uppercase, fit inside their circle and their box with at least 4 px each side, on the drawing and in the SVG picture, and in a circle the top corners of the label\'s box lie inside the ellipse; a Chinese description wraps between characters onto two lines no wider than 130 px, inside its box too, and a longer one is cut with "…"; up to 1.4.24 every such letter counted as an average Latin letter', async () => {
+    const ctx = await b.newContext({ viewport: { width: 1400, height: 900 } });
+    ctx.setDefaultTimeout(8000);
+    let out = '';
+    try {
+      const p2 = await ctx.newPage();
+      p2.on('pageerror', e => errors.push('pageerror (non-Latin labels): ' + e.message));
+      await p2.goto(FILE); await p2.waitForTimeout(700);
+      const labels = ['Συνολική επιβίωση', 'ΣΥΝΟΛΙΚΗ ΕΠΙΒΙΩΣΗ', 'Общая выживаемость', 'ОБЩАЯ ВЫЖИВАЕМОСТЬ', '主要终点总生存期分析', '全生存期間の解析', '전체 생존 분석', 'OS 总生存期 (ITT)'];
+      for (const shape of ['circle', 'box']) {
+        const r = await p2.evaluate(([labels, shape]) => {
+          const o = templateJSON('holm');
+          o.nodes = labels.map((l, i) => ({ id: String(i), label: l, weight: i ? '0' : '1', x: (i % 2) * 420, y: Math.floor(i / 2) * 150, p: '', group: '' })); o.edges = [];
+          if (shape === 'box') o.shape = 'box';
+          loadGraph(o);
+          const corner = (t, cx, cy, rx, ry) => Math.max(...[t.x, t.x + t.width].map(x => ((x - cx) / rx) ** 2 + ((t.y - cy) / ry) ** 2));
+          const drawn = [...document.querySelectorAll('#world [data-node]')].map(g => { const t = g.querySelector('.nlabel').getBBox(), e = g.querySelector('.node-body').getBBox(); return [t.width, e.width, corner(t, e.x + e.width / 2, e.y + e.height / 2, e.width / 2, e.height / 2)]; });
+          showExport('svg');
+          const host = document.createElement('div'); host.innerHTML = exportPayload; document.body.appendChild(host);
+          const pic = [...host.querySelectorAll('text[font-weight="700"]')].map((t, i) => { const tb = t.getBBox(), e = host.querySelectorAll('ellipse, rect[rx="8"]')[i]; if (!e) return [tb.width, 0, 9]; const eb = e.getBBox(); return [tb.width, eb.width, corner(tb, eb.x + eb.width / 2, eb.y + eb.height / 2, eb.width / 2, eb.height / 2)]; });
+          host.remove();
+          return { drawn, pic };
+        }, [labels, shape]);
+        for (const [where, list] of [['drawing', r.drawn], ['picture', r.pic]]) {
+          if (list.length !== labels.length) { out += `${shape}, ${where}: ${list.length} labels found. `; continue; }
+          list.forEach(([tw, sw, cn], i) => {
+            if (!(tw + 8 <= sw)) out += `${shape}, ${where}: "${labels[i]}" is ${tw.toFixed(0)} px in a shape ${sw.toFixed(0)} px wide. `;
+            if (shape === 'circle' && !(cn <= 1)) out += `${shape}, ${where}: a top corner of "${labels[i]}" is outside the ellipse (${cn.toFixed(3)}). `;
+          });
+        }
+      }
+      const descs = ['主要终点为意向治疗人群的总生存期', '主要终点为意向治疗人群的总生存期，按「研究者」评估的无进展生存期和客观缓解率'];
+      for (const shape of ['circle', 'box']) {
+        const d = await p2.evaluate(([descs, shape]) => {
+          const o = templateJSON('holm');
+          o.nodes = descs.map((t, i) => ({ id: String(i), label: 'H' + (i + 1), weight: i ? '0' : '1', x: i * 420, y: 0, p: '', group: '', desc: t })); o.edges = [];
+          o.showDesc = true; if (shape === 'box') o.shape = 'box';
+          loadGraph(o);
+          return [...document.querySelectorAll('#world [data-node]')].map(g => { const e = g.querySelector('.node-body').getBBox(); return { body: [e.x, e.x + e.width], lines: [...g.querySelectorAll('.ndesc')].map(t => { const b = t.getBBox(); return [t.textContent, b.width, b.x, b.x + b.width]; }) }; });
+        }, [descs, shape]);
+        if (d.length !== 2) { out += `${shape}: ${d.length} hypotheses with descriptions. `; continue; }
+        d.forEach((n, i) => {
+          if (n.lines.length !== 2) out += `${shape}: description ${i + 1} has ${n.lines.length} lines, not 2. `;
+          for (const [txt, w, x0, x1] of n.lines) {
+            if (!(w <= 132)) out += `${shape}: the line "${txt}" is ${w.toFixed(0)} px wide (wrap at 130). `;
+            if (shape === 'box' && !(x0 >= n.body[0] + 4 && x1 <= n.body[1] - 4)) out += `${shape}: the line "${txt}" is not inside its box. `;
+          }
+        });
+        if (d[0].lines.map(l => l[0]).join('') !== descs[0]) out += `${shape}: the short description lost characters (${d[0].lines.map(l => l[0]).join(' | ')}). `;
+        if (!d[1].lines.length || !d[1].lines[d[1].lines.length - 1][0].endsWith('…')) out += `${shape}: the long description is not cut with "…". `;
+      }
+    } finally { await ctx.close(); }
+    if (out) return out;
+  });
+
+  await step('Room for wide hypotheses (1.4.25): after Arrange in every shape at every gap, and after Import from R and the default-graph text with long names (in two rows and on a circle), no two hypotheses (shape and description) overlap, two in the same row are at least 40 px apart, and on a circle or after an import every two are 40 px apart across or down (the rows\' vertical spacing is as in 1.4.24); every template, ordinary and entangled, in circles and boxes, arranges exactly as with the 1.4.24 spacing, and an import of 1 to 40 hypotheses with no names or short names lands in the 1.4.24 places (a frozen copy of the 1.4.24 code); up to 1.4.24 the gap did not depend on how wide the hypotheses were', async () => {
+    const ctx = await b.newContext({ viewport: { width: 1400, height: 900 }, reducedMotion: 'reduce' });
+    ctx.setDefaultTimeout(8000);
+    let out = '';
+    try {
+      const p2 = await ctx.newPage();
+      p2.on('pageerror', e => errors.push('pageerror (room): ' + e.message));
+      await p2.goto(FILE); await p2.waitForTimeout(700);
+      /* the closest pair, measured on the drawing: the shape and the description lines of each hypothesis, by bounding box */
+      const closest = () => p2.evaluate(() => {
+        const bx = G.nodes.map(n => { const g = document.querySelector(`#world [data-node="${n.id}"]`); const parts = [...g.querySelectorAll('.node-body, .ndesc')].map(e => e.getBBox()); return { x0: n.x + Math.min(...parts.map(b => b.x)), x1: n.x + Math.max(...parts.map(b => b.x + b.width)), y0: n.y + Math.min(...parts.map(b => b.y)), y1: n.y + Math.max(...parts.map(b => b.y + b.height)), label: n.label }; });
+        /* d: how far apart across or down (negative: overlapping); row: the closest pair whose centres are level */
+        let worst = { d: Infinity }, row = { d: Infinity };
+        for (let i = 0; i < bx.length; i++) for (let j = i + 1; j < bx.length; j++) {
+          const a = bx[i], c = bx[j], level = Math.abs(G.nodes[i].y - G.nodes[j].y) < 1;
+          const d = Math.max(Math.max(a.x0, c.x0) - Math.min(a.x1, c.x1), Math.max(a.y0, c.y0) - Math.min(a.y1, c.y1));
+          const pair = a.label.slice(0, 12) + ' / ' + c.label.slice(0, 12);
+          if (d < worst.d) worst = { d, pair };
+          if (level && d < row.d) row = { d, pair };
+        }
+        return { ...worst, row };
+      });
+      /* 1. every template keeps the 1.4.24 spacing */
+      const same = await p2.evaluate(() => {
+        const moved = []; let n = 0;
+        const graphs = [...Object.keys(TEMPLATES).map(k => ['t:' + k, () => templateJSON(k)]), ...Object.keys(ENTANGLED_TEMPLATES).map(k => ['e:' + k, () => entangledTemplateJSON(k)])];
+        for (const [name, f] of graphs) for (const shape of ['circle', 'line', 'grid', 'tworows', 'column', 'layers']) for (const gap of Object.values(GAPS)) for (const box of [false, true]) {
+          const Gt = deserializeGraph(f(), false, 1).G; if (box) Gt.shape = 'box';
+          n++; if (JSON.stringify(arrangePositions(Gt, shape, gap, 0, 0)) !== JSON.stringify(arrangePositions(Gt, shape, gap, 0, 0, false))) moved.push(`${name} ${shape} ${gap}${box ? ' box' : ''}`);
+        }
+        return { n, moved };
+      });
+      if (same.n < 500 || same.moved.length) out += `templates: ${same.moved.length} of ${same.n} layouts moved (${same.moved.slice(0, 3).join('; ')}). `;
+      /* 2. Arrange with long labels, with and without descriptions, in circles and boxes */
+      const long = ['Overall survival in the full population', 'Progression-free survival at month 12', 'Objective response rate', 'Quality of life (EORTC QLQ-C30)', 'Overall survival, PD-L1 positive subgroup', 'H6'];
+      for (const [shape, desc] of [['circle', false], ['circle', true], ['box', true]]) {
+        await p2.evaluate(([long, shape, desc]) => {
+          const o = templateJSON('holm');
+          o.nodes = long.map((l, i) => ({ id: String(i), label: l, weight: i < 2 ? '1/2' : '0', x: i * 30, y: 0, p: '', group: '', desc: desc ? 'Endpoint ' + (i + 1) + ' in the full population at week 52' : '' }));
+          o.edges = [['0', '2'], ['1', '3'], ['2', '4'], ['3', '5']].map(([a, c]) => ({ from: a, to: c, weight: '1', bend: null }));
+          if (shape === 'box') o.shape = 'box'; if (desc) o.showDesc = true;
+          loadGraph(o); setTab('graph');
+        }, [long, shape, desc]);
+        for (const gapName of Object.keys(await p2.evaluate(() => GAPS))) for (const arr of ['circle', 'line', 'grid', 'tworows', 'column', 'layers']) {
+          await p2.evaluate(([g, a]) => { setGap(g); arrangeAs(a); }, [gapName, arr]); await p2.waitForTimeout(60);
+          const w = await closest(), where = `Arrange ${arr}, ${gapName}, ${shape}${desc ? ' with descriptions' : ''}`;
+          if (arr === 'circle' ? !(w.d >= 39.5) : !(w.d >= 0)) out += `${where}: ${w.pair} are ${w.d.toFixed(0)} px apart. `;
+          if (!(w.row.d >= 39.5)) out += `${where}: ${w.row.pair}, in the same row, are ${w.row.d.toFixed(0)} px apart. `;
+        }
+      }
+      await p2.evaluate(() => setGap('normal'));
+      /* 3. Import from R and the default-graph text with long names */
+      const names4 = long.slice(0, 4), names10 = Array.from({ length: 10 }, (_, i) => `${['Overall survival in the full population', 'Progression-free survival at month 12', 'Objective response rate at week 24'][i % 3]} ${i + 1}`);
+      for (const [kind, names] of [['matrix 4', names4], ['matrix 10', names10]]) {
+        const msg = await p2.evaluate(names => {
+          setTab('matrix'); $('det-import').open = true;
+          $('imp-w').value = 'c(' + names.map((_, i) => (i ? '0' : '1')).join(', ') + ')'; $('imp-g').value = ''; $('imp-names').value = 'c(' + names.map(n => JSON.stringify(n)).join(', ') + ')';
+          doImport(); return $('imp-msg').textContent;
+        }, names);
+        if (!/Built a graph/.test(msg)) { out += `import ${kind}: ${msg}. `; continue; }
+        await p2.waitForTimeout(100);
+        const w = await closest();
+        if (!(w.d >= 39.5)) out += `import ${kind}: ${w.pair} are ${w.d.toFixed(0)} px apart. `;
+      }
+      const dgMsg = await p2.evaluate(long => {
+        setTab('matrix'); $('det-import').open = true;
+        $('imp-dg').value = `${long[0]} > ${long[1]} > ${long[2]} : 1/2\n${long[1]} > ${long[0]} > ${long[3]} : 1/2`;
+        doImportDefaultGraph(); return $('imp-dg-msg').textContent;
+      }, long);
+      if (!/Built an entangled graph/.test(dgMsg)) out += `default-graph text: ${dgMsg}. `;
+      else { await p2.waitForTimeout(100); const w = await closest(); if (!(w.d >= 39.5)) out += `default-graph text: ${w.pair} are ${w.d.toFixed(0)} px apart. `; }
+      /* 4. short names land where they did in 1.4.24 */
+      const short = await p2.evaluate(() => {
+        setTab('matrix'); $('det-import').open = true;
+        $('imp-w').value = 'c(1/2, 1/2, 0, 0, 0)'; $('imp-g').value = ''; $('imp-names').value = '';
+        doImport(); return G.nodes.map(n => [n.x, n.y]);
+      });
+      if (JSON.stringify(short) !== JSON.stringify([[0, 0], [240, 0], [480, 0], [0, 200], [240, 200]])) out += `import with short names: ${JSON.stringify(short)}. `;
+      /* the places for 1 to 40 hypotheses with no names, H1 to Hm and short names, against a frozen copy of 1.4.24's autoPositions */
+      const auto = await p2.evaluate(() => {
+        const auto24 = m => { if (m > 8) return circlePositions(m); const pos = []; if (m <= 3) { for (let i = 0; i < m; i++) pos.push({ x: i * 240, y: 0 }); return pos; } const cols = Math.ceil(m / 2); for (let i = 0; i < m; i++) pos.push(i < cols ? { x: i * 240, y: 0 } : { x: (i - cols) * 240, y: 200 }); return pos; };
+        const bad = [];
+        for (let m = 1; m <= 40; m++) for (const names of [undefined, Array.from({ length: m }, (_, i) => 'H' + (i + 1)), Array.from({ length: m }, (_, i) => ['OS', 'PFS', 'ORR', 'QoL'][i % 4] + (i + 1))]) if (JSON.stringify(autoPositions(m, names)) !== JSON.stringify(auto24(m))) bad.push(m + (names ? ' ' + names[0] : ''));
+        return bad;
+      });
+      if (auto.length) out += `import places differ from 1.4.24 for ${auto.slice(0, 5).join(', ')}. `;
+    } finally { await ctx.close(); }
     if (out) return out;
   });
 
