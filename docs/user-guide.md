@@ -1,8 +1,10 @@
 # Multiplicity Graph Sketchpad User Guide
 
-Niamh Fitzgerald · version 1.4.22
+Niamh Fitzgerald · version 1.4.23
 
 The Sketchpad draws, tests and explains graphical multiple testing procedures (Bretz et al., 2009) in the browser. Nothing you enter leaves your computer. This guide covers how to use the Sketchpad.
+
+New to the Sketchpad? The one-page [quick start](quick-start.md) takes you from opening the page to a tested graph. The first line of Help (the **?** button) links to it too.
 
 The Sketchpad opens with every feature showing: the Graph, Matrix, Test, Power, Optimise, Compare and Export tabs. One switch, **Plain language** (at the foot of the side panel, or in the More menu), turns on the clinician view, with everyday words and only the parts a clinical team needs. See "Explain It to a Team". The setting is remembered.
 

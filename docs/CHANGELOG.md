@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.23 (2026-11-27)
+
+A one-page quick start, and a link to it from Help. No result the app shows has changed.
+
+- Quick start: `docs/quick-start.md`, six steps from opening the page to a tested graph, with a short part on working with a clinical team and two screenshots. GitHub Pages shows it as a web page beside the user guide.
+- Help: a first line, "New here?", links to the quick start on the web, in a new tab. The page makes no network request unless the link is pressed. In a downloaded copy used offline, the link needs the internet.
+- README and user guide: a line near the top of each points to the quick start.
+- Tests: 1 new browser check (89). It checks that every button name in bold in the quick start is still a label on the page, and the version line, the screenshots and the links. Stress checks: 62. Self-tests: 163.
+
 ## 1.4.22 (2026-11-26)
 
 A clearer tab icon. Nothing the app does has changed.
