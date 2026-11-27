@@ -3868,6 +3868,256 @@ async function step(name, fn) {
     if (out) return out;
   });
 
+  await step('Beamer captions (1.4.24): "Final result" only once the procedure has stopped (Bretz et al., 2009, Algorithm 1). Bonferroni-Holm, p = 0.001, 0.01, 0.02: after one step the last caption ends "Still open: H2 and H3.", after Run to the end "Final result: all hypotheses rejected."; What if, H1 rejected by hand: "Still open: H2 and H3."; Weighted Simes, p = 0.01, 0.012, 0.015, not yet run: the initial graph only, captioned as a closed test, and a line to run the test, not the Bonferroni run; after Run test the result frame rejects H1, H2 and H3', async () => {
+    const ctx = await b.newContext({ viewport: { width: 1400, height: 900 } });
+    ctx.setDefaultTimeout(8000);
+    let out = '';
+    try {
+      const p2 = await ctx.newPage();
+      p2.on('pageerror', e => errors.push('pageerror (beamer captions): ' + e.message));
+      await p2.goto(FILE); await p2.waitForTimeout(700);
+      const load = (p, type) => p2.evaluate(([p, type]) => { const o = templateJSON('holm'); o.nodes.forEach((n, i) => { n.p = p[i]; }); if (type) o.test = { type, upscale: false, corr: {} }; loadGraph(o); setTab('test'); }, [p, type]);
+      const beamer = async () => {
+        const r = await p2.evaluate(() => { showExport('beamer'); const d = document.querySelector('#exportOut p'); return { tex: exportPayload, desc: d ? d.textContent : '' }; });
+        r.caps = (r.tex.match(/\\only<\d+>\{\\small [^\n]*/g) || []).map(x => x.replace(/^\\only<\d+>\{\\small /, ''));
+        r.last = r.caps[r.caps.length - 1] || '';
+        return r;
+      };
+      await load(['0.001', '0.01', '0.02']);
+      await p2.click('#tab-test [data-action="enter-test"]'); await p2.waitForTimeout(300);
+      await p2.click('#tab-test [data-action="step"]');
+      await p2.waitForFunction(() => T && T.log.some(l => l.data) && !T.running, null, { timeout: 15000 });
+      let r = await beamer();
+      if (r.caps.length !== 2 || !/Still open: H2 and H3\.\}?$/.test(r.last) || /Final result/.test(r.tex)) out += `after one step: ${r.caps.length} captions, the last "${r.last}". `;
+      await p2.click('#tab-test [data-action="run"]');
+      await p2.waitForFunction(() => T && T.done && !T.running, null, { timeout: 20000 });
+      r = await beamer();
+      if (r.caps.length !== 4 || !/Final result: all hypotheses rejected\.\}?$/.test(r.last) || /Still open/.test(r.tex)) out += `after Run to the end: ${r.caps.length} captions, the last "${r.last}". `;
+      await load(['', '', '']);
+      await p2.click('#tab-test [data-action="mode-whatif"]'); await p2.waitForTimeout(300);
+      await p2.locator('#world [data-node]').first().click();
+      await p2.waitForFunction(() => T && T.log.some(l => l.data) && !T.running, null, { timeout: 15000 });
+      r = await beamer();
+      if (r.caps.length !== 2 || !/^Rejected H1 \(what if\)/.test(r.last) || !/Still open: H2 and H3\.\}?$/.test(r.last) || /Final result/.test(r.tex)) out += `What if: ${r.caps.length} captions, the last "${r.last}". `;
+      await load(['0.01', '0.012', '0.015'], 'simes');
+      await p2.evaluate(() => setMode('design')); await p2.waitForTimeout(200);
+      r = await beamer();
+      if (r.caps.length !== 1 || !/closed test with Weighted Simes tests/.test(r.caps[0])) out += `Simes, not run: ${r.caps.length} captions, the first "${r.caps[0]}". `;
+      if (!/Run the test in the Test tab to add a frame with its result/.test(r.desc) || /Bonferroni/.test(r.desc)) out += `Simes, not run: the line under the button reads "${r.desc}". `;
+      await p2.evaluate(() => setTab('test')); await p2.waitForTimeout(200);
+      await p2.click('#tab-test [data-action="run"]');
+      await p2.waitForFunction(() => T && T.closed && T.done, null, { timeout: 30000 });
+      r = await beamer();
+      if (r.caps.length !== 2 || !/rejected H1, H2 and H3/.test(r.last)) out += `Simes after Run test: ${r.caps.length} captions, the last "${r.last}". `;
+    } finally { await ctx.close(); }
+    if (out) return out;
+  });
+
+  await step('Greek letters in TikZ (1.4.24): a symbolic weight η, an edge weight 1/2·α (typed as alpha_), a label Hἀ and a group ά (Greek Extended letters), and a title with ϖ reach the TikZ picture and the beamer frame as LaTeX names (the beamer frame writes weights as numbers), with no Greek character left; both compile with pdflatex where it is installed', async () => {
+    const ctx = await b.newContext({ viewport: { width: 1400, height: 900 } });
+    ctx.setDefaultTimeout(8000);
+    let out = '', tex = null;
+    try {
+      const p2 = await ctx.newPage();
+      p2.on('pageerror', e => errors.push('pageerror (Greek in TikZ): ' + e.message));
+      await p2.goto(FILE); await p2.waitForTimeout(700);
+      tex = await p2.evaluate(() => {
+        const o = templateJSON('holm');
+        o.nodes[0].wexpr = 'η'; o.nodes[1].label = 'Hἀ'; o.nodes[2].group = 'ά group'; o.edges[0].expr = '1/2*α'; o.title = 'Test ϖ';
+        loadGraph(o);
+        const grab = k => { showExport(k); return exportPayload; };
+        return { tikz: grab('tikz'), beamer: grab('beamer'), w: G.nodes[0].wexpr, e: G.edges[0].expr };
+      });
+    } finally { await ctx.close(); }
+    if (tex.w !== 'η' || tex.e !== '1/2*α') return `the graph did not load the symbolic weights (${tex.w}, ${tex.e})`;
+    for (const [name, t] of [['TikZ', tex.tikz], ['beamer', tex.beamer]]) {
+      const g = t.split('\n').find(l => /[Ͱ-Ͽἀ-῿]/.test(l));
+      if (g) out += `${name}: a Greek character reaches LaTeX: ${g.slice(0, 120)}. `;
+      /* the beamer frames write the weights as numbers, so only the TikZ picture has the symbolic ones */
+      for (const want of [...(name === 'TikZ' ? ['$\\eta$', '$1/2\\cdot \\alpha$'] : []), 'H$\\alpha$', '$\\alpha$ group']) if (!t.includes(want)) out += `${name}: no ${want}. `;
+    }
+    if (!tex.tikz.includes('Test $\\varpi$')) out += 'TikZ: the title is not "Test $\\varpi$". ';
+    if (!tex.beamer.includes('\\begin{frame}{Test $\\varpi$}')) out += 'beamer: the frame title is not "Test $\\varpi$". ';
+    /* compile both where pdflatex is installed (not on the GitHub runner) */
+    const cp = require('child_process'), fsm = require('fs'), os = require('os');
+    let have = true; try { cp.execSync('pdflatex --version', { stdio: 'ignore' }); } catch (e) { have = false; }
+    if (have) {
+      const dir = fsm.mkdtempSync(path.join(os.tmpdir(), 'mgs-greek-'));
+      const docs = {
+        tikz: ['\\documentclass[border=6pt]{standalone}', '\\usepackage{tikz}', '\\usetikzlibrary{arrows.meta, shapes.geometric, backgrounds, positioning, fit}', '\\begin{document}', tex.tikz, '\\end{document}'],
+        beamer: ['\\documentclass{beamer}', '\\usepackage{tikz}', '\\usetikzlibrary{arrows.meta, shapes.geometric, backgrounds, positioning, fit}', '\\begin{document}', tex.beamer, '\\end{document}']
+      };
+      for (const [k, lines] of Object.entries(docs)) {
+        fsm.writeFileSync(path.join(dir, k + '.tex'), lines.join('\n'));
+        try { cp.execSync(`pdflatex -interaction=nonstopmode -halt-on-error ${k}.tex`, { cwd: dir, stdio: 'ignore', timeout: 60000 }); }
+        catch (e) { const log = fsm.existsSync(path.join(dir, k + '.log')) ? fsm.readFileSync(path.join(dir, k + '.log'), 'utf8') : ''; out += `${k} does not compile: ${(log.match(/^!.*$/m) || ['no log'])[0]}. `; }
+      }
+      fsm.rmSync(dir, { recursive: true, force: true });
+    }
+    if (out) return out;
+  });
+
+  await step('Rejected hypotheses (1.4.24): the label, weight and description of a rejected hypothesis reach 4.5 to 1 (WCAG 2.2, 1.4.3) on its fill and on the drawing in the cream, white and dark themes, and in the SVG picture on its fill and on white; TikZ writes their text in black!60 on a black!5 fill, not gray on no fill; the dashed outline keeps its grey', async () => {
+    const ctx = await b.newContext({ viewport: { width: 1400, height: 900 } });
+    ctx.setDefaultTimeout(8000);
+    let out = '';
+    try {
+      const p2 = await ctx.newPage();
+      p2.on('pageerror', e => errors.push('pageerror (rejected grey): ' + e.message));
+      await p2.goto(FILE); await p2.waitForTimeout(700);
+      await p2.evaluate(() => { const o = templateJSON('holm'); o.showDesc = true; o.nodes.forEach((n, i) => { n.p = '0.001'; n.desc = 'Dose ' + (i + 1) + ' versus placebo'; }); loadGraph(o); setTab('test'); });
+      await p2.click('#tab-test [data-action="run"]');
+      await p2.waitForFunction(() => T && T.done && !T.running && document.querySelectorAll('#world .node.rejected').length === 3, null, { timeout: 20000 });
+      for (const skin of ['cream', 'white', 'dark']) {
+        /* the drawing's colours change with a transition, so let it end before reading them */
+        await p2.evaluate(skin => { document.documentElement.dataset.skin = skin; }, skin); await p2.waitForTimeout(700);
+        const r = await p2.evaluate(skin => {
+          const root = document.documentElement;
+          const rgb = c => (c.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+          const lum = c => { const [r, g, b] = rgb(c).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+          const con = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+          const n = document.querySelector('#world .node.rejected'), fill = getComputedStyle(n.querySelector('.node-body')).fill;
+          const canvas = getComputedStyle(document.querySelector('.canvas-wrap')).backgroundColor;
+          const t = sel => { const e = n.querySelector(sel); return e ? getComputedStyle(e).fill : null; };
+          const res = { label: [t('.nlabel'), fill], weight: [t('.nweight'), fill], description: [t('.ndesc'), canvas], outline: getComputedStyle(n.querySelector('.node-body')).stroke };
+          const o = {}; for (const k of ['label', 'weight', 'description']) o[k] = res[k][0] ? con(res[k][0], res[k][1]) : null;
+          o.outline = res.outline; o.raw = res;
+          return o;
+        }, skin);
+        for (const k of ['label', 'weight', 'description']) if (r[k] == null || !(r[k] >= 4.5)) out += `${skin}: the ${k} is ${r[k] == null ? 'missing' : r[k].toFixed(2) + ' to 1 (' + r.raw[k].join(' on ') + ')'}. `;
+        if (skin !== 'dark' && r.outline !== 'rgb(139, 146, 153)') out += `${skin}: the outline is ${r.outline}, not the grey #8B9299. `;
+      }
+      const ex = await p2.evaluate(() => { const g = k => { showExport(k); return exportPayload; }; return { svg: g('svg'), tikz: g('tikz') }; });
+      const lum = h => { const v = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(c => c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
+      const con = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+      /* every hypothesis is rejected and there are no arrows, groups or title, so every text in the picture is a rejected hypothesis's */
+      const fills = [...new Set([...ex.svg.matchAll(/<text[^>]* fill="(#[0-9a-fA-F]{6})"/g)].map(m => m[1].toLowerCase()))];
+      if (!fills.length) out += 'no text in the SVG picture. ';
+      for (const f of fills) for (const bg of ['#f1f2f3', '#ffffff']) if (!(con(f, bg) >= 4.5)) out += `SVG: text ${f} is ${con(f, bg).toFixed(2)} to 1 on ${bg}. `;
+      if ((ex.svg.match(/stroke="#9aa0a6" stroke-width="1.8" stroke-dasharray="4 3"/g) || []).length !== 3) out += 'SVG: the three dashed grey outlines changed. ';
+      if (/text=gray\b/.test(ex.tikz)) out += 'TikZ: text=gray is still written. ';
+      if (!/rejected\/\.style=\{draw=gray, dashed, text=black!60, fill=black!5\}/.test(ex.tikz)) out += 'TikZ: the rejected style is not draw=gray, dashed, text=black!60, fill=black!5 (5.2 to 1, on a coloured band too). ';
+      if ((ex.tikz.match(/text=black!60\] \(n\dd\)/g) || []).length !== 3) out += 'TikZ: the three descriptions are not in black!60. ';
+    } finally { await ctx.close(); }
+    if (out) return out;
+  });
+
+  await step('Long labels (1.4.24): with no width limit, a label of 35 or 71 characters fits inside its circle and inside its box, with at least 4 px to spare each side, on the drawing and in the SVG picture, and in a circle the top corners of the label\'s box lie inside the ellipse; up to 1.4.23 a hypothesis was at most 220 px wide', async () => {
+    const ctx = await b.newContext({ viewport: { width: 1400, height: 900 } });
+    ctx.setDefaultTimeout(8000);
+    let out = '';
+    try {
+      const p2 = await ctx.newPage();
+      p2.on('pageerror', e => errors.push('pageerror (long labels): ' + e.message));
+      await p2.goto(FILE); await p2.waitForTimeout(700);
+      const labels = ['Dose 1, primary endpoint at week 52', 'Overall survival in the PD-L1 positive population at the final analysis'];
+      for (const shape of ['circle', 'box']) {
+        const r = await p2.evaluate(([labels, shape]) => {
+          const o = templateJSON('holm');
+          o.nodes = labels.map((l, i) => ({ id: String(i), label: l, weight: i ? '0' : '1', x: 0, y: i * 140, p: '', group: '' })); o.edges = [];
+          if (shape === 'box') o.shape = 'box';
+          loadGraph(o);
+          /* [label width, shape width, the larger of the label box's two top corners in ellipse units (circles)] */
+          const corner = (t, cx, cy, rx, ry) => Math.max(...[t.x, t.x + t.width].map(x => ((x - cx) / rx) ** 2 + ((t.y - cy) / ry) ** 2));
+          const drawn = [...document.querySelectorAll('#world [data-node]')].map(g => { const t = g.querySelector('.nlabel').getBBox(), e = g.querySelector('.node-body').getBBox(); return [t.width, e.width, corner(t, e.x + e.width / 2, e.y + e.height / 2, e.width / 2, e.height / 2)]; });
+          showExport('svg');
+          const host = document.createElement('div'); host.innerHTML = exportPayload; document.body.appendChild(host);
+          const pic = [...host.querySelectorAll('text[font-weight="700"]')].map((t, i) => { const tb = t.getBBox(), e = host.querySelectorAll('ellipse, rect[rx="8"]')[i]; if (!e) return [tb.width, 0, 9]; const eb = e.getBBox(); return [tb.width, eb.width, corner(tb, eb.x + eb.width / 2, eb.y + eb.height / 2, eb.width / 2, eb.height / 2)]; });
+          host.remove();
+          return { drawn, pic };
+        }, [labels, shape]);
+        for (const [where, list] of [['drawing', r.drawn], ['picture', r.pic]]) {
+          if (list.length !== 2) { out += `${shape}, ${where}: ${list.length} labels found. `; continue; }
+          list.forEach(([tw, sw, cn], i) => {
+            if (!(tw + 8 <= sw)) out += `${shape}, ${where}: the ${labels[i].length}-character label is ${tw.toFixed(0)} px in a shape ${sw.toFixed(0)} px wide. `;
+            if (shape === 'circle' && !(cn <= 1)) out += `${shape}, ${where}: a top corner of the ${labels[i].length}-character label is outside the ellipse (${cn.toFixed(3)}). `;
+          });
+        }
+      }
+    } finally { await ctx.close(); }
+    if (out) return out;
+  });
+
+  await step('TikZ bands (1.4.24): a band round hypotheses with descriptions is a fit node round its hypotheses, their descriptions and its inner box, and the Needs line adds fit; with a description on one hypothesis only, the other band is written after it, so its name is not covered; where pdflatex is installed, every description in the TikZ picture lies inside its band with room to spare, in circles and in boxes, and in the steps picture neighbouring panels\' bands stay apart; a band with no descriptions is written as before, with no fit', async () => {
+    const ctx = await b.newContext({ viewport: { width: 1400, height: 900 } });
+    ctx.setDefaultTimeout(8000);
+    let out = '';
+    const tex = {};
+    try {
+      const p2 = await ctx.newPage();
+      p2.on('pageerror', e => errors.push('pageerror (TikZ bands): ' + e.message));
+      await p2.goto(FILE); await p2.waitForTimeout(700);
+      for (const [k, shape, desc] of [['circle', '', true], ['box', 'box', true], ['plain', '', false], ['mixed', '', 'one']]) {
+        tex[k] = await p2.evaluate(([shape, desc]) => {
+          const o = templateJSON('parallel');
+          const d = ['Dose 1 versus placebo on the primary endpoint', 'Dose 2 versus placebo on the primary endpoint', 'Dose 1 on the key secondary endpoint at week 52', 'Dose 2 on the key secondary endpoint at week 52'];
+          o.nodes.forEach((n, i) => { n.desc = desc === 'one' && i ? '' : d[i]; n.group = i < 2 ? 'Primary' : 'Secondary'; n.p = ['0.001', '0.01', '0.3', '0.4'][i]; });
+          o.showDesc = !!desc; if (shape) o.shape = shape;
+          loadGraph(o); showExport('tikz'); return exportPayload;
+        }, [shape, desc]);
+      }
+      /* the steps picture of the circles graph: three panels side by side (the start, after H1, after H2) */
+      await p2.evaluate(() => { const o = JSON.parse(JSON.stringify(serializeGraph(G))); o.nodes.forEach(n => { n.desc = { H1: 'Dose 1 versus placebo on the primary endpoint', H2: 'Dose 2 versus placebo on the primary endpoint', H3: 'Dose 1 on the key secondary endpoint at week 52', H4: 'Dose 2 on the key secondary endpoint at week 52' }[n.label]; }); loadGraph(o); setTab('test'); });
+      await p2.click('#tab-test [data-action="run"]');
+      await p2.waitForFunction(() => T && T.done && !T.running, null, { timeout: 20000 });
+      tex.steps = await p2.evaluate(() => { const t = document.querySelector('#stepsToggle'); t.checked = true; t.dispatchEvent(new Event('change', { bubbles: true })); showExport('tikz'); const r = exportPayload; t.checked = false; t.dispatchEvent(new Event('change', { bubbles: true })); return r; });
+    } finally { await ctx.close(); }
+    for (const k of ['circle', 'box']) {
+      const t = tex[k];
+      if (!/^% Needs: .*\\usetikzlibrary\{[^}]*\bfit\}/.test(t)) out += `${k}: the Needs line has no fit. `;
+      const fits = [...t.matchAll(/\\node\[fit=\{([^}]*)\}[^\]]*\] \((band[A-Z])\) \{\};/g)];
+      if (fits.length !== 2) { out += `${k}: ${fits.length} fit bands, not 2. `; continue; }
+      const want = k === 'circle' ? [['(n1)', '(n2)', '(n1d)', '(n2d)'], ['(n3)', '(n4)', '(n3d)', '(n4d)']] : [['(n1)', '(n2)'], ['(n3)', '(n4)']];
+      fits.forEach((f, i) => { for (const w of want[i]) if (!f[1].includes(w)) out += `${k}: ${f[2]} does not fit ${w}. `; });
+      if (/rectangle \(/.test(t)) out += `${k}: a band is still a fixed rectangle. `;
+    }
+    if (/fit/.test(tex.plain) || !/\\draw\[fill=gray!12, draw=gray!40, rounded corners=6pt\] \([-\d.]+, [-\d.]+\) rectangle/.test(tex.plain)) out += 'without descriptions the bands are not written as before. ';
+    {
+      /* one description: the Primary band is sized by LaTeX, the Secondary band is fixed and written after it, after the hypotheses */
+      const m = tex.mixed, fitAt = m.indexOf('\\node[fit='), secAt = m.indexOf('{Secondary};'), lastHyp = m.lastIndexOf('\\node[hyp');
+      if (fitAt < 0 || secAt < 0 || !(secAt > fitAt) || !(fitAt > lastHyp)) out += `one description: the bands are not written after the hypotheses in their order (fit at ${fitAt}, Secondary at ${secAt}, last hypothesis at ${lastHyp}). `;
+    }
+    if ((tex.steps.match(/\\node\[fit=/g) || []).length !== 6 || (tex.steps.match(/name prefix=g\d-/g) || []).length !== 3) out += `the steps picture has ${(tex.steps.match(/\\node\[fit=/g) || []).length} fit bands in ${(tex.steps.match(/name prefix=g\d-/g) || []).length} panels, not 6 in 3. `;
+    /* where pdflatex is installed: compile, and read each band's and each description's edges from the log */
+    const cp = require('child_process'), fsm = require('fs'), os = require('os');
+    let have = true; try { cp.execSync('pdflatex --version', { stdio: 'ignore' }); } catch (e) { have = false; }
+    if (have && !out) {
+      const dir = fsm.mkdtempSync(path.join(os.tmpdir(), 'mgs-bands-'));
+      for (const k of ['circle', 'box', 'steps']) {
+        const inner = k === 'circle' ? ['n1d', 'n2d', 'n3d', 'n4d'] : k === 'box' ? ['n1', 'n2', 'n3', 'n4'] : [];
+        const probe = ['\\makeatletter'];
+        const names = k === 'steps' ? ['g1-bandA', 'g2-bandA', 'g3-bandA', 'g1-bandB', 'g2-bandB', 'g3-bandB'] : ['bandA', 'bandB', ...inner];
+        for (const nm of names) for (const a of ['west', 'east', 'south', 'north']) probe.push(`\\pgfextractx{\\mgsx}{\\pgfpointanchor{${nm}}{${a}}}\\pgfextracty{\\mgsy}{\\pgfpointanchor{${nm}}{${a}}}\\typeout{MGS ${nm} ${a} \\the\\mgsx\\space\\the\\mgsy}`);
+        probe.push('\\makeatother');
+        const body = tex[k].replace('\\end{tikzpicture}', probe.join('\n') + '\n\\end{tikzpicture}');
+        fsm.writeFileSync(path.join(dir, k + '.tex'), ['\\documentclass[border=6pt]{standalone}', '\\usepackage{tikz}', '\\usetikzlibrary{arrows.meta, shapes.geometric, backgrounds, fit}', '\\newdimen\\mgsx \\newdimen\\mgsy', '\\begin{document}', body, '\\end{document}'].join('\n'));
+        try { cp.execSync(`pdflatex -interaction=nonstopmode -halt-on-error ${k}.tex`, { cwd: dir, stdio: 'ignore', timeout: 60000 }); }
+        catch (e) { out += `${k} does not compile. `; continue; }
+        const log = fsm.readFileSync(path.join(dir, k + '.log'), 'utf8'), at = {};
+        for (const m of log.matchAll(/MGS ([\w-]+) (\w+) ([-\d.]+)pt ([-\d.]+)pt/g)) (at[m[1]] = at[m[1]] || {})[m[2]] = [+m[3], +m[4]];
+        if (k === 'steps') {
+          /* at least 5 pt between neighbouring panels' bands */
+          for (const bd of ['bandA', 'bandB']) for (const [l, r] of [['g1', 'g2'], ['g2', 'g3']]) {
+            const L2 = at[`${l}-${bd}`], R2 = at[`${r}-${bd}`];
+            if (!L2 || !R2) { out += `steps: no position for ${l}-${bd} or ${r}-${bd}. `; continue; }
+            const g = R2.west[0] - L2.east[0];
+            if (!(g >= 5)) out += `steps: ${l}-${bd} and ${r}-${bd} are ${g.toFixed(1)} pt apart. `;
+          }
+          continue;
+        }
+        inner.forEach((nm, i) => {
+          const band = at[i < 2 ? 'bandA' : 'bandB'], d = at[nm];
+          if (!band || !d) { out += `${k}: no position for ${nm}. `; return; }
+          /* at least 5 pt (about 10 px on the drawing) between the text's box and the band's edge */
+          const room = Math.min(d.west[0] - band.west[0], band.east[0] - d.east[0], d.south[1] - band.south[1]);
+          if (!(room >= 5)) out += `${k}: ${nm} is ${room.toFixed(1)} pt from its band's edge. `;
+        });
+      }
+      fsm.rmSync(dir, { recursive: true, force: true });
+    }
+    if (out) return out;
+  });
+
   for (const r of results) console.log((r.ok ? 'PASS ' : 'FAIL ') + r.name + ` (${r.ms} ms)` + (r.ok ? '' : '\n      ' + r.detail));
   console.log(`\n${results.length - fails}/${results.length} browser checks passed`);
   console.log('page errors:', errors.length ? errors : 'none');
