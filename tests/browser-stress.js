@@ -3799,6 +3799,75 @@ async function step(name, fn) {
     if (out) return out;
   });
 
+  await step('Quick start (1.4.23): docs/quick-start.md is there, with the version the footer shows; every name in bold in it is the label of its control on the page, or for a name with no one place any button, menu item, tab or tick box (fresh page, Test tab, after Run test, Export tab); its two screenshots are there at 1200 x 720, each with alt text; the README and the user guide link to it; the first line of Help links to it on the live site (the Open Graph address plus docs/quick-start.html), in a new tab', async () => {
+    const fsm = require('fs'), dir = path.dirname(FILE.replace('file://', '')), qp = path.join(dir, 'docs', 'quick-start.md');
+    if (!fsm.existsSync(qp)) return 'docs/quick-start.md is missing';
+    const md = fsm.readFileSync(qp, 'utf8');
+    let out = '';
+    const ver = (await page.locator('#versionBtn').innerText()).trim().replace(/^v/, ''), vm = md.match(/· version (\S+)/);
+    if (!vm || vm[1] !== ver) out += `the version line says ${vm ? vm[1] : 'nothing'}, the footer ${ver}. `;
+    const pics = [...md.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g)];
+    if (pics.length !== 2) out += `${pics.length} pictures, not 2. `;
+    for (const [, alt, src] of pics) {
+      if (!alt.trim()) out += `${src} has no alt text. `;
+      const fp = path.join(dir, 'docs', src);
+      if (!fsm.existsSync(fp)) { out += `${src} is missing. `; continue; }
+      const png = fsm.readFileSync(fp), w = png.readUInt32BE(16), h = png.readUInt32BE(20);
+      if (w !== 1200 || h !== 720) out += `${src} is ${w} x ${h}. `;
+    }
+    if (!fsm.readFileSync(path.join(dir, 'README.md'), 'utf8').includes('](docs/quick-start.md)')) out += 'the README does not link to it. ';
+    if (!fsm.readFileSync(path.join(dir, 'docs', 'user-guide.md'), 'utf8').includes('](quick-start.md)')) out += 'the user guide does not link to it. ';
+    /* the names in bold, against the labels on a fresh page, in the Test tab, after Run test and in the Export tab. A name
+       the quick start ties to one place must be the label of that control; any other name may be any label on the page. */
+    const names = [...new Set([...md.matchAll(/\*\*([^*]+)\*\*/g)].map(m => m[1].trim()))];
+    if (names.length < 10) out += `only ${names.length} names in bold. `;
+    const PLACE = {
+      'Templates…': '#templateSelect option[value=""]', 'More': '#moreMenu > summary', 'Clear graph…': '#clearBtn',
+      'Design': '#modeDesign', 'Test': '#tabbtn-test', 'Export': '#tabbtn-export',
+      'Run test': '#tab-test [data-action="run"]', 'Step through it': '#tab-test [data-action="enter-test"]',
+      'Step': '#tab-test [data-action="step"]', 'Reset': '#tab-test [data-action="reset"]',
+      'Download': '#downloadBtn', 'Present': '#presentBtn', 'Plain language': 'label.plain-switch',
+      'SAP / protocol text': '#tab-export [data-export="sap"]', 'Share link': '#tab-export [data-export="link"]', 'Save as a file': '#tab-export [data-export="json"]'
+    };
+    const ctx = await b.newContext({ viewport: { width: 1400, height: 900 } });
+    ctx.setDefaultTimeout(8000);
+    const labels = new Set(), placed = new Set();
+    let help = null;
+    try {
+      const p2 = await ctx.newPage();
+      p2.on('pageerror', e => errors.push('pageerror (quick start): ' + e.message));
+      p2.on('console', m => { if (m.type() === 'error' && !/fonts\.g|font|ERR_|net::/.test(m.text())) errors.push('console (quick start): ' + m.text()); });
+      await p2.goto(FILE); await p2.waitForTimeout(700);
+      const grab = async () => {
+        const r = await p2.evaluate(place => ({
+          all: [...document.querySelectorAll('button, option, summary, label, a, [role="tab"]')].map(e => e.textContent.replace(/\s+/g, ' ').trim()),
+          at: Object.entries(place).filter(([n, sel]) => { const e = document.querySelector(sel); return e && e.textContent.replace(/\s+/g, ' ').trim() === n; }).map(([n]) => n)
+        }), PLACE);
+        r.all.forEach(t => labels.add(t)); r.at.forEach(n => placed.add(n));
+      };
+      await grab();
+      await p2.click('#tabbtn-test'); await p2.waitForTimeout(200); await grab();
+      await p2.click('#tab-test [data-action="run"]');
+      await p2.waitForFunction(() => document.querySelector('#tab-test .result-card'), null, { timeout: 30000 }); await grab();
+      await p2.click('#tabbtn-export'); await p2.waitForTimeout(200); await grab();
+      await p2.click('#helpBtn'); await p2.waitForTimeout(150);
+      help = await p2.evaluate(() => {
+        const first = document.querySelector('#modalBody p'), a = first && first.querySelector('a');
+        const site = (document.querySelector('meta[property="og:url"]') || {}).content;
+        return { first: first ? first.textContent.replace(/\s+/g, ' ').trim() : '', href: a ? a.getAttribute('href') : '', target: a ? a.target : '', rel: a ? a.rel : '', text: a ? a.textContent : '', site };
+      });
+    } finally { await ctx.close(); }
+    const missing = names.filter(n => PLACE[n] ? !placed.has(n) : !labels.has(n));
+    if (missing.length) out += `not the label in its place on the page: ${missing.join(', ')}. `;
+    if (!help.href) out += `the first line of Help has no link (${help.first.slice(0, 60)}). `;
+    else {
+      if (help.href !== help.site + 'docs/quick-start.html') out += `the Help link goes to ${help.href}. `;
+      if (help.target !== '_blank' || !/noopener/.test(help.rel)) out += `the Help link opens with target "${help.target}" and rel "${help.rel}". `;
+      if (help.text !== 'quick start') out += `the Help link reads "${help.text}". `;
+    }
+    if (out) return out;
+  });
+
   for (const r of results) console.log((r.ok ? 'PASS ' : 'FAIL ') + r.name + ` (${r.ms} ms)` + (r.ok ? '' : '\n      ' + r.detail));
   console.log(`\n${results.length - fails}/${results.length} browser checks passed`);
   console.log('page errors:', errors.length ? errors : 'none');
