@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.22 (2026-11-26)
+
+A clearer tab icon. Nothing the app does has changed.
+
+- Tab icon: three hypotheses with arrows going round, in white on the same blue, in place of two linked circles. It reads as a small graph even at the smallest tab size. The icon written into the page, `favicon.png` and `apple-touch-icon.png` all show it.
+- Top bar: the logo is the same drawing, with the hypotheses in the page's blue and the arrows in the text colour. Its size and place are as before.
+- Link preview: `docs/preview.png` was taken again, so it shows the new logo and today's page. The version number is left out of it, so it needs taking again only when the page's look changes. LinkedIn keeps its own copy until the page is checked again in its Post Inspector.
+- Browsers keep their own copy of a site's icon, so Safari and bookmarks may show the old icon for a while. An icon already added to an iPhone home screen keeps the old picture until the page is added again.
+- Tests: 1 new browser check (88). Stress checks: 62. Self-tests: 163.
+
 ## 1.4.21 (2026-11-25)
 
 Claimed hypotheses drawn as successes, descriptions on the drawing, and boxes as well as circles. No result the app shows has changed.
