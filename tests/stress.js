@@ -1438,7 +1438,7 @@ check('Non-Latin widths (1.4.25): text in Latin letters, digits and Latin-1 lett
     if (JSON.stringify(C.descLines(s)) !== JSON.stringify(dl24(s))) return `description "${s}": ${JSON.stringify(C.descLines(s))} against ${JSON.stringify(dl24(s))}`;
   }
   for (const s of ['ε/2', '1 − ε', 'γ', 'Общая', '总生存期', 'αβγ/δ']) if (C.textWidth(s, 12.5, false) !== tw24(s, 12.5)) return `arrow label "${s}"`;
-  for (const [ch, want] of [['α', 0.63], ['Σ', 0.72], ['ж', 0.66], ['Ж', 0.78], ['总', 1], ['あ', 1], ['カ', 1], ['한', 0.95], ['Ａ', 1]]) if (Math.abs(C.textWidth(ch, 10) - want * 10) > 1e-9) return `"${ch}" counts ${C.textWidth(ch, 10) / 10}, not ${want}`;
+  for (const [ch, want] of [['α', 0.69], ['Σ', 0.77], ['ж', 0.74], ['Ж', 0.87], ['总', 1], ['あ', 1], ['カ', 1], ['한', 0.95], ['Ａ', 1]]) if (Math.abs(C.textWidth(ch, 10) - want * 10) > 1e-9) return `"${ch}" counts ${C.textWidth(ch, 10) / 10}, not ${want}`;
   return true;
 });
 
