@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.26 (2026-11-27)
+
+A fix to 1.4.25 for Greek and Cyrillic labels. No result the app shows has changed.
+
+- Greek and Cyrillic labels get a little more room. On Linux, where these letters are drawn in the wider DejaVu Sans, a Cyrillic label in 1.4.25 could still touch the edge of its circle or box. GitHub's automatic checks run on Linux and caught this. On a Mac or Windows these labels now have more space to spare. Labels in Latin letters, Chinese, Japanese and Korean are as in 1.4.25.
+- Tests: the stress check of the widths follows the new numbers. Stress checks: 64. Self-tests: 164.
+
 ## 1.4.25 (2026-11-27)
 
 The five points the 1.4.24 review left. No result the app shows has changed.
