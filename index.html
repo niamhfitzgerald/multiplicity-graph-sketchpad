@@ -681,7 +681,7 @@ table.t td:first-child { white-space: nowrap; }
 <script>
 'use strict';
 /* Version shown in About, the footer and the exports. Bump on every published change. */
-const APP_VERSION = '1.4.25';
+const APP_VERSION = '1.4.26';
 const APP_DATE = '2026-11-27';
 /* Public home of the source; shown in About when set. Repository name: multiplicity-graph-sketchpad. */
 const REPO_URL = 'https://github.com/niamhfitzgerald/multiplicity-graph-sketchpad';
@@ -878,11 +878,13 @@ function weightFromText(G, txt) {
 /* ---------- Graph model ---------- */
 const NODE_R = 36;
 /* Widths of letters outside the Latin alphabet, as a share of the font size (1.4.25). Measured in bold on the drawing's
-   font and on the pictures' Helvetica, in Chromium with the fonts of Claude's workspace and of a Mac, and the larger taken
-   with a small margin: Chinese and Japanese characters and full-width forms are square in every font (1.0), Korean
-   syllables 0.87 to 0.92 (0.95), Greek 0.58 to 0.62 lowercase and 0.68 to 0.71 uppercase (0.63, 0.72), Cyrillic 0.63 to
-   0.65 lowercase and 0.75 to 0.77 uppercase (0.66, 0.78). Up to 1.4.24 every one counted as an average letter (0.54), so
-   such labels ran past their shape. A combining dakuten or handakuten, and a Hangul vowel or final consonant written as a
+   font and on the pictures' Helvetica, in Chromium with the fonts of Claude's workspace and of a Mac, and the widest taken:
+   Chinese and Japanese characters and full-width forms are square in every font (1.0), Korean syllables 0.87 to 0.92
+   (0.95). Greek and Cyrillic follow DejaVu Sans Bold, the widest font that drew them: Linux falls back to it, GitHub's
+   automatic checks among them (1.4.26; in 1.4.25 Greek 0.63 and 0.72 and Cyrillic 0.66 and 0.78, from narrower fonts, so
+   a Cyrillic label could still run past its shape there). Greek 0.58 to 0.69 lowercase and 0.68 to 0.76 uppercase (0.69,
+   0.77); Cyrillic 0.63 to 0.74 lowercase and 0.75 to 0.87 uppercase (0.74, 0.87). Up to 1.4.24 every one counted as an
+   average letter (0.54), so such labels ran past their shape. A combining dakuten or handakuten, and a Hangul vowel or final consonant written as a
    separate jamo, add nothing: they are drawn with the character before them. Returns null for any other character. */
 const CJK_WIDE = /[\u2E80-\u9FFF\uF900-\uFAFF\uFE30-\uFE4F\uFF01-\uFF60\uFFE0-\uFFE6\u{20000}-\u{3FFFF}]/u;
 const HANGUL = /[\u1100-\u115F\uAC00-\uD7AF]/;
@@ -891,8 +893,8 @@ function scriptWidth(ch) {
   if (c < 0x370) return null;
   if ((c >= 0x3099 && c <= 0x309A) || (c >= 0x1160 && c <= 0x11FF)) return 0;
   const upper = ch !== ch.toLowerCase();
-  if ((c <= 0x3FF) || (c >= 0x1F00 && c <= 0x1FFF)) return upper ? 0.72 : 0.63;
-  if (c >= 0x400 && c <= 0x52F) return upper ? 0.78 : 0.66;
+  if ((c <= 0x3FF) || (c >= 0x1F00 && c <= 0x1FFF)) return upper ? 0.77 : 0.69;
+  if (c >= 0x400 && c <= 0x52F) return upper ? 0.87 : 0.74;
   if (HANGUL.test(ch)) return 0.95;
   if (CJK_WIDE.test(ch)) return 1;
   return null;
